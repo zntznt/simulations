@@ -20,30 +20,58 @@ const ActivationMode = {
   STARTING: 'starting',
 };
 
+const RateMode = {
+  FIXED: 'fixed',
+  DICE: 'dice',
+  FORMULA: 'formula',
+};
+
 const NODE_FILL = {
-  pool: '#1a3a6b',
-  source: '#1a4a2a',
-  drain: '#4a1a1a',
-  gate: '#3a1a5a',
-  converter: '#4a2a00',
-  register: '#1a2a38',
-  delay: '#004a4a',
+  pool: '#1a3a6b', source: '#1a4a2a', drain: '#4a1a1a',
+  gate: '#3a1a5a', converter: '#4a2a00', register: '#1a2a38', delay: '#004a4a',
 };
 
 const NODE_STROKE = {
-  pool: '#4a9eff',
-  source: '#4caf50',
-  drain: '#ef5350',
-  gate: '#ba68c8',
-  converter: '#ffa726',
-  register: '#78909c',
-  delay: '#26c6da',
+  pool: '#4a9eff', source: '#4caf50', drain: '#ef5350',
+  gate: '#ba68c8', converter: '#ffa726', register: '#78909c', delay: '#26c6da',
 };
 
-let _idSeq = 0;
-function genId(prefix) {
-  return `${prefix}_${++_idSeq}_${Math.random().toString(36).slice(2, 7)}`;
+// Safely evaluate a math formula with given variables
+function evalFormula(expr, vars = {}) {
+  if (!expr || typeof expr !== 'string') return 0;
+  try {
+    const keys = Object.keys(vars);
+    const vals = Object.values(vars);
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(...keys, `"use strict"; return +(${expr.trim()})`);
+    const r = fn(...vals);
+    return isFinite(r) ? r : 0;
+  } catch { return 0; }
 }
+
+// Roll XdY dice (e.g. "2d6" → 2-12)
+function rollDice(expr) {
+  if (!expr) return 0;
+  const s = String(expr).trim().toLowerCase();
+  const m = s.match(/^(\d+)d(\d+)$/);
+  if (!m) { const n = parseFloat(s); return isNaN(n) ? 0 : n; }
+  const count = parseInt(m[1]), sides = parseInt(m[2]);
+  let sum = 0;
+  for (let i = 0; i < count; i++) sum += Math.floor(Math.random() * sides) + 1;
+  return sum;
+}
+
+// Return the dominant color in a colorMap, or fallback
+function dominantColor(colorMap, fallback = null) {
+  let max = 0, best = fallback;
+  for (const [c, n] of Object.entries(colorMap || {})) {
+    if (n > max) { max = n; best = c; }
+  }
+  return best;
+}
+
+let _idSeq = 0;
+function genId(prefix) { return `${prefix}_${++_idSeq}_${Math.random().toString(36).slice(2, 7)}`; }
 
 class MNode {
   constructor(type, x, y) {
@@ -55,17 +83,20 @@ class MNode {
     this.activation = ActivationMode.AUTOMATIC;
     this.resources = 0;
     this.capacity = Infinity;
+    this.colorMap = {};       // {colorHex: count}
     this._initialResources = 0;
+    this._initialColorMap = {};
 
     if (type === NodeType.SOURCE) {
       this.resources = Infinity;
       this._initialResources = Infinity;
+      this.resourceColor = '#ffa726';
     } else if (type === NodeType.REGISTER) {
-      this.value = 1;
+      this.value = 0;
       this.formula = '';
     } else if (type === NodeType.DELAY) {
       this.delay = 2;
-      this._queue = [];
+      this._queue = [];  // [{amount, color, stepsLeft}]
     } else if (type === NodeType.GATE) {
       this.gateMode = 'deterministic';
     }
@@ -73,8 +104,50 @@ class MNode {
 
   get displayCount() {
     if (this.type === NodeType.SOURCE) return '∞';
-    if (this.type === NodeType.REGISTER) return this.value;
+    if (this.type === NodeType.REGISTER) return isNaN(this.value) ? '?' : +this.value.toFixed(2);
     return this.resources;
+  }
+
+  // Primary display color (dominant held resource or source color)
+  get displayColor() {
+    if (this.type === NodeType.SOURCE) return this.resourceColor || '#ffa726';
+    return dominantColor(this.colorMap);
+  }
+
+  addResources(amount, color = '#ffffff') {
+    this.resources += amount;
+    this.colorMap[color] = (this.colorMap[color] || 0) + amount;
+  }
+
+  // Take up to `amount` resources, optionally filtered by color.
+  // Modifies node immediately. Returns [{amount, color}].
+  takeResources(amount, colorFilter = null) {
+    const taken = [];
+    let rem = amount;
+
+    const takeFrom = (color, avail) => {
+      const n = Math.min(rem, avail);
+      if (n <= 0) return;
+      this.colorMap[color] = (this.colorMap[color] || 0) - n;
+      this.resources -= n;
+      rem -= n;
+      taken.push({ amount: n, color });
+    };
+
+    if (colorFilter) {
+      takeFrom(colorFilter, this.colorMap[colorFilter] || 0);
+    } else {
+      for (const [c, cnt] of Object.entries(this.colorMap)) {
+        if (rem <= 0) break;
+        takeFrom(c, cnt);
+      }
+    }
+
+    // Clean zero/negative entries
+    for (const k of Object.keys(this.colorMap))
+      if (this.colorMap[k] <= 0) delete this.colorMap[k];
+
+    return taken;
   }
 
   toJSON() {
@@ -83,7 +156,9 @@ class MNode {
       label: this.label, activation: this.activation,
       resources: this.type === NodeType.SOURCE ? 0 : this.resources,
       capacity: this.capacity === Infinity ? null : this.capacity,
+      colorMap: Object.keys(this.colorMap).length ? { ...this.colorMap } : undefined,
     };
+    if (this.type === NodeType.SOURCE) d.resourceColor = this.resourceColor;
     if (this.type === NodeType.GATE) d.gateMode = this.gateMode;
     if (this.type === NodeType.REGISTER) { d.value = this.value; d.formula = this.formula; }
     if (this.type === NodeType.DELAY) d.delay = this.delay;
@@ -93,7 +168,9 @@ class MNode {
   loadJSON(d) {
     Object.assign(this, d);
     this.capacity = d.capacity == null ? Infinity : d.capacity;
+    this.colorMap = { ...(d.colorMap || {}) };
     this._initialResources = this.type === NodeType.SOURCE ? Infinity : this.resources;
+    this._initialColorMap = { ...this.colorMap };
     if (this.type === NodeType.SOURCE) this.resources = Infinity;
     if (this.type === NodeType.DELAY) this._queue = [];
     return this;
@@ -106,13 +183,40 @@ class MConnection {
     this.sourceId = sourceId;
     this.targetId = targetId;
     this.type = type;
-    this.rate = 1;
     this.label = '';
+
+    // Rate (resource connections)
+    this.rateMode = RateMode.FIXED;
+    this.rate = 1;
+    this.dice = '1d6';
+    this.formula = '';
+
+    // Timing
+    this.interval = 1;     // fire every N steps
+    this.chance = 100;     // % chance to fire each interval
+
+    // Filters
+    this.colorFilter = '';  // only accept resources of this color
+
+    // Conditional activation
+    this.condEnabled = false;
+    this.condOperator = '>';  // '>' | '>=' | '<' | '<=' | '==' | '!='
+    this.condValue = 0;
+
+    // For state connections: variable name written to diagram.variables
+    this.variableName = '';
   }
 
   toJSON() {
-    return { id: this.id, sourceId: this.sourceId, targetId: this.targetId,
-             type: this.type, rate: this.rate, label: this.label };
+    return {
+      id: this.id, sourceId: this.sourceId, targetId: this.targetId,
+      type: this.type, label: this.label,
+      rateMode: this.rateMode, rate: this.rate, dice: this.dice, formula: this.formula,
+      interval: this.interval, chance: this.chance,
+      colorFilter: this.colorFilter,
+      condEnabled: this.condEnabled, condOperator: this.condOperator, condValue: this.condValue,
+      variableName: this.variableName,
+    };
   }
 
   loadJSON(d) { Object.assign(this, d); return this; }
@@ -122,9 +226,10 @@ class Diagram {
   constructor() {
     this.nodes = new Map();
     this.connections = new Map();
+    this.variables = {};  // shared variable store (updated by state connections each step)
   }
 
-  addNode(node) { this.nodes.set(node.id, node); return node; }
+  addNode(n) { this.nodes.set(n.id, n); return n; }
 
   removeNode(id) {
     this.nodes.delete(id);
@@ -132,21 +237,18 @@ class Diagram {
       if (c.sourceId === id || c.targetId === id) this.connections.delete(cid);
   }
 
-  addConnection(conn) { this.connections.set(conn.id, conn); return conn; }
+  addConnection(c) { this.connections.set(c.id, c); return c; }
   removeConnection(id) { this.connections.delete(id); }
 
-  outgoing(nodeId) {
-    return [...this.connections.values()].filter(c => c.sourceId === nodeId);
-  }
-
-  incoming(nodeId) {
-    return [...this.connections.values()].filter(c => c.targetId === nodeId);
-  }
+  outgoing(nodeId) { return [...this.connections.values()].filter(c => c.sourceId === nodeId); }
+  incoming(nodeId) { return [...this.connections.values()].filter(c => c.targetId === nodeId); }
 
   toJSON() {
     return {
+      _idSeq,
       nodes: [...this.nodes.values()].map(n => n.toJSON()),
       connections: [...this.connections.values()].map(c => c.toJSON()),
+      variables: { ...this.variables },
     };
   }
 
@@ -154,6 +256,7 @@ class Diagram {
     this.nodes.clear();
     this.connections.clear();
     _idSeq = Math.max(_idSeq, data._idSeq || 0);
+    this.variables = { ...(data.variables || {}) };
     for (const nd of data.nodes) {
       const node = new MNode(nd.type, nd.x, nd.y);
       node.loadJSON(nd);

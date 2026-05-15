@@ -144,38 +144,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 /* ── Node SVG styles ── */
 .node { user-select: none; }
-
-.node-count {
-  fill: #fff; font-size: 14px; font-weight: 700; font-family: monospace;
-  pointer-events: none;
-}
-
-.node-label {
-  fill: var(--text); font-size: 11px; font-family: var(--font);
-  pointer-events: none;
-}
-
-.node-badge {
-  fill: var(--text-dim); font-size: 10px; font-family: var(--font);
-  pointer-events: none;
-}
-
-.node.selected .node-shape { filter: url(#glow); }
-
-.node.firing .node-shape {
-  animation: fire-pulse 0.2s ease-out;
-}
-
-@keyframes fire-pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; filter: brightness(1.8); }
-  100% { opacity: 1; }
-}
-
 /* ── Connection SVG styles ── */
 .conn { cursor: pointer; }
 .conn.selected .conn-path { filter: drop-shadow(0 0 3px rgba(255,255,255,0.6)); }
-.conn-label { fill: #aaa; font-size: 11px; font-family: var(--font); }
 
 /* ── Speed label ── */
 #speed-label { font-size: 11px; color: var(--text-dim); min-width: 24px; }
@@ -188,6 +159,36 @@ input[type="range"] {
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: var(--panel); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Props extras ── */
+.props-sep { height: 1px; background: var(--border); margin: 10px 0; }
+.props-info { color: var(--text-dim); font-size: 11px; margin-bottom: 10px; line-height: 1.45; }
+
+.reg-value {
+  font-size: 24px; font-weight: 700; text-align: center; color: var(--accent);
+  padding: 10px 0 6px; font-family: monospace;
+}
+
+.cond-details { padding-left: 8px; margin-bottom: 6px; }
+.cond-details select { width: 60px; flex: none; }
+.cond-details input[type="number"] { width: 70px; flex: none; }
+
+/* ── Node SVG text ── */
+.n-count { fill: #fff; font-size: 13px; font-weight: 700; font-family: monospace; }
+.n-label { fill: var(--text); font-size: 11px; font-family: var(--font); }
+.n-badge { fill: var(--text-dim); font-size: 10px; font-family: var(--font); }
+
+/* ── Node states ── */
+.node.selected .ns { filter: url(#glow); }
+.node.firing .ns { animation: fire 0.25s ease-out; }
+@keyframes fire {
+  0%   { opacity: 1; }
+  40%  { opacity: 0.4; filter: brightness(2.5); }
+  100% { opacity: 1; }
+}
+
+/* ── Connection extras ── */
+.conn-label { fill: #aaa; }
 
 /* Tooltip */
 [title] { position: relative; }
