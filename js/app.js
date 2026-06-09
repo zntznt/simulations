@@ -6,7 +6,7 @@ class App {
     this.editor = new Editor(
       document.getElementById('canvas'),
       this.diagram, this.renderer, this.engine,
-      (id, type) => this._onSelect(id, type),
+      (id, type, count) => this._onSelect(id, type, count),
       () => this._commit(),
     );
 
@@ -99,7 +99,7 @@ class App {
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
     this._clearSparklines();
-    this._onSelect(null, null);
+    this.editor._select(null, null);
     this.renderer.render();
     if (this._timelineVisible) this.timeline.update();
   }
@@ -122,7 +122,7 @@ class App {
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
     this._clearSparklines();
-    this._onSelect(null, null);
+    this.editor._select(null, null);
     if (this._timelineVisible) this.timeline.update();
   }
 
@@ -394,7 +394,7 @@ class App {
             this.engine.reset();
             this.renderer.balls.clear();
             this._clearSparklines();
-            this._onSelect(null, null);
+            this.editor._select(null, null);
             this.renderer.render();
             this._resetHistory();
           } catch (err) { alert('Invalid file: ' + err.message); }
@@ -424,13 +424,18 @@ class App {
     // Commit a property edit as one undo step (fires on blur / enter / toggle).
     document.getElementById('props-content').addEventListener('change', () => this._commit());
 
-    // Keyboard: undo / redo / reset-view.
+    // Keyboard: undo / redo / reset-view / copy / paste / duplicate.
     window.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); }
-      else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); this.redo(); }
-      else if (mod && e.key === '0') { e.preventDefault(); this.renderer.resetView(); }
+      if (!mod) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); }
+      else if (k === 'y') { e.preventDefault(); this.redo(); }
+      else if (k === '0') { e.preventDefault(); this.renderer.resetView(); }
+      else if (k === 'c') { this._copy(); }
+      else if (k === 'v') { e.preventDefault(); this._paste(); }
+      else if (k === 'd') { e.preventDefault(); this._duplicate(); }
     });
 
     // Monte Carlo batch runs
@@ -489,11 +494,50 @@ class App {
     return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   }
 
+  // ── Clipboard (copy / paste / duplicate of the node selection) ──────────────
+
+  _copy() {
+    const ids = new Set(this.editor.selection);
+    if (!ids.size) return;
+    const nodes = [...ids].map(id => this.diagram.nodes.get(id)).filter(Boolean).map(n => n.toJSON());
+    const conns = [...this.diagram.connections.values()]
+      .filter(c => ids.has(c.sourceId) && ids.has(c.targetId)).map(c => c.toJSON());
+    this._clipboard = { nodes, conns };
+  }
+
+  _paste() {
+    const cb = this._clipboard;
+    if (!cb || !cb.nodes.length) return;
+    const idMap = new Map();
+    const newIds = [];
+    for (const nd of cb.nodes) {
+      const node = new MNode(nd.type, nd.x + 24, nd.y + 24);
+      node.loadJSON({ ...nd, id: node.id, x: nd.x + 24, y: nd.y + 24 });
+      this.diagram.addNode(node);
+      idMap.set(nd.id, node.id);
+      newIds.push(node.id);
+    }
+    for (const cd of cb.conns) {
+      const sId = idMap.get(cd.sourceId), tId = idMap.get(cd.targetId);
+      const conn = new MConnection(sId, tId, cd.type);
+      conn.loadJSON({ ...cd, id: conn.id, sourceId: sId, targetId: tId });
+      this.diagram.addConnection(conn);
+    }
+    // Shift the clipboard so a repeated paste lands further out.
+    for (const nd of cb.nodes) { nd.x += 24; nd.y += 24; }
+    this.renderer.render();
+    this.editor._setSelection(newIds, newIds.length === 1 ? newIds[0] : null, 'node');
+    this._commit();
+  }
+
+  _duplicate() { this._copy(); this._paste(); }
+
   // ── Selection ─────────────────────────────────────────────────────────────
 
-  _onSelect(id, type) {
+  _onSelect(id, type, count = 1) {
     this._selectedId = id;
     this._selectedType = type;
+    this._selCount = count;
     this._renderProps();
   }
 
@@ -503,6 +547,12 @@ class App {
     const panel = document.getElementById('props-content');
     panel.innerHTML = '';
     this._clearSparklines();
+
+    if (this._selCount > 1) {
+      panel.innerHTML = `<p class="props-empty"><b>${this._selCount} nodes selected.</b><br>`
+        + 'Drag to move them together. Ctrl+C / Ctrl+V to copy, Ctrl+D to duplicate, Del to delete.</p>';
+      return;
+    }
 
     if (!this._selectedId) {
       panel.innerHTML = '<p class="props-empty">Select a node or connection to edit properties.</p>';

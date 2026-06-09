@@ -221,6 +221,43 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('editor: wheel-zoom + undo/redo of a placement');
   else fail('editor 3a: ' + JSON.stringify(ed));
 
+  // Editor 3b: marquee multi-select + copy/paste + group delete.
+  const ms = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const ev = (t, sx, sy, opts = {}) => canvas.dispatchEvent(
+      new MouseEvent(t, { clientX: r.left + sx, clientY: r.top + sy, button: 0, bubbles: true, ...opts }));
+    // Three pools in a row, plus an internal connection between two of them.
+    const a = d.addNode(new MNode(NodeType.POOL, 150, 150)); a.label = 'A';
+    const b = d.addNode(new MNode(NodeType.POOL, 250, 150)); b.label = 'B';
+    const c = d.addNode(new MNode(NodeType.POOL, 350, 150)); c.label = 'C';
+    d.addConnection(new MConnection(a.id, b.id));
+    window.app.renderer.render();
+
+    // Marquee around A and B (not C).
+    window.app.editor.setTool('select');
+    ev('mousedown', 110, 110); ev('mousemove', 300, 200); ev('mouseup', 300, 200);
+    const selCount = window.app.editor.selection.size;
+    const panelMulti = document.getElementById('props-content').textContent.includes('nodes selected');
+
+    // Copy + paste: should add 2 nodes and 1 internal connection.
+    const nodesBefore = d.nodes.size, connsBefore = d.connections.size;
+    window.app._copy(); window.app._paste();
+    const addedNodes = d.nodes.size - nodesBefore;
+    const addedConns = d.connections.size - connsBefore;
+    const pastedSel = window.app.editor.selection.size;
+
+    // Delete the (pasted) selection.
+    window.app.editor._onKey({ key: 'Delete', target: { tagName: 'BODY' } });
+    const afterDelete = d.nodes.size;
+    return { selCount, panelMulti, addedNodes, addedConns, pastedSel, afterDelete, nodesBefore };
+  });
+  if (ms.selCount === 2 && ms.panelMulti && ms.addedNodes === 2 && ms.addedConns === 1 && ms.pastedSel === 2 && ms.afterDelete === ms.nodesBefore)
+    ok('editor: marquee multi-select + copy/paste + group delete');
+  else fail('editor 3b: ' + JSON.stringify(ms));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);

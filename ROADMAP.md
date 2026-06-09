@@ -72,7 +72,8 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       buttons); covers placement, connection, deletion, move, and property edits.
 - [x] **Zoom (P1).** Wheel zooms toward the cursor; "⤢ Fit" / Ctrl+0 resets;
       pan via middle/alt-drag.
-- [ ] **Multi-select, copy / paste, duplicate (P1).**
+- [x] **Multi-select, copy / paste, duplicate (P1).** Marquee drag + Shift-click
+      to select many nodes, drag them as a group, Ctrl+C/V, Ctrl+D, group delete.
 - [ ] **Keyboard shortcuts for tools** (S/P/etc.) (P2).
 - [ ] **Grid snap & alignment guides (P2).**
 - [ ] **Grouping / containers, sticky-note annotations (P2).**

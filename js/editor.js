@@ -8,15 +8,31 @@ class Editor {
     this.onChange = onChange; // callback() after a structural edit (for undo)
 
     this.tool = 'select'; // current tool
-    this._drag = null;    // {nodeId, startX, startY, origX, origY}
+    this._drag = null;    // { items:[{nodeId,origX,origY}], startX, startY }
     this._dragMoved = false;
     this._connecting = null; // {sourceId, type}
     this._panDrag = null; // {startX, startY, panX, panY}
+    this._marquee = null; // {x0, y0, cur, add, base}
+    this.selection = new Set(); // multi-selected node ids
 
     this._bind();
   }
 
   _changed() { if (this.onChange) this.onChange(); }
+
+  // Set the selection (node ids) plus a primary item for the properties panel.
+  _setSelection(ids, primaryId, primaryType) {
+    this.selection = new Set(ids);
+    this.renderer.selectedIds = this.selection;
+    const single = this.selection.size === 1 ? [...this.selection][0] : null;
+    this.renderer.selectedId = primaryType === 'conn' ? primaryId : single;
+    this.renderer.render();
+    if (this.onSelect) {
+      const pType = primaryType === 'conn' ? 'conn' : (this.selection.size ? 'node' : null);
+      const pId = primaryType === 'conn' ? primaryId : single;
+      this.onSelect(pId, pType, this.selection.size);
+    }
+  }
 
   setTool(tool) {
     this.tool = tool;
@@ -59,16 +75,23 @@ class Editor {
           this.engine.fireInteractive(hit.id);
           return;
         }
-        this._drag = {
-          nodeId: hit.id,
-          startX: e.clientX, startY: e.clientY,
-          origX: node.x, origY: node.y,
-        };
-        this._select(hit.id, 'node');
+        if (e.shiftKey) {
+          // Toggle this node in/out of the selection (no drag).
+          if (this.selection.has(hit.id)) this.selection.delete(hit.id);
+          else this.selection.add(hit.id);
+          this._setSelection([...this.selection], null, 'node');
+          return;
+        }
+        // Clicking an unselected node selects just it; clicking one already in
+        // the selection keeps the group (so you can drag them all).
+        if (!this.selection.has(hit.id)) this._setSelection([hit.id], hit.id, 'node');
+        this._startGroupDrag(e);
       } else if (hit && hit.type === 'conn') {
-        this._select(hit.id, 'conn');
+        this._setSelection([], hit.id, 'conn');
       } else {
-        this._select(null, null);
+        // Empty canvas: begin a marquee (extends selection when Shift held).
+        if (!e.shiftKey) this._setSelection([], null, null);
+        this._marquee = { x0: pt.x, y0: pt.y, cur: null, add: e.shiftKey, base: new Set(this.selection) };
       }
     } else if (this.tool.startsWith('place-')) {
       const type = this.tool.replace('place-', '');
@@ -111,6 +134,17 @@ class Editor {
     }
   }
 
+  // Begin dragging every currently-selected node as a group.
+  _startGroupDrag(e) {
+    const items = [];
+    for (const id of this.selection) {
+      const n = this.diagram.nodes.get(id);
+      if (n) items.push({ nodeId: id, origX: n.x, origY: n.y });
+    }
+    this._drag = { items, startX: e.clientX, startY: e.clientY };
+    this._dragMoved = false;
+  }
+
   _onMove(e) {
     if (this._panDrag) {
       const dx = e.clientX - this._panDrag.startX;
@@ -120,14 +154,26 @@ class Editor {
     }
 
     if (this._drag) {
-      const node = this.diagram.nodes.get(this._drag.nodeId);
-      if (node) {
-        const s = this.renderer._scale || 1;
-        node.x = this._drag.origX + (e.clientX - this._drag.startX) / s;
-        node.y = this._drag.origY + (e.clientY - this._drag.startY) / s;
-        this._dragMoved = true;
-        this.renderer.render();
+      const s = this.renderer._scale || 1;
+      const dx = (e.clientX - this._drag.startX) / s;
+      const dy = (e.clientY - this._drag.startY) / s;
+      for (const it of this._drag.items) {
+        const n = this.diagram.nodes.get(it.nodeId);
+        if (n) { n.x = it.origX + dx; n.y = it.origY + dy; }
       }
+      this._dragMoved = true;
+      this.renderer.render();
+      return;
+    }
+
+    if (this._marquee) {
+      const pt = this.renderer.svgPoint(e.clientX, e.clientY);
+      this._marquee.cur = pt;
+      this.renderer.setMarquee(this._marquee.x0, this._marquee.y0, pt.x, pt.y);
+      const ids = this.renderer.nodesInRect(this._marquee.x0, this._marquee.y0, pt.x, pt.y);
+      const set = this._marquee.add ? new Set([...this._marquee.base, ...ids]) : new Set(ids);
+      this.renderer.selectedIds = set; // live preview
+      this.renderer.render();
       return;
     }
 
@@ -148,6 +194,17 @@ class Editor {
       this._drag = null;
       this._dragMoved = false;
       if (moved) this._changed();  // commit the move as one undo step
+      return;
+    }
+
+    if (this._marquee) {
+      const m = this._marquee;
+      this._marquee = null;
+      this.renderer.clearMarquee();
+      const cur = m.cur || { x: m.x0, y: m.y0 };
+      const ids = this.renderer.nodesInRect(m.x0, m.y0, cur.x, cur.y);
+      const set = m.add ? new Set([...m.base, ...ids]) : new Set(ids);
+      this._setSelection([...set], set.size === 1 ? [...set][0] : null, 'node');
       return;
     }
 
@@ -208,24 +265,32 @@ class Editor {
 
   _onKey(e) {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-    if ((e.key === 'Delete' || e.key === 'Backspace') && this.renderer.selectedId) {
-      const id = this.renderer.selectedId;
-      if (this.diagram.nodes.has(id)) this.diagram.removeNode(id);
-      else if (this.diagram.connections.has(id)) this.diagram.removeConnection(id);
-      this._select(null, null);
-      this.renderer.render();
-      this._changed();
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (this.selection.size) {
+        for (const id of this.selection) this.diagram.removeNode(id);
+        this._select(null, null);
+        this.renderer.render();
+        this._changed();
+      } else if (this.renderer.selectedId && this.diagram.connections.has(this.renderer.selectedId)) {
+        this.diagram.removeConnection(this.renderer.selectedId);
+        this._select(null, null);
+        this.renderer.render();
+        this._changed();
+      }
     }
     if (e.key === 'Escape') {
       this._connecting = null;
+      this._marquee = null;
       this.renderer.clearTemp();
+      this.renderer.clearMarquee();
       this._select(null, null);
     }
   }
 
+  // Thin wrapper kept for existing callers (place/connect/delete/clear).
   _select(id, type) {
-    this.renderer.selectedId = id;
-    this.renderer.render();
-    if (this.onSelect) this.onSelect(id, type);
+    if (type === 'node') this._setSelection([id], id, 'node');
+    else if (type === 'conn') this._setSelection([], id, 'conn');
+    else this._setSelection([], null, null);
   }
 }

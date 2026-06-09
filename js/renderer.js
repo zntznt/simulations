@@ -127,7 +127,8 @@ class Renderer {
   constructor(svg, diagram) {
     this.svg = svg;
     this.diagram = diagram;
-    this.selectedId = null;
+    this.selectedId = null;        // primary selection (node or connection)
+    this.selectedIds = new Set();  // multi-selected node ids
     this._firing = new Set();
     this._nodeEls = new Map();
     this._connEls = new Map();
@@ -354,7 +355,7 @@ class Renderer {
   _updateNodeEl(el, node) {
     el.setAttribute('transform', `translate(${node.x},${node.y})`);
 
-    const isSel = this.selectedId === node.id;
+    const isSel = this.selectedId === node.id || this.selectedIds.has(node.id);
     const isFiring = this._firing.has(node.id);
     el.setAttribute('class', ['node', `n-${node.type}`, isSel && 'selected', isFiring && 'firing']
       .filter(Boolean).join(' '));
@@ -442,7 +443,35 @@ class Renderer {
     }));
   }
 
-  clearTemp() { this.tempLayer.innerHTML = ''; }
+  clearTemp() { this.tempLayer.innerHTML = ''; if (this._marqueeEl) this._marqueeEl = null; }
+
+  // ── Marquee (rubber-band) selection rectangle ──────────────────────────────
+
+  setMarquee(x0, y0, x1, y1) {
+    if (!this._marqueeEl) {
+      this._marqueeEl = svgEl('rect', {
+        fill: 'rgba(74,158,255,0.12)', stroke: '#4a9eff',
+        'stroke-width': '1', 'stroke-dasharray': '4,3', 'pointer-events': 'none',
+      });
+      this.tempLayer.appendChild(this._marqueeEl);
+    }
+    this._marqueeEl.setAttribute('x', Math.min(x0, x1));
+    this._marqueeEl.setAttribute('y', Math.min(y0, y1));
+    this._marqueeEl.setAttribute('width', Math.abs(x1 - x0));
+    this._marqueeEl.setAttribute('height', Math.abs(y1 - y0));
+  }
+
+  clearMarquee() { if (this._marqueeEl) { this._marqueeEl.remove(); this._marqueeEl = null; } }
+
+  // Ids of nodes whose center falls inside the rectangle.
+  nodesInRect(x0, y0, x1, y1) {
+    const xa = Math.min(x0, x1), xb = Math.max(x0, x1);
+    const ya = Math.min(y0, y1), yb = Math.max(y0, y1);
+    const ids = [];
+    for (const node of this.diagram.nodes.values())
+      if (node.x >= xa && node.x <= xb && node.y >= ya && node.y <= yb) ids.push(node.id);
+    return ids;
+  }
 
   // ── Hit test ─────────────────────────────────────────────────────────────
 
