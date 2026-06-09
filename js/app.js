@@ -7,11 +7,17 @@ class App {
       document.getElementById('canvas'),
       this.diagram, this.renderer, this.engine,
       (id, type) => this._onSelect(id, type),
+      () => this._commit(),
     );
 
     this._selectedId = null;
     this._selectedType = null;
     this._sparklines = new Map();
+
+    // Undo / redo (snapshot stacks of diagram JSON).
+    this._undoStack = [];
+    this._redoStack = [];
+    this._lastState = null;
 
     this.timeline = new TimelineChart(document.getElementById('timeline-canvas'), this.diagram, this.engine);
     this._timelineVisible = false;
@@ -44,6 +50,65 @@ class App {
     };
 
     this._loadExample();
+    this._resetHistory();
+  }
+
+  // ── Undo / redo ─────────────────────────────────────────────────────────────
+
+  _snapshot() { return JSON.stringify(this.diagram.toJSON()); }
+
+  // Begin a fresh history baseline (after load / new / example).
+  _resetHistory() {
+    this._undoStack = [];
+    this._redoStack = [];
+    this._lastState = this._snapshot();
+    this._updateUndoButtons();
+  }
+
+  // Record that the diagram changed (push the previous state onto the stack).
+  _commit() {
+    if (this._lastState != null) {
+      this._undoStack.push(this._lastState);
+      if (this._undoStack.length > 100) this._undoStack.shift();
+    }
+    this._redoStack = [];
+    this._lastState = this._snapshot();
+    this._updateUndoButtons();
+  }
+
+  undo() {
+    if (!this._undoStack.length) return;
+    this._redoStack.push(this._lastState);
+    this._lastState = this._undoStack.pop();
+    this._restoreState(this._lastState);
+    this._updateUndoButtons();
+  }
+
+  redo() {
+    if (!this._redoStack.length) return;
+    this._undoStack.push(this._lastState);
+    this._lastState = this._redoStack.pop();
+    this._restoreState(this._lastState);
+    this._updateUndoButtons();
+  }
+
+  _restoreState(json) {
+    this.diagram.loadJSON(JSON.parse(json));
+    this.engine.reset();
+    document.getElementById('btn-run').textContent = '▶ Run';
+    document.getElementById('sim-status').textContent = '';
+    this.renderer.balls.clear();
+    this._clearSparklines();
+    this._onSelect(null, null);
+    this.renderer.render();
+    if (this._timelineVisible) this.timeline.update();
+  }
+
+  _updateUndoButtons() {
+    const u = document.getElementById('btn-undo');
+    const r = document.getElementById('btn-redo');
+    if (u) u.disabled = !this._undoStack.length;
+    if (r) r.disabled = !this._redoStack.length;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -293,6 +358,7 @@ class App {
       if (!confirm('Start a new diagram? Unsaved work will be lost.')) return;
       this._clearAll();
       this.renderer.render();
+      this._resetHistory();
     });
 
     document.getElementById('btn-examples').addEventListener('change', e => {
@@ -304,6 +370,7 @@ class App {
       if (val === 'basic') this._loadExample();
       else if (val === 'loot') this._loadLootExample();
       else if (val === 'factory') this._loadFactoryExample();
+      this._resetHistory();
     });
 
     document.getElementById('btn-save').addEventListener('click', () => {
@@ -329,6 +396,7 @@ class App {
             this._clearSparklines();
             this._onSelect(null, null);
             this.renderer.render();
+            this._resetHistory();
           } catch (err) { alert('Invalid file: ' + err.message); }
         };
         reader.readAsText(file);
@@ -347,6 +415,23 @@ class App {
     tlBtn.addEventListener('click', () => toggleTimeline(!this._timelineVisible));
     document.getElementById('tl-close').addEventListener('click', () => toggleTimeline(false));
     window.addEventListener('resize', () => { if (this._timelineVisible) this.timeline.update(); });
+
+    // Undo / redo
+    document.getElementById('btn-undo').addEventListener('click', () => this.undo());
+    document.getElementById('btn-redo').addEventListener('click', () => this.redo());
+    document.getElementById('btn-fit').addEventListener('click', () => this.renderer.resetView());
+
+    // Commit a property edit as one undo step (fires on blur / enter / toggle).
+    document.getElementById('props-content').addEventListener('change', () => this._commit());
+
+    // Keyboard: undo / redo / reset-view.
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); }
+      else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); this.redo(); }
+      else if (mod && e.key === '0') { e.preventDefault(); this.renderer.resetView(); }
+    });
 
     // Monte Carlo batch runs
     document.getElementById('btn-batch').addEventListener('click', () => this._openMonteCarlo());

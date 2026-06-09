@@ -133,6 +133,7 @@ class Renderer {
     this._connEls = new Map();
     this._panX = 0;
     this._panY = 0;
+    this._scale = 1;
 
     this._setup();
     this.balls = new BallSystem(this.ballLayer);
@@ -187,11 +188,30 @@ class Renderer {
   }
 
   setPan(x, y) { this._panX = x; this._panY = y; this._updateTransform(); }
-  _updateTransform() { this.root.setAttribute('transform', `translate(${this._panX},${this._panY})`); }
+  _updateTransform() {
+    this.root.setAttribute('transform', `translate(${this._panX},${this._panY}) scale(${this._scale})`);
+  }
+
+  // Zoom by `factor` keeping the point under (clientX, clientY) fixed.
+  zoomBy(factor, clientX, clientY) {
+    const r = this.svg.getBoundingClientRect();
+    const sx = clientX - r.left, sy = clientY - r.top;
+    const wx = (sx - this._panX) / this._scale;
+    const wy = (sy - this._panY) / this._scale;
+    this._scale = Math.max(0.25, Math.min(3, this._scale * factor));
+    this._panX = sx - wx * this._scale;
+    this._panY = sy - wy * this._scale;
+    this._updateTransform();
+  }
+
+  resetView() { this._panX = 0; this._panY = 0; this._scale = 1; this._updateTransform(); }
 
   svgPoint(cx, cy) {
     const r = this.svg.getBoundingClientRect();
-    return { x: cx - r.left - this._panX, y: cy - r.top - this._panY };
+    return {
+      x: (cx - r.left - this._panX) / this._scale,
+      y: (cy - r.top - this._panY) / this._scale,
+    };
   }
 
   getConnPathEl(connId) {

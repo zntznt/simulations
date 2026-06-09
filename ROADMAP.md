@@ -68,8 +68,10 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 
 ## 🔭 Missing — Editor / UX
 
-- [ ] **Undo / redo (P1).**
-- [ ] **Zoom (P1).** Today only panning exists (wheel / alt-drag).
+- [x] **Undo / redo (P1).** Snapshot-based, Ctrl+Z / Ctrl+Shift+Z (+ toolbar
+      buttons); covers placement, connection, deletion, move, and property edits.
+- [x] **Zoom (P1).** Wheel zooms toward the cursor; "⤢ Fit" / Ctrl+0 resets;
+      pan via middle/alt-drag.
 - [ ] **Multi-select, copy / paste, duplicate (P1).**
 - [ ] **Keyboard shortcuts for tools** (S/P/etc.) (P2).
 - [ ] **Grid snap & alignment guides (P2).**

@@ -1,18 +1,22 @@
 class Editor {
-  constructor(svg, diagram, renderer, engine, onSelect) {
+  constructor(svg, diagram, renderer, engine, onSelect, onChange) {
     this.svg = svg;
     this.diagram = diagram;
     this.renderer = renderer;
     this.engine = engine;
     this.onSelect = onSelect; // callback(id, type) or (null)
+    this.onChange = onChange; // callback() after a structural edit (for undo)
 
     this.tool = 'select'; // current tool
     this._drag = null;    // {nodeId, startX, startY, origX, origY}
+    this._dragMoved = false;
     this._connecting = null; // {sourceId, type}
     this._panDrag = null; // {startX, startY, panX, panY}
 
     this._bind();
   }
+
+  _changed() { if (this.onChange) this.onChange(); }
 
   setTool(tool) {
     this.tool = tool;
@@ -71,6 +75,7 @@ class Editor {
       const node = this.diagram.addNode(new MNode(type, pt.x, pt.y));
       this.renderer.render();
       this._select(node.id, 'node');
+      this._changed();
     } else if (this.tool === 'connect-resource' || this.tool === 'connect-state') {
       const connType = this.tool === 'connect-state' ? ConnectionType.STATE : ConnectionType.RESOURCE;
       if (!this._connecting) {
@@ -89,6 +94,7 @@ class Editor {
           this.renderer.clearTemp();
           this.renderer.render();
           this._select(conn.id, 'conn');
+          this._changed();
         } else if (!hit) {
           this._connecting = null;
           this.renderer.clearTemp();
@@ -100,6 +106,7 @@ class Editor {
         else this.diagram.removeConnection(hit.id);
         this._select(null, null);
         this.renderer.render();
+        this._changed();
       }
     }
   }
@@ -115,8 +122,10 @@ class Editor {
     if (this._drag) {
       const node = this.diagram.nodes.get(this._drag.nodeId);
       if (node) {
-        node.x = this._drag.origX + (e.clientX - this._drag.startX);
-        node.y = this._drag.origY + (e.clientY - this._drag.startY);
+        const s = this.renderer._scale || 1;
+        node.x = this._drag.origX + (e.clientX - this._drag.startX) / s;
+        node.y = this._drag.origY + (e.clientY - this._drag.startY) / s;
+        this._dragMoved = true;
         this.renderer.render();
       }
       return;
@@ -133,7 +142,14 @@ class Editor {
 
   _onUp(e) {
     if (this._panDrag) { this._panDrag = null; return; }
-    this._drag = null;
+
+    if (this._drag) {
+      const moved = this._dragMoved;
+      this._drag = null;
+      this._dragMoved = false;
+      if (moved) this._changed();  // commit the move as one undo step
+      return;
+    }
 
     // Drag-to-connect: started a connection on a node and released over a
     // different node. (Click-to-click still works via _onDown.)
@@ -148,6 +164,7 @@ class Editor {
         this.renderer.clearTemp();
         this.renderer.render();
         this._select(conn.id, 'conn');
+        this._changed();
       } else if (!hit) {
         // Drag released on empty canvas: cancel the pending connection so no
         // rubber-band line is left dangling. (Releasing on the source node
@@ -178,15 +195,15 @@ class Editor {
       else this.diagram.removeConnection(hit.id);
       this._select(null, null);
       this.renderer.render();
+      this._changed();
     }
   }
 
   _onWheel(e) {
     e.preventDefault();
-    this.renderer.setPan(
-      this.renderer._panX - e.deltaX * 0.5,
-      this.renderer._panY - e.deltaY * 0.5,
-    );
+    // Wheel zooms toward the cursor; pan via middle/alt-drag.
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    this.renderer.zoomBy(factor, e.clientX, e.clientY);
   }
 
   _onKey(e) {
@@ -197,6 +214,7 @@ class Editor {
       else if (this.diagram.connections.has(id)) this.diagram.removeConnection(id);
       this._select(null, null);
       this.renderer.render();
+      this._changed();
     }
     if (e.key === 'Escape') {
       this._connecting = null;

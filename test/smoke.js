@@ -193,6 +193,34 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`analysis: timeline chart + Monte Carlo (${analysis.rows} result rows)`);
   else fail('analysis: ' + JSON.stringify(analysis));
 
+  // Editor 3a: zoom + undo/redo.
+  const ed = await page.evaluate(() => {
+    document.getElementById('mc-overlay').classList.add('hidden');
+    window.app._clearAll(); window.app._resetHistory();
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const ev = (t, sx, sy) => canvas.dispatchEvent(
+      new MouseEvent(t, { clientX: r.left + sx, clientY: r.top + sy, button: 0, bubbles: true }));
+
+    // Zoom in, then confirm a node placed at world (200,200) is still hit there.
+    const beforeScale = window.app.renderer._scale;
+    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, clientX: r.left + 300, clientY: r.top + 300, bubbles: true }));
+    const zoomed = window.app.renderer._scale > beforeScale;
+
+    window.app.renderer.resetView();
+    const place = (tool, sx, sy) => { window.app.editor.setTool(tool); ev('mousedown', sx, sy); ev('mouseup', sx, sy); };
+    place('place-pool', 200, 200);
+    const afterPlace = window.app.diagram.nodes.size;
+    window.app.undo();
+    const afterUndo = window.app.diagram.nodes.size;
+    window.app.redo();
+    const afterRedo = window.app.diagram.nodes.size;
+    return { zoomed, afterPlace, afterUndo, afterRedo };
+  });
+  if (ed.zoomed && ed.afterPlace === 1 && ed.afterUndo === 0 && ed.afterRedo === 1)
+    ok('editor: wheel-zoom + undo/redo of a placement');
+  else fail('editor 3a: ' + JSON.stringify(ed));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);

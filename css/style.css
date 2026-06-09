@@ -146,6 +146,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .btn.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.btn-primary:hover { background: #3a8ef0; }
 .btn.active { border-color: var(--accent); color: var(--accent); background: rgba(74,158,255,0.12); }
+.btn:disabled { opacity: 0.35; cursor: default; }
+.btn:disabled:hover { border-color: var(--border); color: var(--text); background: var(--panel2); }
 .btn.btn-danger { border-color: var(--red); color: var(--red); }
 .btn.btn-danger:hover { background: rgba(239,83,80,0.1); }
 
