@@ -39,6 +39,105 @@ function connCP(conn, p1, p2) {
   return { x: a.x + (conn.cpDx || 0), y: a.y + (conn.cpDy || 0) };
 }
 
+// ── Orthogonal (right-angle) connector routing ─────────────────────────────
+// An ortho connection is a chain of axis-aligned segments. Its shape is stored
+// as a list of interior corner points (conn.waypoints). Until the user drags it
+// the route is the default H-V-H elbow derived from bendPct, so old diagrams
+// (and freshly-styled connections) render unchanged.
+
+// Interior corner points (centres), either explicit waypoints or the default.
+function orthoWaypoints(conn, src, tgt) {
+  if (conn.waypoints && conn.waypoints.length)
+    return conn.waypoints.map(p => ({ x: p.x, y: p.y }));
+  const bPct = conn.bendPct ?? 0.5;
+  const bx = src.x + (tgt.x - src.x) * bPct;
+  return [{ x: bx, y: src.y }, { x: bx, y: tgt.y }];
+}
+
+// Insert corners so every consecutive pair is axis-aligned (defensive: keeps a
+// route looking orthogonal even after a node is moved out from under it).
+function orthogonalizePts(pts) {
+  if (pts.length < 2) return pts.map(p => ({ x: p.x, y: p.y }));
+  const out = [{ x: pts[0].x, y: pts[0].y }];
+  for (let i = 1; i < pts.length; i++) {
+    const a = out[out.length - 1], b = pts[i];
+    if (Math.abs(a.x - b.x) > 0.5 && Math.abs(a.y - b.y) > 0.5)
+      out.push({ x: b.x, y: a.y }); // go horizontal first, then vertical
+    out.push({ x: b.x, y: b.y });
+  }
+  return out;
+}
+
+// Drop duplicate and collinear corners so redundant bends collapse away.
+function orthoCleanupFull(pts) {
+  const p = [];
+  for (const q of pts) {
+    const last = p[p.length - 1];
+    if (last && Math.abs(last.x - q.x) < 0.5 && Math.abs(last.y - q.y) < 0.5) continue;
+    p.push({ x: q.x, y: q.y });
+  }
+  let changed = true;
+  while (changed && p.length > 2) {
+    changed = false;
+    for (let i = 1; i < p.length - 1; i++) {
+      const a = p[i - 1], m = p[i], b = p[i + 1];
+      const colX = Math.abs(a.x - m.x) < 0.5 && Math.abs(m.x - b.x) < 0.5;
+      const colY = Math.abs(a.y - m.y) < 0.5 && Math.abs(m.y - b.y) < 0.5;
+      if (colX || colY) { p.splice(i, 1); changed = true; break; }
+    }
+  }
+  return p;
+}
+
+// Full corner chain in node-centre space: [src.centre, …corners, tgt.centre].
+function orthoCenterPoints(conn, src, tgt) {
+  const wps = orthoWaypoints(conn, src, tgt);
+  return orthogonalizePts([{ x: src.x, y: src.y }, ...wps, { x: tgt.x, y: tgt.y }]);
+}
+
+// Same chain but with the first/last points clipped to the node boundaries —
+// this is what actually gets drawn. Same length as orthoCenterPoints so handle
+// indices map 1:1 to segments.
+function orthoClippedPoints(conn, src, tgt) {
+  const O = orthoCenterPoints(conn, src, tgt);
+  if (O.length < 2) return O;
+  O[0] = nodeBoundaryPoint(src, O[1].x, O[1].y);
+  O[O.length - 1] = nodeBoundaryPoint(tgt, O[O.length - 2].x, O[O.length - 2].y);
+  return O;
+}
+
+// Apply a perpendicular drag of one segment, keeping the route orthogonal.
+// `base` is the orthoCenterPoints snapshot taken when the drag began; dx/dy are
+// the total world-space movement since then. Writes the result to conn.waypoints.
+// Dragging an end stub auto-inserts a bend so the fixed node attachment is kept.
+function orthoDragSegment(conn, base, segIndex, dx, dy) {
+  const n = base.length;
+  if (segIndex < 0 || segIndex >= n - 1) return;
+  const A = base[segIndex], B = base[segIndex + 1];
+  const S = base[0], T = base[n - 1];
+  const horiz = Math.abs(A.y - B.y) < 0.5;
+  let interior = base.slice(1, n - 1).map(p => ({ x: p.x, y: p.y }));
+
+  if (segIndex === 0) {
+    // Stub leaving the source: insert a bend so src stays attached.
+    if (horiz) { const ny = S.y + dy; interior = [{ x: S.x, y: ny }, { x: B.x, y: ny }, ...interior.slice(1)]; }
+    else       { const nx = S.x + dx; interior = [{ x: nx, y: S.y }, { x: nx, y: B.y }, ...interior.slice(1)]; }
+  } else if (segIndex === n - 2) {
+    // Stub entering the target.
+    if (horiz) { const ny = T.y + dy; interior = [...interior.slice(0, -1), { x: A.x, y: ny }, { x: T.x, y: ny }]; }
+    else       { const nx = T.x + dx; interior = [...interior.slice(0, -1), { x: nx, y: A.y }, { x: nx, y: T.y }]; }
+  } else {
+    // Interior segment: slide it perpendicular by moving both its corners.
+    if (horiz) { interior[segIndex - 1] = { x: A.x, y: A.y + dy }; interior[segIndex] = { x: B.x, y: B.y + dy }; }
+    else       { interior[segIndex - 1] = { x: A.x + dx, y: A.y }; interior[segIndex] = { x: B.x + dx, y: B.y }; }
+  }
+
+  const full = orthoCleanupFull([S, ...interior, T]);
+  let wp = full.slice(1, full.length - 1).map(p => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+  if (wp.length > 16) wp = wp.slice(0, 16);
+  conn.waypoints = wp;
+}
+
 function connPathD(conn, src, tgt) {
   if (src.id === tgt.id) {
     // Self-loop: a small loop above the node (used by self state modifiers).
@@ -57,12 +156,9 @@ function connPathD(conn, src, tgt) {
   }
 
   if (style === 'ortho') {
-    const bPct = conn.bendPct ?? 0.5;
-    const bx = src.x + (tgt.x - src.x) * bPct;
-    // Source exits horizontally toward the bend x; target is entered horizontally from that side.
-    const p1 = nodeBoundaryPoint(src, bx, src.y);
-    const p2 = nodeBoundaryPoint(tgt, bx, tgt.y);
-    return `M ${p1.x},${p1.y} L ${bx},${p1.y} L ${bx},${p2.y} L ${p2.x},${p2.y}`;
+    const O = orthoClippedPoints(conn, src, tgt);
+    if (O.length < 2) return `M ${src.x},${src.y} L ${tgt.x},${tgt.y}`;
+    return `M ${O[0].x},${O[0].y}` + O.slice(1).map(p => ` L ${p.x},${p.y}`).join('');
   }
 
   // curve (default)
@@ -87,9 +183,11 @@ function connLabelPos(conn, src, tgt) {
   }
 
   if (style === 'ortho') {
-    const bPct = conn.bendPct ?? 0.5;
-    const bx = src.x + (tgt.x - src.x) * bPct;
-    return { x: bx + 6, y: (src.y + tgt.y) / 2 };
+    const O = orthoClippedPoints(conn, src, tgt);
+    if (O.length < 2) return { x: (src.x + tgt.x) / 2, y: (src.y + tgt.y) / 2 };
+    const mid = Math.floor((O.length - 1) / 2);
+    const a = O[mid], b = O[mid + 1] || O[mid];
+    return { x: (a.x + b.x) / 2 + 6, y: (a.y + b.y) / 2 - 8 };
   }
 
   // curve
@@ -608,11 +706,7 @@ class Renderer {
     g.appendChild(svgEl('path', { class: 'conn-hitbox', fill: 'none', stroke: 'transparent', 'stroke-width': '14', cursor: 'pointer' }));
     g.appendChild(svgEl('path', { class: 'conn-path', fill: 'none', 'stroke-width': '2' }));
     g.appendChild(svgEl('text', { class: 'conn-label', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '11', 'font-family': 'var(--font)' }));
-    g.appendChild(svgEl('circle', {
-      class: 'conn-cp-handle', r: '6',
-      fill: 'rgba(74,158,255,0.25)', stroke: '#4a9eff', 'stroke-width': '1.5',
-      cursor: 'move', visibility: 'hidden',
-    }));
+    g.appendChild(svgEl('g', { class: 'conn-handles' }));
     return g;
   }
 
@@ -679,41 +773,45 @@ class Renderer {
 
     el.setAttribute('class', `conn${isSel ? ' selected' : ''}`);
 
-    // Control-point / bend handle — visible only when selected and not a self-loop.
-    const handle = el.querySelector('.conn-cp-handle');
-    if (handle) {
-      const hp = (isSel && src.id !== tgt.id) ? this.getConnHandlePos(conn.id) : null;
-      if (hp) {
-        handle.setAttribute('cx', hp.x);
-        handle.setAttribute('cy', hp.y);
-        handle.setAttribute('visibility', 'visible');
-      } else {
-        handle.setAttribute('visibility', 'hidden');
+    // Reshape handles — shown only while selected (and never on a self-loop).
+    const hg = el.querySelector('.conn-handles');
+    while (hg.firstChild) hg.removeChild(hg.firstChild);
+    if (isSel && src.id !== tgt.id) {
+      for (const h of this.getConnHandles(conn.id)) {
+        hg.appendChild(svgEl('circle', {
+          class: 'conn-cp-handle', r: '6', cx: h.x, cy: h.y,
+          fill: 'rgba(74,158,255,0.25)', stroke: '#4a9eff', 'stroke-width': '1.5', cursor: 'move',
+        }));
       }
     }
   }
 
-  // Return the world-coordinate position of a connection's draggable handle,
-  // or null if the connection has no handle (straight style, self-loop, missing).
-  getConnHandlePos(connId) {
+  // Draggable reshape handles for a connection, in world coords. Each carries a
+  // `kind` ('cp' | 'ortho') and `segIndex` so the editor knows what it's moving.
+  // Returns [] for straight connections and self-loops.
+  getConnHandles(connId) {
     const conn = this.diagram.connections.get(connId);
-    if (!conn) return null;
+    if (!conn) return [];
     const src = this.diagram.nodes.get(conn.sourceId);
     const tgt = this.diagram.nodes.get(conn.targetId);
-    if (!src || !tgt || src.id === tgt.id) return null;
+    if (!src || !tgt || src.id === tgt.id) return [];
     const style = conn.pathStyle || 'curve';
-    if (style === 'straight') return null;
-    if (style === 'ortho') {
-      // Only show the handle when nodes are not nearly vertical (avoid degenerate drag).
-      if (Math.abs(tgt.x - src.x) < 20) return null;
-      const bPct = conn.bendPct ?? 0.5;
-      const bx = src.x + (tgt.x - src.x) * bPct;
-      return { x: bx, y: (src.y + tgt.y) / 2 };
+    if (style === 'straight') return [];
+    if (style === 'curve') {
+      const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
+      const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
+      const cp = connCP(conn, p1, p2);
+      return [{ x: cp.x, y: cp.y, kind: 'cp', segIndex: 0 }];
     }
-    // curve
-    const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
-    const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
-    return connCP(conn, p1, p2);
+    // ortho: a handle at the midpoint of every segment long enough to grab.
+    const O = orthoClippedPoints(conn, src, tgt);
+    const handles = [];
+    for (let i = 0; i < O.length - 1; i++) {
+      const a = O[i], b = O[i + 1];
+      if (Math.hypot(a.x - b.x, a.y - b.y) < 16) continue;
+      handles.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, kind: 'ortho', segIndex: i });
+    }
+    return handles;
   }
 
   // ── Nodes ────────────────────────────────────────────────────────────────

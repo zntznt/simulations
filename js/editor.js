@@ -23,7 +23,7 @@ class Editor {
     this._specialDrag = null;    // {type:'note'|'group', id, origX, origY, nodeItems?, startX, startY, moved}
     this._groupPlaceDrag = null; // {x0, y0} while dragging to define a new group
     this._spaceDown = false;     // hold Space to pan from anywhere (Figma-style)
-    this._connHandleDrag = null; // {connId, type:'cp'|'bend', startX, startY, origCpDx, origCpDy, origBendPct, srcX, tgtX}
+    this._connHandleDrag = null; // {connId, kind:'cp'|'ortho', segIndex, startX, startY, origCpDx, origCpDy, base}
 
     this._bind();
   }
@@ -101,30 +101,29 @@ class Editor {
 
     const pt = this.renderer.svgPoint(e.clientX, e.clientY);
 
-    // Check for connection handle drag (CP or ortho bend) before the normal hit test.
+    // Check for a connection reshape-handle drag before the normal hit test.
     if (this.tool === 'select') {
       const selId = this.renderer.selectedId;
       if (selId && this.diagram.connections.has(selId)) {
-        const hp = this.renderer.getConnHandlePos(selId);
-        if (hp) {
-          const svgRect = this.svg.getBoundingClientRect();
-          const sx = e.clientX - svgRect.left;
-          const sy = e.clientY - svgRect.top;
-          const shx = hp.x * this.renderer._scale + this.renderer._panX;
-          const shy = hp.y * this.renderer._scale + this.renderer._panY;
-          if (Math.hypot(sx - shx, sy - shy) <= 14) {
+        const handles = this.renderer.getConnHandles(selId);
+        if (handles.length) {
+          const r = this.svg.getBoundingClientRect();
+          const sx = e.clientX - r.left, sy = e.clientY - r.top;
+          const sc = this.renderer._scale, px = this.renderer._panX, py = this.renderer._panY;
+          let best = null, bestD = 14;
+          for (const h of handles) {
+            const d = Math.hypot(sx - (h.x * sc + px), sy - (h.y * sc + py));
+            if (d <= bestD) { bestD = d; best = h; }
+          }
+          if (best) {
             const conn = this.diagram.connections.get(selId);
             const srcNode = this.diagram.nodes.get(conn.sourceId);
             const tgtNode = this.diagram.nodes.get(conn.targetId);
-            const style = conn.pathStyle || 'curve';
             this._connHandleDrag = {
-              connId: selId,
-              type: style === 'ortho' ? 'bend' : 'cp',
+              connId: selId, kind: best.kind, segIndex: best.segIndex,
               startX: e.clientX, startY: e.clientY,
               origCpDx: conn.cpDx || 0, origCpDy: conn.cpDy || 0,
-              origBendPct: conn.bendPct ?? 0.5,
-              srcX: srcNode ? srcNode.x : 0,
-              tgtX: tgtNode ? tgtNode.x : 0,
+              base: best.kind === 'ortho' ? orthoCenterPoints(conn, srcNode, tgtNode) : null,
             };
             e.preventDefault();
             return;
@@ -277,16 +276,11 @@ class Editor {
       const dy = (e.clientY - this._connHandleDrag.startY) / s;
       const conn = this.diagram.connections.get(this._connHandleDrag.connId);
       if (conn) {
-        if (this._connHandleDrag.type === 'cp') {
+        if (this._connHandleDrag.kind === 'cp') {
           conn.cpDx = this._connHandleDrag.origCpDx + dx;
           conn.cpDy = this._connHandleDrag.origCpDy + dy;
-        } else {
-          const { srcX, tgtX } = this._connHandleDrag;
-          const totalDx = tgtX - srcX;
-          if (Math.abs(totalDx) > 10) {
-            const newBx = srcX + this._connHandleDrag.origBendPct * totalDx + dx;
-            conn.bendPct = Math.max(0.1, Math.min(0.9, (newBx - srcX) / totalDx));
-          }
+        } else if (this._connHandleDrag.kind === 'ortho') {
+          orthoDragSegment(conn, this._connHandleDrag.base, this._connHandleDrag.segIndex, dx, dy);
         }
         this.renderer.render();
       }
@@ -459,7 +453,7 @@ class Editor {
       // Double-click a connection to reset its shape to default.
       const conn = this.diagram.connections.get(hit.id);
       if (conn) {
-        conn.cpDx = 0; conn.cpDy = 0; conn.bendPct = 0.5;
+        conn.cpDx = 0; conn.cpDy = 0; conn.bendPct = 0.5; conn.waypoints = [];
         this.renderer.render(); this._changed();
       }
     }

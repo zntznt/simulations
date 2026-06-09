@@ -1648,7 +1648,7 @@ class App {
     for (const { key, icon, tip } of [
       { key: 'straight', icon: '—', tip: 'Straight line' },
       { key: 'curve',    icon: '⌒', tip: 'Curved — drag handle to reshape' },
-      { key: 'ortho',   icon: '⌐', tip: 'Right-angle turns — drag elbow to reposition' },
+      { key: 'ortho',   icon: '⌐', tip: 'Right-angle turns — drag any segment; end segments add bends' },
     ]) {
       const btn = document.createElement('button');
       btn.className = 'conn-style-btn' + ((conn.pathStyle || 'curve') === key ? ' active' : '');
@@ -1656,7 +1656,7 @@ class App {
       btn.textContent = icon;
       btn.addEventListener('click', () => {
         conn.pathStyle = key;
-        conn.cpDx = 0; conn.cpDy = 0; conn.bendPct = 0.5;
+        conn.cpDx = 0; conn.cpDy = 0; conn.bendPct = 0.5; conn.waypoints = [];
         this.renderer.render();
         this._renderProps();
       });
@@ -1664,6 +1664,10 @@ class App {
     }
     styleRow.appendChild(styleGroup);
     panel.appendChild(styleRow);
+
+    const ps = conn.pathStyle || 'curve';
+    if (ps === 'ortho') this._info(panel, 'Drag any segment to reshape; dragging an end segment adds a bend. Double-click the line to reset.');
+    else if (ps === 'curve') this._info(panel, 'Drag the handle on the line to reshape. Double-click the line to reset.');
 
     this._field(panel, 'Label', 'text', conn.label, v => { conn.label = v; this.renderer.render(); });
 

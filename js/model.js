@@ -374,7 +374,8 @@ class MConnection {
     this.pathStyle = 'curve';
     this.cpDx = 0;      // curve: control-point x offset from the auto-midpoint
     this.cpDy = 0;      // curve: control-point y offset from the auto-midpoint
-    this.bendPct = 0.5; // ortho: where the vertical segment sits (0=near src, 1=near tgt)
+    this.bendPct = 0.5; // ortho: default vertical-segment position when no waypoints
+    this.waypoints = []; // ortho: explicit interior corner points [{x,y}, …] once hand-edited
   }
 
   toJSON() {
@@ -400,10 +401,11 @@ class MConnection {
       cpDx: this.cpDx || undefined,
       cpDy: this.cpDy || undefined,
       bendPct: this.bendPct !== 0.5 ? this.bendPct : undefined,
+      waypoints: (this.waypoints && this.waypoints.length) ? this.waypoints : undefined,
     };
   }
 
-  loadJSON(d) { Object.assign(this, d); return this; }
+  loadJSON(d) { Object.assign(this, d); if (!Array.isArray(this.waypoints)) this.waypoints = []; return this; }
 }
 
 class MGroup {
