@@ -1370,6 +1370,139 @@ test('cross-node push: conservation holds — no resources created or lost', () 
   eq(a.resources + b.resources + t.resources, 10, 'total conserved');
 });
 
+// ── Trader ──────────────────────────────────────────────────────────────────
+console.log('\nTrader');
+
+test('trader swaps resources between two pools at the connection rates', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10, '#gold');
+  const b = node(d, NodeType.POOL); b.setCount(10, '#wood');
+  const t = node(d, NodeType.TRADER);
+  conn(d, a, t).rate = 3;  // A pays 3
+  conn(d, t, b).rate = 2;  // B pays 2 back
+  steps(e, 1);
+  eq(a.resources, 9, 'A: 10 - 3 + 2');
+  eq(b.resources, 11, 'B: 10 - 2 + 3');
+  eq(a.colorMap['#wood'], 2, 'A received wood');
+  eq(b.colorMap['#gold'], 3, 'B received gold');
+  eq(t.trades, 1, 'one exchange counted');
+  eq(t.resources, 0, 'trader holds nothing');
+});
+
+test('trade is atomic: nothing moves if one side cannot pay in full', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const b = node(d, NodeType.POOL); b.setCount(1);
+  const t = node(d, NodeType.TRADER);
+  conn(d, a, t).rate = 3;
+  conn(d, t, b).rate = 2;  // B holds only 1 — cannot pay 2
+  steps(e, 1);
+  eq(a.resources, 10, 'A unchanged');
+  eq(b.resources, 1, 'B unchanged');
+  eq(t.trades, 0, 'no exchange');
+});
+
+test('trade is atomic: nothing moves if a receiver lacks capacity', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const b = node(d, NodeType.POOL); b.setCount(5); b.capacity = 6;  // room for 1, x=3 (pays 2 → room 3 < 3? 6-5+2=3 ≥ 3 OK)
+  const c = node(d, NodeType.POOL); c.setCount(5); c.capacity = 5;  // pays 1, receives 3 → 5-5+1=1 < 3: blocked
+  const t = node(d, NodeType.TRADER);
+  conn(d, a, t).rate = 3;
+  conn(d, t, c).rate = 1;
+  steps(e, 1);
+  eq(a.resources, 10, 'A unchanged (C could not receive)');
+  eq(c.resources, 5, 'C unchanged');
+  eq(t.trades, 0, 'no exchange');
+});
+
+test('a full pool can still swap like-for-like (room credited for what it pays)', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const b = node(d, NodeType.POOL); b.setCount(8, '#wood'); b.capacity = 8; // full, pays 2, receives 2
+  const t = node(d, NodeType.TRADER);
+  conn(d, a, t).rate = 2;
+  conn(d, t, b).rate = 2;
+  steps(e, 1);
+  eq(b.resources, 8, 'B still full after the swap');
+  eq(b.colorMap[DEFAULT_COLOR], 2, 'B now holds 2 of what A paid');
+  eq(a.resources, 10, 'A count unchanged by an even swap');
+  eq(a.colorMap['#wood'], 2, 'A received wood');
+  eq(t.trades, 1, 'exchange happened');
+});
+
+test('an unlimited source can be a trade partner (pays freely, accepts nothing)', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.resourceColor = '#gold';
+  const b = node(d, NodeType.POOL); b.setCount(10, '#wood');
+  const t = node(d, NodeType.TRADER);
+  conn(d, s, t).rate = 5;  // source pays 5
+  conn(d, t, b).rate = 0;  // B pays nothing back (a gift via trade)
+  steps(e, 2);
+  eq(b.resources, 20, 'B gained 5/step from the source');
+  eq(b.colorMap['#gold'], 10, 'in the source colour');
+  eq(s.produced, 10, 'source production tracked');
+  eq(t.trades, 2, 'one exchange per step');
+});
+
+test('colour filters constrain what each side pays', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL);
+  a.addResources(5, '#gold'); a.addResources(5, '#iron');
+  a._initialResources = a.resources; a._initialColorMap = { ...a.colorMap };
+  const b = node(d, NodeType.POOL); b.setCount(10, '#wood');
+  const t = node(d, NodeType.TRADER);
+  const cin = conn(d, a, t); cin.rate = 2; cin.colorFilter = '#gold';
+  const cout = conn(d, t, b); cout.rate = 3; cout.colorFilter = '#wood';
+  steps(e, 1);
+  eq(b.colorMap['#gold'], 2, 'B got gold only');
+  eq(a.colorMap['#gold'], 3, 'A paid from its gold');
+  eq(a.colorMap['#iron'], 5, 'iron untouched');
+  eq(a.colorMap['#wood'], 3, 'A received wood');
+});
+
+test('pools do not push into a trader on their own (trade routes are trader-driven)', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const t = node(d, NodeType.TRADER);
+  t.activation = ActivationMode.PASSIVE;  // trader never fires
+  conn(d, a, t).rate = 3;
+  steps(e, 3);
+  eq(a.resources, 10, 'A kept its resources');
+  eq(t.resources, 0, 'trader holds nothing');
+});
+
+test('multiple in/out pairs trade independently in wiring order', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10, '#gold');
+  const b = node(d, NodeType.POOL); b.setCount(10, '#wood');
+  const c = node(d, NodeType.POOL); c.setCount(10, '#fish');
+  const x = node(d, NodeType.POOL); x.setCount(0);
+  const t = node(d, NodeType.TRADER);
+  conn(d, a, t).rate = 1;  // pair 1: A pays 1 …
+  conn(d, t, b).rate = 2;  //   … B pays 2 back
+  conn(d, c, t).rate = 4;  // pair 2: C pays 4 …
+  conn(d, t, x).rate = 0;  //   … X pays 0 back
+  steps(e, 1);
+  eq(a.resources, 11, 'A: 10 - 1 + 2');
+  eq(b.resources, 9, 'B: 10 - 2 + 1');
+  eq(c.resources, 6, 'C: 10 - 4');
+  eq(x.resources, 4, 'X received 4');
+  eq(t.trades, 2, 'two exchanges in one step');
+});
+
+test('trader conservation: total resources unchanged by any number of trades', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(20);
+  const b = node(d, NodeType.POOL); b.setCount(15);
+  const t = node(d, NodeType.TRADER);
+  conn(d, a, t).rate = 3;
+  conn(d, t, b).rate = 2;
+  steps(e, 10);
+  eq(a.resources + b.resources, 35, 'total conserved');
+  assert(t.trades > 0, 'trades happened');
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed) {

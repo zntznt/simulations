@@ -5,7 +5,7 @@ function svgEl(tag, attrs = {}) {
   return el;
 }
 
-const NODE_R = { pool: 32, source: 32, drain: 32, gate: 34, converter: 36, register: 32, delay: 32, queue: 32 };
+const NODE_R = { pool: 32, source: 32, drain: 32, gate: 34, converter: 36, register: 32, delay: 32, queue: 32, trader: 32 };
 
 function nodeBoundaryPoint(node, tx, ty) {
   const dx = tx - node.x, dy = ty - node.y;
@@ -877,6 +877,12 @@ class Renderer {
       // FIFO motif: three units lined up near the bottom.
       for (const x of [-8, 0, 8])
         g.appendChild(svgEl('circle', { class: 'q-dot', cx: x, cy: '16', r: '2.2', fill: NODE_STROKE.queue }));
+    } else if (node.type === NodeType.TRADER) {
+      g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
+      // Exchange motif (⇄): two opposing arrows below the count.
+      const tc = NODE_STROKE.trader;
+      g.appendChild(svgEl('path', { d: 'M -11,11 H 9 M 5,7 L 9,11 L 5,15', fill: 'none', stroke: tc, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+      g.appendChild(svgEl('path', { d: 'M 11,19 H -9 M -5,15 L -9,19 L -5,23', fill: 'none', stroke: tc, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
     }
 
     g.appendChild(svgEl('text', { class: 'n-count', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'pointer-events': 'none' }));

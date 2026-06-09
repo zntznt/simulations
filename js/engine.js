@@ -39,6 +39,7 @@ class SimEngine {
       if (n.type === NodeType.SOURCE) n.produced = 0;
       if (n.type === NodeType.DRAIN) n.drained = 0;
       if (n.type === NodeType.REGISTER) n.value = 0;
+      if (n.type === NodeType.TRADER) n.trades = 0;
     }
     this.diagram.variables = {};
     // Compute initial variable/register values so the display is correct
@@ -242,6 +243,7 @@ class SimEngine {
     if (node.type === NodeType.REGISTER) return isFinite(node.value) ? node.value : 0;
     if (node.type === NodeType.SOURCE) return node.produced || 0;
     if (node.type === NodeType.DRAIN) return node.drained || 0;
+    if (node.type === NodeType.TRADER) return node.trades || 0;
     return node.resources;
   }
 
@@ -302,6 +304,12 @@ class SimEngine {
     // Pull phase: pool/drain in pull mode draws along its incoming connections.
     if ((node.type === NodeType.POOL || node.type === NodeType.DRAIN) && node.flowMode === 'pull') {
       if (this._firePull(node, ctx, interactive)) any = true;
+    }
+
+    // Traders read both their incoming and outgoing connections, so they are
+    // handled before the no-outputs early return below.
+    if (node.type === NodeType.TRADER) {
+      return this._fireTrader(node, ctx, interactive) || any;
     }
 
     const outs = d.outgoing(node.id).filter(c => c.type === ConnectionType.RESOURCE);
@@ -447,7 +455,8 @@ class SimEngine {
       if (want <= 0) continue;
       const tgt = this.diagram.nodes.get(conn.targetId);
       if (!tgt) continue;
-      if (tgt.type === NodeType.SOURCE || tgt.type === NodeType.REGISTER) continue;
+      if (tgt.type === NodeType.SOURCE || tgt.type === NodeType.REGISTER
+        || tgt.type === NodeType.TRADER) continue;
       // Work-conserving cap: use ctx.reserved (converters, gates, pull nodes)
       // plus localReserved (this pool's other connections to the same target).
       // We deliberately exclude other pools' proposals so _applyPushProposals
@@ -699,6 +708,83 @@ class SimEngine {
     return movedAny;
   }
 
+  // Trader: an atomic exchange between two partner nodes.
+  //
+  //   A --x--> [T] --y--> B   means   "A pays x to B, B pays y back to A".
+  //
+  // The i-th incoming resource connection pairs with the i-th outgoing one
+  // (wiring order). A pair trades only if BOTH sides can pay their full rate
+  // AND both can accept what they receive — otherwise nothing moves (no
+  // partial trades). The trader itself never holds resources; it counts
+  // completed exchanges in `trades` (its chart/state value).
+  //
+  // Each connection's colour filter constrains what that side pays: the
+  // incoming connection's filter is what A pays, the outgoing one's is what
+  // B pays. Resources keep their colours as they change hands.
+  _fireTrader(node, ctx, interactive) {
+    const d = this.diagram;
+    const ins = d.incoming(node.id).filter(c => c.type === ConnectionType.RESOURCE);
+    const outs = d.outgoing(node.id).filter(c => c.type === ConnectionType.RESOURCE);
+    const pairs = Math.min(ins.length, outs.length);
+    let traded = false;
+
+    // How much `n` could pay along `conn` (colour-filter aware); Infinity for
+    // an unlimited source whose output colour passes the filter.
+    const payable = (n, conn) => {
+      if (n.type === NodeType.SOURCE && !n.limited) {
+        const color = n.resourceColor || DEFAULT_COLOR;
+        return (conn.colorFilter && color !== conn.colorFilter) ? 0 : Infinity;
+      }
+      n.reconcile();
+      return conn.colorFilter ? (n.colorMap[conn.colorFilter] || 0) : n.resources;
+    };
+
+    // Move `amount` from `from` to `to` along `conn` (animation + commit via
+    // ctx). Assumes payable/acceptable were verified.
+    const pay = (from, to, amount, conn) => {
+      if (from.type === NodeType.SOURCE && !from.limited) {
+        from.produced += amount;
+        this._give(to.id, from.resourceColor || DEFAULT_COLOR, amount, conn.id, ctx);
+      } else {
+        for (const { amount: amt, color } of from.takeResources(amount, conn.colorFilter || null)) {
+          this._give(to.id, color, amt, conn.id, ctx);
+        }
+        if (from.type === NodeType.SOURCE) from.produced += amount; // limited source
+      }
+      this._reserve(to.id, amount, ctx);
+    };
+
+    for (let i = 0; i < pairs; i++) {
+      const cin = ins[i], cout = outs[i];
+      const A = d.nodes.get(cin.sourceId);
+      const B = d.nodes.get(cout.targetId);
+      if (!A || !B || A.id === B.id) continue;
+      if (!interactive && (!this._connFires(cin, A) || !this._connFires(cout, B))) continue;
+
+      const x = Math.max(0, Math.round(this._connRate(cin)));   // A pays x
+      const y = Math.max(0, Math.round(this._connRate(cout)));  // B pays y
+      if (x <= 0 && y <= 0) continue;
+
+      // Atomicity: both sides must be able to pay AND receive in full. The
+      // exchange is simultaneous, so each side's room is credited with what it
+      // pays away (a full pool can still swap like-for-like).
+      const canAccept = (n, recv, pays) => {
+        if (recv <= 0) return true;
+        if (n.type === NodeType.SOURCE || n.type === NodeType.REGISTER) return false;
+        if (n.capacity === Infinity || n.type === NodeType.DRAIN) return true;
+        return n.capacity - n.resources - (ctx.reserved.get(n.id) || 0) + pays >= recv;
+      };
+      if (payable(A, cin) < x || payable(B, cout) < y) continue;
+      if (!canAccept(B, x, y) || !canAccept(A, y, x)) continue;
+
+      if (x > 0) pay(A, B, x, cin);
+      if (y > 0) pay(B, A, y, cout);
+      node.trades = (node.trades || 0) + 1;
+      traded = true;
+    }
+    return traded;
+  }
+
   _advanceDelays(ctx) {
     const d = this.diagram;
     for (const n of d.nodes.values()) {
@@ -834,8 +920,11 @@ class SimEngine {
     const tgt = this.diagram.nodes.get(targetId);
     if (!tgt || want <= 0) return 0;
     // Resources can't flow into a source or a register (registers are driven
-    // by state connections / formulas, not by holding resources).
-    if (tgt.type === NodeType.SOURCE || tgt.type === NodeType.REGISTER) return 0;
+    // by state connections / formulas, not by holding resources). A trader
+    // never holds resources either — its connections are trade routes that
+    // only the trader itself drives when it fires.
+    if (tgt.type === NodeType.SOURCE || tgt.type === NodeType.REGISTER
+      || tgt.type === NodeType.TRADER) return 0;
     // Drains are sinks (no capacity). Anything else with an unlimited capacity
     // accepts freely; a finite capacity (incl. on a delay) is honoured below.
     if (tgt.capacity === Infinity || tgt.type === NodeType.DRAIN) return want;

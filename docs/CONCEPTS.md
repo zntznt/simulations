@@ -43,11 +43,21 @@ optional **end/goal condition**. Resource‑holding nodes track a `colorMap`
 | **Register** | Computed value from a formula over variables. | `formula`, `value` |
 | **Delay** | Holds a batch for `delay` steps, then releases it together. | `delay` |
 | **Queue** | Single‑server FIFO: one unit in service at a time for `processTime` steps. | `processTime` |
+| **Trader** | Atomic exchange between two partners: `A → T → B` means A pays the in‑rate to B and B pays the out‑rate back to A — all or nothing. Extra in/out pairs trade in wiring order. | `trades` |
 
 **Display vs. chart value.** A node's `chartValue` (used by history, charts, and
 goals) is its resource count for pools/converters/queues/delays, `drained` for
-drains, `value` for registers, and the remaining stock for a limited source (0 for
-an infinite one).
+drains, `value` for registers, the remaining stock for a limited source (0 for
+an infinite one), and the completed-exchange count for a trader.
+
+**Trader details.** The trader never holds resources — its connections are trade
+routes that only the trader itself drives when it fires (pools won't push into
+one). A trade executes only if both sides can pay their full rate *and* receive
+what the other pays (capacity is credited with what a node pays away, so a full
+pool can still swap like‑for‑like). Each connection's colour filter constrains
+what that side pays; resources keep their colours as they change hands. An
+unlimited source may be a partner (it pays freely but accepts nothing back, so
+the return rate must be 0).
 
 ---
 

@@ -7,6 +7,7 @@ const NodeType = {
   REGISTER: 'register',
   DELAY: 'delay',
   QUEUE: 'queue',
+  TRADER: 'trader',
 };
 
 const ConnectionType = {
@@ -35,13 +36,13 @@ const DEFAULT_COLOR = '#9e9e9e';
 const NODE_FILL = {
   pool: '#1a3a6b', source: '#1a4a2a', drain: '#4a1a1a',
   gate: '#3a1a5a', converter: '#4a2a00', register: '#1a2a38', delay: '#004a4a',
-  queue: '#2a2a4a',
+  queue: '#2a2a4a', trader: '#3a1530',
 };
 
 const NODE_STROKE = {
   pool: '#4a9eff', source: '#4caf50', drain: '#ef5350',
   gate: '#ba68c8', converter: '#ffa726', register: '#78909c', delay: '#26c6da',
-  queue: '#7c83ff',
+  queue: '#7c83ff', trader: '#f06292',
 };
 
 const VALID_IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -177,12 +178,15 @@ class MNode {
       this._proc = null;        // {color, stepsLeft} unit currently in service
     } else if (type === NodeType.GATE) {
       this.gateMode = 'deterministic';
+    } else if (type === NodeType.TRADER) {
+      this.trades = 0;          // completed exchanges this run
     }
   }
 
   get displayCount() {
     if (this.type === NodeType.SOURCE) return this.limited ? this.resources : '∞';
     if (this.type === NodeType.DRAIN) return this.drained || 0;
+    if (this.type === NodeType.TRADER) return this.trades || 0;
     if (this.type === NodeType.REGISTER) {
       if (!isFinite(this.value)) return '∞';
       return +Number(this.value).toFixed(2);
@@ -195,6 +199,7 @@ class MNode {
     if (this.type === NodeType.DRAIN) return this.drained || 0;
     if (this.type === NodeType.REGISTER) return isFinite(this.value) ? this.value : 0;
     if (this.type === NodeType.SOURCE) return this.limited ? this.resources : 0;
+    if (this.type === NodeType.TRADER) return this.trades || 0;
     return this.resources;
   }
 
@@ -304,6 +309,7 @@ class MNode {
     if (this.type === NodeType.DRAIN) this.drained = 0;
     if (this.type === NodeType.DELAY) this._queue = [];
     if (this.type === NodeType.QUEUE) { this._fifo = []; this._proc = null; }
+    if (this.type === NodeType.TRADER) this.trades = 0;
     return this;
   }
 }

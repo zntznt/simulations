@@ -1487,7 +1487,8 @@ class App {
       }
     }
 
-    if (node.type !== NodeType.SOURCE && node.type !== NodeType.REGISTER && node.type !== NodeType.DRAIN) {
+    if (node.type !== NodeType.SOURCE && node.type !== NodeType.REGISTER
+      && node.type !== NodeType.DRAIN && node.type !== NodeType.TRADER) {
       this._field(panel, 'Resources', 'number', node.resources, v => {
         node.setCount(Math.max(0, parseInt(v) || 0));
         this.renderer.render();
@@ -1544,6 +1545,17 @@ class App {
       this._info(panel, 'Total resources consumed (drained) this run.');
     }
 
+    if (node.type === NodeType.TRADER) {
+      const stat = document.createElement('div');
+      stat.className = 'reg-value';
+      stat.textContent = `⇄ ${node.trades || 0}`;
+      panel.appendChild(stat);
+      this._info(panel, 'Completed exchanges this run. Wire A → Trader → B: '
+        + 'when the trader fires, A pays the incoming connection\'s rate to B and B pays '
+        + 'the outgoing connection\'s rate back to A — all or nothing. Extra in/out pairs '
+        + 'trade in wiring order.');
+    }
+
     if (node.type === NodeType.DELAY) {
       this._field(panel, 'Delay steps', 'number', node.delay, v => { node.delay = Math.max(1, parseInt(v) || 1); });
     }
@@ -1598,7 +1610,8 @@ class App {
     }
 
     // Per-type holdings readout (nodes that carry colored resources).
-    if (node.type !== NodeType.REGISTER && node.type !== NodeType.DRAIN) {
+    if (node.type !== NodeType.REGISTER && node.type !== NodeType.DRAIN
+      && node.type !== NodeType.TRADER) {
       const hlabel = document.createElement('div');
       hlabel.className = 'chart-label'; hlabel.style.marginTop = '12px';
       hlabel.textContent = 'Holdings by type';
@@ -1675,10 +1688,17 @@ class App {
       const fromGate = src && src.type === NodeType.GATE;
       const fromConverter = src && src.type === NodeType.CONVERTER;
       const fromDelay = src && src.type === NodeType.DELAY;
+      const traderSide = (src && src.type === NodeType.TRADER) || (tgt && tgt.type === NodeType.TRADER);
 
       const rateField = () => this._field(panel, 'Rate', 'number', conn.rate, v => {
         const n = parseFloat(v); conn.rate = isFinite(n) ? Math.max(0, n) : 0; this.renderer.render();
       });
+
+      if (traderSide) {
+        this._info(panel, tgt && tgt.type === NodeType.TRADER
+          ? 'Trade route (into the trader): the rate is what this partner pays per exchange.'
+          : 'Trade route (out of the trader): the rate is what this partner pays back per exchange.');
+      }
 
       if (fromGate) {
         // Gates distribute by weight only; rate/timing/filter don't apply.
