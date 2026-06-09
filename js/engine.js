@@ -109,6 +109,11 @@ class SimEngine {
     const d = this.diagram;
     const ctx = this._makeCtx();
     const fired = [];
+    // A node activates at most once per step. This set is shared across the
+    // initial, reverse-trigger, and artificial-player phases so a node that is
+    // both automatic and triggered (or targeted by several triggers, or part of
+    // a mutual-trigger pair) still fires exactly once.
+    const activated = new Set();
 
     // Seed the fire queue with automatic / starting nodes, then let triggers
     // cascade. Connection rate formulas read diagram.variables, which holds the
@@ -130,7 +135,7 @@ class SimEngine {
       }
       initial.push({ node: n, forced: false });
     }
-    this._runFireQueue(initial, ctx, fired);
+    this._runFireQueue(initial, ctx, fired, activated);
 
     // Reverse triggers: auto-nodes that didn't fire pulse their "fail" targets.
     const firedSet = new Set(fired);
@@ -144,7 +149,7 @@ class SimEngine {
         }
       }
     }
-    if (failQueue.length) this._runFireQueue(failQueue, ctx, fired);
+    if (failQueue.length) this._runFireQueue(failQueue, ctx, fired, activated);
 
     // Artificial player: fire scheduled / conditional interactive nodes as if a
     // user clicked them, within this same tick (flows still commit atomically).
@@ -156,7 +161,7 @@ class SimEngine {
         if (!node || node.activation !== ActivationMode.INTERACTIVE) continue;
         if (this._aiRuleFires(rule)) aiQueue.push({ node, forced: true });
       }
-      if (aiQueue.length) this._runFireQueue(aiQueue, ctx, fired);
+      if (aiQueue.length) this._runFireQueue(aiQueue, ctx, fired, activated);
     }
 
     // Advance delay queues and queue nodes (releases respect target capacity).
@@ -176,15 +181,18 @@ class SimEngine {
   }
 
   // Fire a worklist of nodes; each successful fire enqueues its trigger targets
-  // (state connections marked `trigger`). Loop-guarded against cycles.
-  _runFireQueue(initial, ctx, fired) {
+  // (state connections marked `trigger`). A node activates at most once per tick
+  // (`activated`), which both enforces correct semantics and bounds cascades.
+  _runFireQueue(initial, ctx, fired, activated = new Set()) {
     const d = this.diagram;
     const queue = [...initial];
     let guard = 0;
     while (queue.length && guard++ < 5000) {
       const { node, forced } = queue.shift();
-      if (!node || !this._nodeEnabled(node)) continue;
+      if (!node || activated.has(node.id)) continue;
+      if (!this._nodeEnabled(node)) continue;
       if (!this._fireNode(node, ctx, forced)) continue;
+      activated.add(node.id);
       fired.push(node.id);
       for (const t of d.outgoing(node.id)) {
         if (t.type === ConnectionType.STATE && t.trigger) {
@@ -341,12 +349,24 @@ class SimEngine {
     }
     if (!reqs.length) return false;
 
-    // pull-all is atomic: every provider must be able to supply its full rate.
+    // pull-all is atomic: move nothing unless EVERY provider can supply its full
+    // rate (honouring colour filters) AND this node can hold the entire pull.
     if (node.pullPolicy === 'all') {
+      let totalWant = 0;
       for (const r of reqs) {
-        const avail = r.src.type === NodeType.SOURCE && !r.src.limited ? Infinity : r.src.resources;
+        totalWant += r.want;
+        let avail;
+        if (r.src.type === NodeType.SOURCE && !r.src.limited) {
+          // Infinite source: the filter must match its single output colour.
+          const color = r.src.resourceColor || DEFAULT_COLOR;
+          avail = (r.conn.colorFilter && color !== r.conn.colorFilter) ? 0 : r.want;
+        } else {
+          avail = r.conn.colorFilter ? (r.src.colorMap[r.conn.colorFilter] || 0) : r.src.resources;
+        }
         if (avail < r.want) return false;
       }
+      // The pulling node must have room for the whole batch (capacity-aware).
+      if (this._acceptable(node.id, totalWant, ctx) < totalWant) return false;
     }
 
     let moved = false;
@@ -662,9 +682,14 @@ class SimEngine {
 
   // State-connection modifiers: each step, add `modFactor * sourceValue` to the
   // target node's resources (negative factors decay it). Targets pools and
-  // converters (accumulators); reads the committed post-flow state.
+  // converters (accumulators).
+  //
+  // Source values are snapshotted BEFORE any delta is applied, so a network of
+  // modifiers (mutual or chained, e.g. A→B→C) is order-independent and reads the
+  // step's starting values — matching the engine's atomic, one-step-lag model.
   _applyModifiers() {
     const d = this.diagram;
+    const mods = [];
     for (const conn of d.connections.values()) {
       if (conn.type !== ConnectionType.STATE || !conn.modifier) continue;
       const src = d.nodes.get(conn.sourceId);
@@ -672,8 +697,11 @@ class SimEngine {
       if (!src || !tgt || !this._canModify(tgt)) continue;
       const factor = Number(conn.modFactor);
       if (!isFinite(factor) || factor === 0) continue;
-      const delta = Math.round(factor * this._stateValueOf(src));
+      const delta = Math.round(factor * this._stateValueOf(src)); // pre-apply snapshot
       if (!isFinite(delta) || delta === 0) continue;
+      mods.push({ src, tgt, delta });
+    }
+    for (const { src, tgt, delta } of mods) {
       if (delta > 0) {
         const room = tgt.capacity === Infinity ? delta : Math.max(0, tgt.capacity - tgt.resources);
         const add = Math.min(delta, room);
@@ -701,8 +729,9 @@ class SimEngine {
     // Resources can't flow into a source or a register (registers are driven
     // by state connections / formulas, not by holding resources).
     if (tgt.type === NodeType.SOURCE || tgt.type === NodeType.REGISTER) return 0;
-    if (tgt.capacity === Infinity || tgt.type === NodeType.DRAIN || tgt.type === NodeType.DELAY)
-      return want;
+    // Drains are sinks (no capacity). Anything else with an unlimited capacity
+    // accepts freely; a finite capacity (incl. on a delay) is honoured below.
+    if (tgt.capacity === Infinity || tgt.type === NodeType.DRAIN) return want;
     const reserved = ctx.reserved.get(targetId) || 0;
     const room = tgt.capacity - tgt.resources - reserved;
     return Math.max(0, Math.min(want, room));
@@ -795,12 +824,15 @@ class SimEngine {
   }
 
   _connRate(conn) {
+    let r;
     switch (conn.rateMode) {
-      case RateMode.DICE:         return rollDice(conn.dice);
-      case RateMode.FORMULA:      return evalFormula(conn.formula, this.diagram.variables);
-      case RateMode.DISTRIBUTION: return sampleDist(conn.distType, conn.distParam1, conn.distParam2);
-      default:                    return typeof conn.rate === 'number' ? conn.rate : (parseFloat(conn.rate) || 0);
+      case RateMode.DICE:         r = rollDice(conn.dice); break;
+      case RateMode.FORMULA:      r = evalFormula(conn.formula, this.diagram.variables); break;
+      case RateMode.DISTRIBUTION: r = sampleDist(conn.distType, conn.distParam1, conn.distParam2); break;
+      default:                    r = typeof conn.rate === 'number' ? conn.rate : parseFloat(conn.rate); break;
     }
+    // Never propagate a non-finite rate — it would corrupt downstream node state.
+    return isFinite(r) ? r : 0;
   }
 
   _record() {

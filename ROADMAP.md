@@ -158,4 +158,9 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 - **Capacity-blocked shares aren't re-routed mid-tick** when two connections
   target the *same* full node (rare); resources stay in the source pool and are
   retried next step (never lost).
+- **Cross-node contention is node-order-dependent.** Max-min fairness applies
+  within a single node's outputs. When two *separate* source nodes push into one
+  capacity-limited target, the limited room is filled in node order rather than
+  shared fairly. Conservation always holds (no overfill, nothing created/lost);
+  only the split between competing nodes is order-dependent.
 - **Single time granularity** (integer steps); rates are rounded to integers.

@@ -747,7 +747,27 @@ class Renderer {
   // ── Hit test ─────────────────────────────────────────────────────────────
 
   hitTest(x, y) {
-    // Nodes have highest priority.
+    // Hit-test in reverse paint order (topmost-painted wins), so you select
+    // what you see. Layer paint order is groups < conns < nodes < charts <
+    // notes, so the test order is notes → charts → nodes → conns → groups.
+
+    // Notes paint on top of everything except transient overlays.
+    for (const [id] of this._noteEls) {
+      const note = this.diagram.notes.get(id);
+      if (!note) continue;
+      if (x >= note.x && x <= note.x + note.w && y >= note.y && y <= note.y + note.h)
+        return { type: 'note', id };
+    }
+
+    // Charts paint above nodes/connections.
+    for (const [id] of this._chartEls) {
+      const chart = this.diagram.charts.get(id);
+      if (!chart) continue;
+      if (x >= chart.x && x <= chart.x + chart.w && y >= chart.y && y <= chart.y + chart.h)
+        return { type: 'chart', id };
+    }
+
+    // Nodes paint above connections and groups.
     for (const [id] of this._nodeEls) {
       const node = this.diagram.nodes.get(id);
       if (!node) continue;
@@ -763,22 +783,6 @@ class Renderer {
         hit = Math.hypot(dx, dy) <= 36;
       }
       if (hit) return { type: 'node', id };
-    }
-
-    // Notes are rendered above nodes visually; test before connections.
-    for (const [id] of this._noteEls) {
-      const note = this.diagram.notes.get(id);
-      if (!note) continue;
-      if (x >= note.x && x <= note.x + note.w && y >= note.y && y <= note.y + note.h)
-        return { type: 'note', id };
-    }
-
-    // Charts: widget rectangles above connections/groups.
-    for (const [id] of this._chartEls) {
-      const chart = this.diagram.charts.get(id);
-      if (!chart) continue;
-      if (x >= chart.x && x <= chart.x + chart.w && y >= chart.y && y <= chart.y + chart.h)
-        return { type: 'chart', id };
     }
 
     // Sample along each connection's real path so the whole line is clickable.

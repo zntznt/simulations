@@ -433,10 +433,13 @@ class Editor {
       this._touchMode = 'single';
       this._onDown(this._touchShim(e.touches[0], e));
     } else if (e.touches.length === 2) {
-      // Two fingers: pinch-zoom / pan. Abort any pending single-touch gesture.
+      // Two fingers: pinch-zoom / pan. Abort every pending single-touch gesture
+      // so nothing is left half-applied (node drag, marquee, connect, and the
+      // note/chart/group special-drag and group-placement gestures).
       this._touchMode = 'pinch';
       this._drag = null; this._dragMoved = false;
       this._marquee = null; this._connecting = null;
+      this._specialDrag = null; this._groupPlaceDrag = null;
       this.renderer.clearTemp(); this.renderer.clearMarquee();
       this._pinch = this._pinchState(e);
     }

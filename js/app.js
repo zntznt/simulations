@@ -70,13 +70,18 @@ class App {
   }
 
   // Record that the diagram changed (push the previous state onto the stack).
+  // No-op when nothing actually changed, so redundant commits (e.g. a control
+  // that calls _commit() while its `change` event also bubbles to the panel's
+  // delegated commit listener) don't create empty undo steps.
   _commit() {
+    const snap = this._snapshot();
+    if (snap === this._lastState) return;
     if (this._lastState != null) {
       this._undoStack.push(this._lastState);
       if (this._undoStack.length > 100) this._undoStack.shift();
     }
     this._redoStack = [];
-    this._lastState = this._snapshot();
+    this._lastState = snap;
     this._updateUndoButtons();
     try { localStorage.setItem('sim_autosave', this._lastState); } catch {}
   }
@@ -923,9 +928,11 @@ class App {
       });
       const vi = document.createElement('input');
       vi.type = 'number'; vi.value = params[key]; vi.style.flex = '1';
+      // Update live as you type, but commit one undo step on blur (the panel's
+      // delegated `change` listener) rather than per keystroke.
       vi.addEventListener('input', () => {
         const n = parseFloat(vi.value);
-        if (isFinite(n)) { params[key] = n; this._commit(); }
+        if (isFinite(n)) params[key] = n;
       });
       const delBtn = document.createElement('button');
       delBtn.textContent = '×'; delBtn.className = 'btn';

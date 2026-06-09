@@ -1183,6 +1183,142 @@ test('named-type resources still flow as colors through the engine', () => {
   eq(d.resourceTypeName(Object.keys(p.colorMap)[0]), 'Gold', 'held color resolves to the type name');
 });
 
+// ── Sweep fixes: per-tick fire dedup ──────────────────────────────────────────
+console.log('\nPer-tick fire dedup');
+
+test('a passive node targeted by two triggers fires only once per step', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const b = node(d, NodeType.POOL); b.setCount(10);
+  const c = node(d, NodeType.POOL); c.setCount(50); c.activation = ActivationMode.PASSIVE;
+  conn(d, a, node(d, NodeType.DRAIN)).rate = 1;   // give a an outflow so it fires
+  conn(d, b, node(d, NodeType.DRAIN)).rate = 1;   // and b
+  const dc = node(d, NodeType.DRAIN);
+  conn(d, c, dc).rate = 5;
+  const t1 = conn(d, a, c, ConnectionType.STATE); t1.trigger = true;
+  const t2 = conn(d, b, c, ConnectionType.STATE); t2.trigger = true;
+  steps(e, 1);
+  eq(dc.drained, 5, 'C activated once (5), not twice (10)');
+});
+
+test('a node that is both automatic and triggered fires once', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  conn(d, a, node(d, NodeType.DRAIN)).rate = 1;
+  const t = node(d, NodeType.POOL); t.setCount(50);  // automatic
+  const dt = node(d, NodeType.DRAIN);
+  conn(d, t, dt).rate = 5;
+  const tr = conn(d, a, t, ConnectionType.STATE); tr.trigger = true;
+  steps(e, 1);
+  eq(dt.drained, 5, 'auto+triggered node activates once (5), not twice (10)');
+});
+
+test('mutual triggers each fire once and terminate', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(100);
+  const b = node(d, NodeType.POOL); b.setCount(100);
+  const da = node(d, NodeType.DRAIN); const db = node(d, NodeType.DRAIN);
+  conn(d, a, da).rate = 1;
+  conn(d, b, db).rate = 1;
+  const t1 = conn(d, a, b, ConnectionType.STATE); t1.trigger = true;
+  const t2 = conn(d, b, a, ConnectionType.STATE); t2.trigger = true;
+  steps(e, 1);
+  eq(da.drained, 1, 'A fired once');
+  eq(db.drained, 1, 'B fired once');
+});
+
+// ── Sweep fixes: non-finite rate sanitization ─────────────────────────────────
+console.log('\nNon-finite rate sanitization');
+
+test('sampleDist with a non-finite parameter never returns NaN', () => {
+  for (let i = 0; i < 50; i++) {
+    const v = sampleDist('uniform', NaN, 5);
+    assert(isFinite(v) && v >= 0, `uniform(NaN,5) finite & >=0 (got ${v})`);
+  }
+  assert(isFinite(sampleDist('normal', NaN, NaN)), 'normal(NaN,NaN) finite');
+  assert(isFinite(sampleDist('poisson', Infinity)), 'poisson(Infinity) finite');
+});
+
+test('a NaN connection rate moves nothing and never corrupts node state', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p); c.rate = NaN;
+  steps(e, 3);
+  assert(isFinite(p.resources), 'pool resources stay finite');
+  eq(p.resources, 0, 'no resources moved by a NaN rate');
+});
+
+// ── Sweep fixes: delay honours a finite capacity ──────────────────────────────
+console.log('\nDelay capacity');
+
+test('a delay with a finite capacity does not overfill', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const dl = node(d, NodeType.DELAY); dl.delay = 5; dl.capacity = 3;
+  const p = node(d, NodeType.POOL);
+  conn(d, s, dl).rate = 10;
+  conn(d, dl, p).rate = 99;
+  steps(e, 3);
+  assert(dl.resources <= 3, `delay never exceeds capacity 3 (got ${dl.resources})`);
+  eq(dl.resources, 3, 'delay fills to exactly its capacity');
+});
+
+// ── Sweep fixes: modifiers are order-independent (atomic) ──────────────────────
+console.log('\nModifier atomicity');
+
+test('mutual modifiers read the step-start values (order-independent)', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(100);
+  const b = node(d, NodeType.POOL); b.setCount(100);
+  const m1 = conn(d, a, b, ConnectionType.STATE); m1.modifier = true; m1.modFactor = 0.5;
+  const m2 = conn(d, b, a, ConnectionType.STATE); m2.modifier = true; m2.modFactor = 0.5;
+  steps(e, 1);
+  eq(a.resources, 150, 'A grew by 0.5×B(100), not by the post-mutation B');
+  eq(b.resources, 150, 'B grew by 0.5×A(100)');
+});
+
+test('chained modifiers do not leak a value across nodes in one step', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(100);
+  const b = node(d, NodeType.POOL); b.setCount(0);
+  const c = node(d, NodeType.POOL); c.setCount(0);
+  const m1 = conn(d, a, b, ConnectionType.STATE); m1.modifier = true; m1.modFactor = 1;
+  const m2 = conn(d, b, c, ConnectionType.STATE); m2.modifier = true; m2.modFactor = 1;
+  steps(e, 1);
+  eq(b.resources, 100, 'B received A\'s step-start value');
+  eq(c.resources, 0, 'C received B\'s step-start value (0), not the leaked 100');
+});
+
+// ── Sweep fixes: pull-all is truly atomic ─────────────────────────────────────
+console.log('\nPull-all atomicity');
+
+test('pull-all moves nothing when the puller cannot hold the whole batch', () => {
+  const { d, e } = setup();
+  const prov1 = node(d, NodeType.POOL); prov1.setCount(10);
+  const prov2 = node(d, NodeType.POOL); prov2.setCount(10);
+  const pull = node(d, NodeType.POOL); pull.capacity = 3;
+  pull.flowMode = 'pull'; pull.pullPolicy = 'all';
+  conn(d, prov1, pull).rate = 3;
+  conn(d, prov2, pull).rate = 3;     // total want 6 > capacity 3
+  steps(e, 1);
+  eq(pull.resources, 0, 'nothing pulled (atomic) — capacity too small for the batch');
+  eq(prov1.resources, 10, 'provider 1 untouched');
+  eq(prov2.resources, 10, 'provider 2 untouched');
+});
+
+test('pull-all moves nothing when one provider lacks the filtered colour', () => {
+  const { d, e } = setup();
+  const provA = node(d, NodeType.POOL); provA.setCount(5, '#aaaaaa');
+  const provB = node(d, NodeType.POOL); provB.setCount(5, '#bbbbbb');
+  const pull = node(d, NodeType.POOL); pull.flowMode = 'pull'; pull.pullPolicy = 'all';
+  const cA = conn(d, provA, pull); cA.rate = 2; cA.colorFilter = '#aaaaaa'; // can supply
+  const cB = conn(d, provB, pull); cB.rate = 2; cB.colorFilter = '#cccccc'; // cannot
+  steps(e, 1);
+  eq(pull.resources, 0, 'nothing pulled — provB cannot supply #cccccc');
+  eq(provA.resources, 5, 'provider A untouched (atomic)');
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed) {

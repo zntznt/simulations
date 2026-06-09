@@ -544,6 +544,30 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P2 chart: on-canvas chart tracks a node, plots a line after a run, serializes');
   else fail('P2 chart: ' + JSON.stringify(p2chart));
 
+  // Hit-test order matches visual stacking: an annotation painted over a node
+  // is selected (not the node hidden beneath it), and a bare node is still hit.
+  const hitOrder = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const n = d.addNode(new MNode(NodeType.POOL, 300, 300));
+    const note = d.addNote(new MNote(250, 270));   // 160×80 → covers (300,300)
+    const chart = d.addChart(new MChart(500, 470)); // away from the node
+    window.app.renderer.render();
+    const overNode = window.app.renderer.hitTest(300, 300);   // note is on top here
+    const onChart = window.app.renderer.hitTest(560, 520);    // chart only
+    d.removeNote(note.id);
+    window.app.renderer.render();
+    const bareNode = window.app.renderer.hitTest(300, 300);   // now just the node
+    return {
+      overNote: overNode && overNode.type === 'note' && overNode.id === note.id,
+      onChart: onChart && onChart.type === 'chart' && onChart.id === chart.id,
+      bareNode: bareNode && bareNode.type === 'node' && bareNode.id === n.id,
+    };
+  });
+  if (hitOrder.overNote && hitOrder.onChart && hitOrder.bareNode)
+    ok('hit-test honours visual stacking (annotation over node wins; bare node still selectable)');
+  else fail('hit-test order: ' + JSON.stringify(hitOrder));
+
   // P2: named resource types — editor, type pickers, per-type readouts.
   const p2types = await page.evaluate(() => {
     window.app._clearAll();

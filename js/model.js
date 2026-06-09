@@ -68,7 +68,11 @@ function evalFormula(expr, vars = {}) {
 // Sample from a named statistical distribution. Returns a non-negative integer.
 // p1/p2 meaning: normal→mean/stddev, uniform→min/max, exponential→mean, poisson→lambda.
 function sampleDist(type, p1 = 1, p2 = 0) {
-  const fl0 = n => Math.max(0, Math.round(n));
+  // Sanitize params up front so a non-finite input can never yield NaN (which
+  // would silently poison a node's resource count downstream).
+  if (!isFinite(p1)) p1 = 0;
+  if (!isFinite(p2)) p2 = 0;
+  const fl0 = n => (isFinite(n) ? Math.max(0, Math.round(n)) : 0);
   switch (type) {
     case 'uniform':
       return fl0((isFinite(p1) ? p1 : 0) + Math.random() * (Math.max(p2, p1) - (isFinite(p1) ? p1 : 0)));
