@@ -6,7 +6,7 @@
   --panel2: #1a1e2e;
   --border: #252d45;
   --text: #c8cfe0;
-  --text-dim: #556070;
+  --text-dim: #6b7793;
   --accent: #4a9eff;
   --accent2: #ffa726;
   --red: #ef5350;
@@ -83,7 +83,14 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 /* ── Canvas ── */
 #canvas-wrap { flex: 1; position: relative; overflow: hidden; }
-#canvas { width: 100%; height: 100%; display: block; }
+#canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+#canvas:focus { outline: none; }
+
+/* Keyboard-focus visibility (accessibility) */
+.btn:focus-visible, [data-tool]:focus-visible,
+.prop-row input:focus-visible, .prop-row select:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
 
 /* ── Right props panel ── */
 #props-panel {
@@ -284,3 +291,26 @@ input[type="range"] {
 .lib-info { flex: 1; min-width: 0; font-size: 12px; }
 .lib-info b { display: block; }
 .lib-date { color: var(--text-dim); font-size: 11px; }
+
+/* ── Artificial-player rule box ── */
+.ai-rule {
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 8px 2px; margin-bottom: 8px; background: var(--panel2);
+}
+.ai-rule .prop-row label { flex: 0 0 70px; }
+
+/* ── Toast ── */
+#app-toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(8px);
+  background: var(--panel2); color: var(--text); border: 1px solid var(--accent);
+  border-radius: 6px; padding: 8px 16px; font-size: 12px; z-index: 200;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4); opacity: 0; pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+#app-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── Embed mode (clean, shareable view) ── */
+body.embed #palette,
+body.embed #props-panel,
+body.embed .file-controls,
+body.embed .analysis-controls { display: none; }

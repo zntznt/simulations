@@ -27,12 +27,13 @@
       <button class="btn" id="btn-timeline" title="Toggle timeline chart">📈 Chart</button>
       <button class="btn" id="btn-batch" title="Run many simulations (Monte Carlo)">🎲 Batch</button>
       <button class="btn" id="btn-fit" title="Reset zoom &amp; pan (Ctrl+0)">⤢ Fit</button>
-      <button class="btn" id="btn-snap" title="Toggle grid snap (align nodes to grid)">⊞ Snap</button>
+      <button class="btn" id="btn-snap" title="Toggle grid snap (align nodes to grid)" aria-pressed="false">⊞ Snap</button>
+      <button class="btn" id="btn-autoselect" title="After placing a node, switch back to Select" aria-pressed="false">↩ Auto</button>
     </div>
 
     <div class="file-controls">
-      <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
-      <button class="btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+      <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+      <button class="btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
       <select class="btn" id="btn-examples" title="Load a sample diagram">
         <option value="">Examples…</option>
         <option value="basic">Basic Economy</option>
@@ -44,6 +45,8 @@
       <button class="btn" id="btn-save" title="Save diagram as JSON">⬇ JSON</button>
       <button class="btn" id="btn-export-svg" title="Export diagram as SVG">⬇ SVG</button>
       <button class="btn" id="btn-export-png" title="Export diagram as PNG">⬇ PNG</button>
+      <button class="btn" id="btn-export-csv" title="Export run history as CSV">⬇ CSV</button>
+      <button class="btn" id="btn-share" title="Copy a shareable link to this diagram">🔗 Share</button>
       <button class="btn" id="btn-load" title="Load diagram from JSON">Load</button>
     </div>
   </header>
@@ -187,7 +190,7 @@
 
     <!-- Canvas -->
     <div id="canvas-wrap">
-      <svg id="canvas"></svg>
+      <svg id="canvas" role="application" aria-label="Diagram editing canvas" tabindex="0"></svg>
     </div>
 
     <!-- Properties panel -->

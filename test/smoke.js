@@ -362,6 +362,123 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P2 UI: snap button, library button, export SVG/PNG, library modal present');
   else fail('P2 UI: ' + JSON.stringify(p2ui));
 
+  // P3: time-mode selector + per-node async fields.
+  const p3time = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app.editor._select(null, null);                 // diagram panel
+    const diagText = document.getElementById('props-content').textContent;
+    const hasTimeMode = diagText.includes('Time mode');
+
+    window.app.diagram.timeMode = 'async';
+    const s = window.app.diagram.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    window.app._onSelect(s.id, 'node');
+    const hasFireEvery = [...document.querySelectorAll('#props-content .prop-row label')]
+      .some(l => l.textContent.trim() === 'Fire every');
+    window.app.diagram.timeMode = 'sync';
+    return { hasTimeMode, hasFireEvery };
+  });
+  if (p3time.hasTimeMode && p3time.hasFireEvery)
+    ok('P3 time modes: diagram time-mode selector + per-node async fields');
+  else fail('P3 time modes: ' + JSON.stringify(p3time));
+
+  // P3: artificial-player panel present and accepts a rule.
+  const p3ai = await page.evaluate(() => {
+    window.app._clearAll();
+    const p = window.app.diagram.addNode(new MNode(NodeType.POOL, 200, 200));
+    p.activation = ActivationMode.INTERACTIVE;
+    window.app.editor._select(null, null);                 // diagram panel
+    const hasAI = document.getElementById('props-content').textContent.includes('Artificial Player');
+    const ai = window.app.diagram.aiPlayer;
+    ai.rules.push({ nodeId: p.id, mode: 'interval', every: 3 });
+    ai.enabled = true;
+    window.app.editor._select(null, null);                 // re-render with the rule
+    const ruleBoxes = document.querySelectorAll('#props-content .ai-rule').length;
+    return { hasAI, ruleBoxes };
+  });
+  if (p3ai.hasAI && p3ai.ruleBoxes === 1)
+    ok('P3 artificial player: panel renders and shows a rule');
+  else fail('P3 artificial player: ' + JSON.stringify(p3ai));
+
+  // P3: CSV export builds a header + one row per recorded step.
+  const p3csv = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 400, 200)); p.label = 'Bank';
+    d.addConnection(new MConnection(s.id, p.id)).rate = 2;
+    window.app.engine.reset();
+    for (let i = 0; i < 4; i++) window.app.engine.doStep();
+    const csv = window.app._buildCSV();
+    const lines = csv.trim().split('\n');
+    return { header: lines[0], rows: lines.length, hasBank: lines[0].includes('Bank') };
+  });
+  if (p3csv.header.startsWith('step') && p3csv.hasBank && p3csv.rows === 5)
+    ok(`P3 CSV: history export (header + ${p3csv.rows - 1} rows)`);
+  else fail('P3 CSV: ' + JSON.stringify(p3csv));
+
+  // P3: shareable URL encode/decode round-trips the diagram.
+  const p3share = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    d.addNode(new MNode(NodeType.POOL, 100, 100));
+    d.addNode(new MNode(NodeType.DRAIN, 300, 100));
+    const enc = window.app._encodeDiagram();
+    location.hash = '#d=' + enc;
+    const decoded = window.app._decodeDiagram();
+    location.hash = '';
+    return { encLen: enc.length, nodes: decoded ? decoded.nodes.length : -1 };
+  });
+  if (p3share.encLen > 0 && p3share.nodes === 2)
+    ok('P3 share: diagram encodes to a URL hash and decodes back');
+  else fail('P3 share: ' + JSON.stringify(p3share));
+
+  // P3: auto-revert reverts to Select after placing a node.
+  const p3auto = await page.evaluate(() => {
+    window.app._clearAll();
+    document.getElementById('btn-autoselect').click();     // enable auto-revert
+    const enabled = window.app.editor.autoRevert;
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const ev = (t, sx, sy) => canvas.dispatchEvent(
+      new MouseEvent(t, { clientX: r.left + sx, clientY: r.top + sy, button: 0, bubbles: true }));
+    window.app._activateTool('place-pool');
+    ev('mousedown', 250, 250); ev('mouseup', 250, 250);
+    const toolAfter = window.app.editor.tool;
+    document.getElementById('btn-autoselect').click();     // restore
+    return { enabled, toolAfter, placed: window.app.diagram.nodes.size };
+  });
+  if (p3auto.enabled && p3auto.toolAfter === 'select' && p3auto.placed === 1)
+    ok('P3 auto-revert: tool returns to Select after placing a node');
+  else fail('P3 auto-revert: ' + JSON.stringify(p3auto));
+
+  // P3: touch handlers wired + accessibility attributes present.
+  const p3a11y = await page.evaluate(() => {
+    const ed = window.app.editor;
+    const hasTouch = typeof ed._onTouchStart === 'function'
+      && typeof ed._onTouchMove === 'function' && typeof ed._onTouchEnd === 'function';
+    const canvas = document.getElementById('canvas');
+    const canvasRole = canvas.getAttribute('role') === 'application' && !!canvas.getAttribute('aria-label');
+    const undoLabel = document.getElementById('btn-undo').getAttribute('aria-label') === 'Undo';
+    const iconHidden = [...document.querySelectorAll('.tool-icon svg')]
+      .every(s => s.getAttribute('aria-hidden') === 'true');
+    return { hasTouch, canvasRole, undoLabel, iconHidden };
+  });
+  if (p3a11y.hasTouch && p3a11y.canvasRole && p3a11y.undoLabel && p3a11y.iconHidden)
+    ok('P3 touch + a11y: touch handlers, canvas role, aria-labels, hidden icons');
+  else fail('P3 touch + a11y: ' + JSON.stringify(p3a11y));
+
+  // P3: embed mode hides the editing chrome.
+  const p3embed = await page.evaluate(() => {
+    document.body.classList.add('embed');
+    const paletteHidden = getComputedStyle(document.getElementById('palette')).display === 'none';
+    const propsHidden = getComputedStyle(document.getElementById('props-panel')).display === 'none';
+    document.body.classList.remove('embed');
+    return { paletteHidden, propsHidden };
+  });
+  if (p3embed.paletteHidden && p3embed.propsHidden)
+    ok('P3 embed: embed mode hides palette and properties panel');
+  else fail('P3 embed: ' + JSON.stringify(p3embed));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);

@@ -114,11 +114,21 @@ class SimEngine {
     // cascade. Connection rate formulas read diagram.variables, which holds the
     // values committed at the end of the previous step (or from reset()).
     const initial = [];
+    const asyncMode = d.timeMode === 'async';
     for (const n of d.nodes.values()) {
-      const auto =
-        n.activation === ActivationMode.AUTOMATIC ||
-        (n.activation === ActivationMode.STARTING && this.step === 1);
-      if (auto) initial.push({ node: n, forced: false });
+      if (n.activation === ActivationMode.STARTING) {
+        if (this.step === 1) initial.push({ node: n, forced: false });
+        continue;
+      }
+      if (n.activation !== ActivationMode.AUTOMATIC) continue;
+      // Asynchronous time mode: each automatic node fires on its own rhythm.
+      if (asyncMode) {
+        const every = Math.max(1, Math.round(n.fireEvery || 1));
+        const phase = Math.max(0, Math.round(n.firePhase || 0));
+        const t = (this.step - 1) - phase;
+        if (t < 0 || t % every !== 0) continue;
+      }
+      initial.push({ node: n, forced: false });
     }
     this._runFireQueue(initial, ctx, fired);
 
@@ -135,6 +145,19 @@ class SimEngine {
       }
     }
     if (failQueue.length) this._runFireQueue(failQueue, ctx, fired);
+
+    // Artificial player: fire scheduled / conditional interactive nodes as if a
+    // user clicked them, within this same tick (flows still commit atomically).
+    const ai = d.aiPlayer;
+    if (ai && ai.enabled && Array.isArray(ai.rules) && ai.rules.length) {
+      const aiQueue = [];
+      for (const rule of ai.rules) {
+        const node = d.nodes.get(rule.nodeId);
+        if (!node || node.activation !== ActivationMode.INTERACTIVE) continue;
+        if (this._aiRuleFires(rule)) aiQueue.push({ node, forced: true });
+      }
+      if (aiQueue.length) this._runFireQueue(aiQueue, ctx, fired);
+    }
 
     // Advance delay queues and queue nodes (releases respect target capacity).
     this._advanceDelays(ctx);
@@ -735,6 +758,17 @@ class SimEngine {
   }
 
   // ── Connection helpers ────────────────────────────────────────────────────
+
+  // Does an artificial-player rule fire this step? 'interval' fires every N
+  // steps; 'condition' fires while a named variable satisfies the comparison.
+  _aiRuleFires(rule) {
+    if (rule.mode === 'condition') {
+      const v = this.diagram.variables[rule.condVar] ?? 0;
+      return this._evalCond(v, rule.condOp || '>=', Number(rule.condValue) || 0);
+    }
+    const every = Math.max(1, Math.round(rule.every || 1));
+    return ((this.step - 1) % every) === 0;
+  }
 
   _connFires(conn, sourceNode) {
     if (conn.interval > 1 && (this.step - 1) % conn.interval !== 0) return false;

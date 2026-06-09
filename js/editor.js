@@ -16,6 +16,10 @@ class Editor {
     this.selection = new Set(); // multi-selected node ids
     this._snapEnabled = false;
     this._snapSize = 20;
+    this.autoRevert = false;     // revert to Select after placing a node
+    this.onToolChange = null;    // callback(tool) when the editor changes its own tool
+    this._touchMode = null;      // 'single' | 'pinch'
+    this._pinch = null;          // last pinch state {dist, cx, cy}
 
     this._bind();
   }
@@ -58,6 +62,11 @@ class Editor {
     this.svg.addEventListener('dblclick', e => this._onDbl(e));
     this.svg.addEventListener('contextmenu', e => { e.preventDefault(); this._onRightClick(e); });
     this.svg.addEventListener('wheel', e => this._onWheel(e), { passive: false });
+
+    // Touch (mobile): single-touch maps to mouse gestures; two fingers pinch/pan.
+    this.svg.addEventListener('touchstart', e => this._onTouchStart(e), { passive: false });
+    this.svg.addEventListener('touchmove', e => this._onTouchMove(e), { passive: false });
+    this.svg.addEventListener('touchend', e => this._onTouchEnd(e), { passive: false });
 
     window.addEventListener('keydown', e => this._onKey(e));
   }
@@ -110,6 +119,11 @@ class Editor {
       this.renderer.render();
       this._select(node.id, 'node');
       this._changed();
+      // Optional: snap back to the Select tool after placing one node.
+      if (this.autoRevert) {
+        this.setTool('select');
+        if (this.onToolChange) this.onToolChange('select');
+      }
     } else if (this.tool === 'connect-resource' || this.tool === 'connect-state') {
       const connType = this.tool === 'connect-state' ? ConnectionType.STATE : ConnectionType.RESOURCE;
       if (!this._connecting) {
@@ -275,6 +289,64 @@ class Editor {
     // Wheel zooms toward the cursor; pan via middle/alt-drag.
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     this.renderer.zoomBy(factor, e.clientX, e.clientY);
+  }
+
+  // ── Touch (mobile) ──────────────────────────────────────────────────────────
+
+  // Wrap a Touch into a mouse-event-like object the mouse handlers understand.
+  _touchShim(t, e) {
+    return {
+      button: 0, altKey: false, shiftKey: false,
+      clientX: t.clientX, clientY: t.clientY,
+      preventDefault: () => { if (e.cancelable) e.preventDefault(); },
+    };
+  }
+
+  _pinchState(e) {
+    const a = e.touches[0], b = e.touches[1];
+    return {
+      dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1,
+      cx: (a.clientX + b.clientX) / 2,
+      cy: (a.clientY + b.clientY) / 2,
+    };
+  }
+
+  _onTouchStart(e) {
+    if (e.touches.length === 1) {
+      this._touchMode = 'single';
+      this._onDown(this._touchShim(e.touches[0], e));
+    } else if (e.touches.length === 2) {
+      // Two fingers: pinch-zoom / pan. Abort any pending single-touch gesture.
+      this._touchMode = 'pinch';
+      this._drag = null; this._dragMoved = false;
+      this._marquee = null; this._connecting = null;
+      this.renderer.clearTemp(); this.renderer.clearMarquee();
+      this._pinch = this._pinchState(e);
+    }
+    if (e.cancelable) e.preventDefault();
+  }
+
+  _onTouchMove(e) {
+    if (this._touchMode === 'pinch' && e.touches.length === 2) {
+      const cur = this._pinchState(e);
+      const prev = this._pinch || cur;
+      this.renderer.zoomBy(cur.dist / (prev.dist || 1), prev.cx, prev.cy);
+      this.renderer.setPan(this.renderer._panX + (cur.cx - prev.cx),
+                           this.renderer._panY + (cur.cy - prev.cy));
+      this._pinch = cur;
+    } else if (this._touchMode === 'single' && e.touches.length === 1) {
+      this._onMove(this._touchShim(e.touches[0], e));
+    }
+    if (e.cancelable) e.preventDefault();
+  }
+
+  _onTouchEnd(e) {
+    if (this._touchMode === 'single') {
+      const t = e.changedTouches[0];
+      if (t) this._onUp(this._touchShim(t, e));
+    }
+    if (e.touches.length === 0) { this._touchMode = null; this._pinch = null; }
+    if (e.cancelable) e.preventDefault();
   }
 
   _onKey(e) {

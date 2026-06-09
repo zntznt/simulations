@@ -9,6 +9,9 @@ class App {
       (id, type, count) => this._onSelect(id, type, count),
       () => this._commit(),
     );
+    // Keep the toolbar's active-tool highlight in sync when the editor reverts
+    // its own tool (e.g. auto-revert to Select after placing a node).
+    this.editor.onToolChange = (tool) => this._syncToolButtons(tool);
 
     this._selectedId = null;
     this._selectedType = null;
@@ -118,6 +121,9 @@ class App {
     this.diagram.nodes.clear();
     this.diagram.connections.clear();
     this.diagram.variables = {};
+    this.diagram.params = {};
+    this.diagram.timeMode = 'sync';
+    this.diagram.aiPlayer = { enabled: false, rules: [] };
     this.engine.reset();
     document.getElementById('btn-run').textContent = '▶ Run';
     document.getElementById('sim-status').textContent = '';
@@ -130,6 +136,24 @@ class App {
   // ── Init / autosave ───────────────────────────────────────────────────────
 
   _initDiagram() {
+    // Embed mode: strip chrome for a clean, shareable view.
+    const params = new URLSearchParams(location.search);
+    if (params.has('embed') || /(^|[#&])embed\b/.test(location.hash)) {
+      document.body.classList.add('embed');
+    }
+
+    // A diagram encoded in the URL hash (#d=…) takes precedence over autosave.
+    const shared = this._decodeDiagram();
+    if (shared) {
+      try {
+        this.diagram.loadJSON(shared);
+        this.engine.reset();
+        this.renderer.render();
+        this._resetHistory();
+        return;
+      } catch { /* fall through to example */ }
+    }
+
     const saved = localStorage.getItem('sim_autosave');
     this._loadExample();
     this._resetHistory();
@@ -248,10 +272,16 @@ class App {
 
   // ── Tool activation ───────────────────────────────────────────────────────
 
+  _syncToolButtons(tool) {
+    document.querySelectorAll('[data-tool]').forEach(b => {
+      const on = b.dataset.tool === tool;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+  }
+
   _activateTool(tool) {
-    document.querySelectorAll('[data-tool]').forEach(b => b.classList.remove('active'));
-    const btn = document.querySelector(`[data-tool="${tool}"]`);
-    if (btn) btn.classList.add('active');
+    this._syncToolButtons(tool);
     this.editor.setTool(tool);
   }
 
@@ -290,6 +320,86 @@ class App {
     };
     img.onerror = () => URL.revokeObjectURL(url);
     img.src = url;
+  }
+
+  // ── CSV export of the recorded run history ──────────────────────────────────
+
+  _csvCell(s) {
+    s = String(s);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  // Build a CSV of every tracked node's value at each recorded step.
+  _buildCSV() {
+    const ids = [];
+    for (const n of this.diagram.nodes.values()) {
+      if (n.type === NodeType.SOURCE && !n.limited) continue; // infinite sources aren't tracked
+      ids.push(n.id);
+    }
+    const header = ['step', ...ids.map(id => this._csvCell(this.diagram.nodes.get(id)?.label || id))];
+    const lines = [header.join(',')];
+    for (const h of this.engine.history) {
+      lines.push([h.step, ...ids.map(id => h.snap[id] ?? '')].join(','));
+    }
+    return lines.join('\n');
+  }
+
+  _exportCSV() {
+    if (!this.engine.history.length) {
+      this._toast('Run the simulation first to record history.');
+      return;
+    }
+    const blob = new Blob([this._buildCSV()], { type: 'text/csv' });
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob), download: 'history.csv',
+    });
+    a.click();
+  }
+
+  // ── Shareable URL ───────────────────────────────────────────────────────────
+
+  _encodeDiagram() {
+    const json = JSON.stringify(this.diagram.toJSON());
+    return btoa(unescape(encodeURIComponent(json)));
+  }
+
+  // Parse a diagram out of the current URL hash (#d=…), or null if absent/bad.
+  _decodeDiagram() {
+    const m = location.hash.match(/[#&]d=([^&]+)/);
+    if (!m) return null;
+    try {
+      const json = decodeURIComponent(escape(atob(decodeURIComponent(m[1]))));
+      return JSON.parse(json);
+    } catch { return null; }
+  }
+
+  _shareURL() {
+    const enc = this._encodeDiagram();
+    const url = location.origin + location.pathname + '#d=' + enc;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(
+        () => this._toast('Share link copied to clipboard'),
+        () => prompt('Copy this share link:', url),
+      );
+    } else {
+      prompt('Copy this share link:', url);
+    }
+    try { history.replaceState(null, '', '#d=' + enc); } catch { /* ignore */ }
+  }
+
+  // ── Transient toast ─────────────────────────────────────────────────────────
+
+  _toast(msg) {
+    let t = document.getElementById('app-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'app-toast';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
   }
 
   // ── Example diagrams ──────────────────────────────────────────────────────
@@ -538,11 +648,25 @@ class App {
     document.getElementById('btn-snap').addEventListener('click', () => {
       const enabled = !this.editor._snapEnabled;
       this.editor.setSnap(enabled);
-      document.getElementById('btn-snap').classList.toggle('active', enabled);
+      const b = document.getElementById('btn-snap');
+      b.classList.toggle('active', enabled);
+      b.setAttribute('aria-pressed', String(enabled));
+    });
+
+    const autoBtn = document.getElementById('btn-autoselect');
+    autoBtn.addEventListener('click', () => {
+      this.editor.autoRevert = !this.editor.autoRevert;
+      autoBtn.classList.toggle('active', this.editor.autoRevert);
+      autoBtn.setAttribute('aria-pressed', String(this.editor.autoRevert));
     });
 
     document.getElementById('btn-export-svg').addEventListener('click', () => this._exportSVG());
     document.getElementById('btn-export-png').addEventListener('click', () => this._exportPNG());
+    document.getElementById('btn-export-csv').addEventListener('click', () => this._exportCSV());
+    document.getElementById('btn-share').addEventListener('click', () => this._shareURL());
+
+    // A11y: hide decorative tool icons from assistive tech (buttons keep text labels).
+    document.querySelectorAll('.tool-icon svg').forEach(s => s.setAttribute('aria-hidden', 'true'));
 
     document.getElementById('btn-save').addEventListener('click', () => {
       const json = JSON.stringify(this.diagram.toJSON(), null, 2);
@@ -581,6 +705,7 @@ class App {
       this._timelineVisible = show;
       document.getElementById('timeline').classList.toggle('hidden', !show);
       tlBtn.classList.toggle('active', show);
+      tlBtn.setAttribute('aria-pressed', String(show));
       if (show) this.timeline.update();
     };
     tlBtn.addEventListener('click', () => toggleTimeline(!this._timelineVisible));
@@ -749,6 +874,16 @@ class App {
     this._title(panel, 'Diagram');
     this._info(panel, 'Select a node or connection to edit its properties.');
 
+    // Time mode (synchronous turn-based vs asynchronous per-node rhythm).
+    this._sep(panel);
+    const tm = this.diagram.timeMode || 'sync';
+    this._select2(panel, 'Time mode', ['sync', 'async'], tm, v => {
+      this.diagram.timeMode = v; this._renderProps(); this._commit();
+    });
+    this._info(panel, tm === 'async'
+      ? 'Asynchronous: each automatic node fires on its own "Fire every" rhythm (set per node).'
+      : 'Synchronous (turn-based): every automatic node fires once per step.');
+
     this._sep(panel);
     const ptitle = document.createElement('h3');
     ptitle.className = 'props-title';
@@ -803,6 +938,9 @@ class App {
     addRow.appendChild(addBtn);
     panel.appendChild(addRow);
 
+    // Artificial player (scripted actor firing interactive nodes).
+    this._diagramAI(panel);
+
     // Live variables readout (during simulation)
     const vars = Object.entries(this.diagram.variables);
     if (vars.length) {
@@ -822,6 +960,102 @@ class App {
         panel.appendChild(row);
       }
     }
+  }
+
+  // Artificial-player editor (shown in the diagram panel). Lets you script
+  // interactive nodes to fire on an interval or a variable condition.
+  _diagramAI(panel) {
+    this._sep(panel);
+    const h = document.createElement('h3');
+    h.className = 'props-title';
+    h.textContent = 'Artificial Player';
+    panel.appendChild(h);
+
+    const ai = this.diagram.aiPlayer || (this.diagram.aiPlayer = { enabled: false, rules: [] });
+    this._checkRow(panel, 'Enabled', ai.enabled, v => { ai.enabled = v; this._commit(); });
+    this._info(panel, 'Scripted actor: fires interactive nodes automatically during a run — every N steps, or when a variable condition holds.');
+
+    const interactives = [...this.diagram.nodes.values()]
+      .filter(n => n.activation === ActivationMode.INTERACTIVE);
+    if (!interactives.length) {
+      this._info(panel, 'Tip: set a node\'s Activation to "interactive" to make it scriptable.');
+    }
+
+    ai.rules.forEach((rule, i) => {
+      const box = document.createElement('div');
+      box.className = 'ai-rule';
+
+      // Target node (dropdown of interactive nodes).
+      const nodeRow = document.createElement('div'); nodeRow.className = 'prop-row';
+      const nl = document.createElement('label'); nl.textContent = 'Node';
+      const ns = document.createElement('select');
+      for (const n of interactives) {
+        const o = document.createElement('option');
+        o.value = n.id; o.textContent = n.label || n.type;
+        if (n.id === rule.nodeId) o.selected = true;
+        ns.appendChild(o);
+      }
+      if (!rule.nodeId && interactives[0]) rule.nodeId = interactives[0].id;
+      ns.addEventListener('change', () => { rule.nodeId = ns.value; this._commit(); });
+      nodeRow.appendChild(nl); nodeRow.appendChild(ns); box.appendChild(nodeRow);
+
+      // Firing mode.
+      const modeRow = document.createElement('div'); modeRow.className = 'prop-row';
+      const ml = document.createElement('label'); ml.textContent = 'When';
+      const ms = document.createElement('select');
+      for (const [v, t] of [['interval', 'Every N steps'], ['condition', 'Condition']]) {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = t;
+        if (v === (rule.mode || 'interval')) o.selected = true;
+        ms.appendChild(o);
+      }
+      ms.addEventListener('change', () => { rule.mode = ms.value; this._renderProps(); this._commit(); });
+      modeRow.appendChild(ml); modeRow.appendChild(ms); box.appendChild(modeRow);
+
+      if ((rule.mode || 'interval') === 'condition') {
+        this._field(box, 'Variable', 'text', rule.condVar || '', v => { rule.condVar = v; }, 'variable name');
+        const opRow = document.createElement('div'); opRow.className = 'prop-row';
+        const ol = document.createElement('label'); ol.textContent = 'Op';
+        const op = document.createElement('select');
+        for (const o of ['>', '>=', '<', '<=', '==', '!=']) {
+          const e = document.createElement('option');
+          e.value = o; e.textContent = o;
+          if (o === (rule.condOp || '>=')) e.selected = true;
+          op.appendChild(e);
+        }
+        op.addEventListener('change', () => { rule.condOp = op.value; this._commit(); });
+        const val = document.createElement('input');
+        val.type = 'number'; val.value = rule.condValue ?? 0; val.style.width = '70px'; val.style.flex = 'none';
+        val.addEventListener('input', () => { rule.condValue = parseFloat(val.value) || 0; });
+        opRow.appendChild(ol); opRow.appendChild(op); opRow.appendChild(val); box.appendChild(opRow);
+      } else {
+        this._field(box, 'Every', 'number', rule.every || 1,
+          v => { rule.every = Math.max(1, parseInt(v) || 1); }, 'steps');
+      }
+
+      const delRow = document.createElement('div'); delRow.className = 'prop-row';
+      delRow.appendChild(document.createElement('label'));
+      const del = document.createElement('button');
+      del.textContent = 'Remove rule'; del.className = 'btn'; del.style.flex = '1';
+      del.addEventListener('click', () => { ai.rules.splice(i, 1); this._renderProps(); this._commit(); });
+      delRow.appendChild(del); box.appendChild(delRow);
+
+      panel.appendChild(box);
+    });
+
+    const addRow = document.createElement('div'); addRow.className = 'prop-row';
+    addRow.appendChild(document.createElement('label'));
+    const add = document.createElement('button');
+    add.textContent = '+ Add rule'; add.className = 'btn'; add.style.flex = '1';
+    add.disabled = !interactives.length;
+    add.addEventListener('click', () => {
+      ai.rules.push({
+        nodeId: interactives[0] ? interactives[0].id : '',
+        mode: 'interval', every: 5, condVar: '', condOp: '>=', condValue: 0,
+      });
+      this._renderProps(); this._commit();
+    });
+    addRow.appendChild(add); panel.appendChild(addRow);
   }
 
   _nodeProps(panel, node) {
@@ -953,7 +1187,16 @@ class App {
     }
 
     this._select2(panel, 'Activation', Object.values(ActivationMode), node.activation,
-      v => { node.activation = v; this.renderer.render(); });
+      v => { node.activation = v; this._renderProps(); this.renderer.render(); });
+
+    // Asynchronous time mode: per-node firing rhythm (only for automatic nodes).
+    if (this.diagram.timeMode === 'async' && node.activation === ActivationMode.AUTOMATIC) {
+      this._field(panel, 'Fire every', 'number', node.fireEvery || 1,
+        v => { node.fireEvery = Math.max(1, parseInt(v) || 1); }, 'steps between firings');
+      this._field(panel, 'Phase', 'number', node.firePhase || 0,
+        v => { node.firePhase = Math.max(0, parseInt(v) || 0); }, 'start offset (steps)');
+      this._info(panel, 'This automatic node fires every "Fire every" steps, offset by "Phase".');
+    }
 
     // End / goal condition (any node with a numeric value)
     if (node.type !== NodeType.SOURCE) {

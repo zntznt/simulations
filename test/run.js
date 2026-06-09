@@ -914,6 +914,127 @@ test('diagram.params survive JSON round-trip', () => {
   assert(d2.params['alpha'] === 0.5 && d2.params['cap'] === 100, 'params preserved');
 });
 
+// ── P3: time modes ───────────────────────────────────────────────────────────
+console.log('\nTime modes');
+
+test('async time mode fires a node on its own interval', () => {
+  const { d, e } = setup();
+  d.timeMode = 'async';
+  const s = node(d, NodeType.SOURCE); s.fireEvery = 2;   // every other step
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 1;
+  e.reset();
+  e.doStep(); eq(p.resources, 1, 'fires on step 1 (t=0)');
+  e.doStep(); eq(p.resources, 1, 'skips step 2');
+  e.doStep(); eq(p.resources, 2, 'fires on step 3');
+});
+
+test('async firePhase offsets the first firing', () => {
+  const { d, e } = setup();
+  d.timeMode = 'async';
+  const s = node(d, NodeType.SOURCE); s.fireEvery = 2; s.firePhase = 1;
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 1;
+  e.reset();
+  e.doStep(); eq(p.resources, 0, 'phase delays step 1 (t=-1)');
+  e.doStep(); eq(p.resources, 1, 'fires on step 2 (t=0)');
+  e.doStep(); eq(p.resources, 1, 'skips step 3');
+  e.doStep(); eq(p.resources, 2, 'fires on step 4');
+});
+
+test('sync time mode (default) ignores per-node fireEvery', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.fireEvery = 5;   // ignored when sync
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 1;
+  steps(e, 3);
+  eq(p.resources, 3, 'every step in synchronous mode');
+});
+
+// ── P3: artificial player ─────────────────────────────────────────────────────
+console.log('\nArtificial player');
+
+test('AI player fires an interactive node on an interval', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.setCount(100);
+  p.activation = ActivationMode.INTERACTIVE;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, p, dr).rate = 1;
+  d.aiPlayer = { enabled: true, rules: [{ nodeId: p.id, mode: 'interval', every: 2 }] };
+  e.reset();
+  e.doStep(); eq(dr.drained, 1, 'AI fired on step 1 (t=0)');
+  e.doStep(); eq(dr.drained, 1, 'skipped step 2');
+  e.doStep(); eq(dr.drained, 2, 'AI fired on step 3');
+});
+
+test('AI player does nothing while disabled', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.setCount(100);
+  p.activation = ActivationMode.INTERACTIVE;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, p, dr).rate = 1;
+  d.aiPlayer = { enabled: false, rules: [{ nodeId: p.id, mode: 'interval', every: 1 }] };
+  steps(e, 5);
+  eq(dr.drained, 0, 'interactive node never fired (AI off, no clicks)');
+});
+
+test('AI player fires on a variable condition', () => {
+  const { d, e } = setup();
+  const src = node(d, NodeType.SOURCE);
+  const bank = node(d, NodeType.POOL);
+  conn(d, src, bank).rate = 2;                        // bank grows by 2/step
+  const sc = conn(d, bank, bank, ConnectionType.STATE); sc.variableName = 'bank';
+
+  const spender = node(d, NodeType.POOL); spender.setCount(100);
+  spender.activation = ActivationMode.INTERACTIVE;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, spender, dr).rate = 1;
+  d.aiPlayer = { enabled: true, rules: [
+    { nodeId: spender.id, mode: 'condition', condVar: 'bank', condOp: '>=', condValue: 6 },
+  ]};
+  e.reset();
+  for (let i = 0; i < 3; i++) e.doStep();             // variables lag one step; bank var hits 6 now
+  eq(dr.drained, 0, 'not fired while the prior-step bank value was < 6');
+  e.doStep();
+  eq(dr.drained, 1, 'AI fired once bank >= 6');
+});
+
+// ── P3: serialization of new fields ──────────────────────────────────────────
+console.log('\nP3 serialization');
+
+test('time mode and per-node async fields survive JSON round-trip', () => {
+  const { d } = setup();
+  d.timeMode = 'async';
+  const s = node(d, NodeType.SOURCE); s.fireEvery = 3; s.firePhase = 2;
+  const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  eq(d2.timeMode, 'async', 'timeMode preserved');
+  const s2 = [...d2.nodes.values()].find(n => n.type === NodeType.SOURCE);
+  eq(s2.fireEvery, 3, 'fireEvery preserved');
+  eq(s2.firePhase, 2, 'firePhase preserved');
+});
+
+test('AI player rules survive JSON round-trip', () => {
+  const { d } = setup();
+  const p = node(d, NodeType.POOL); p.activation = ActivationMode.INTERACTIVE;
+  d.aiPlayer = { enabled: true, rules: [
+    { nodeId: p.id, mode: 'interval', every: 4 },
+    { nodeId: p.id, mode: 'condition', condVar: 'gold', condOp: '>', condValue: 10 },
+  ]};
+  const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  assert(d2.aiPlayer.enabled === true, 'enabled preserved');
+  eq(d2.aiPlayer.rules.length, 2, 'rules preserved');
+  eq(d2.aiPlayer.rules[1].condVar, 'gold', 'rule condVar preserved');
+  eq(d2.aiPlayer.rules[0].every, 4, 'rule interval preserved');
+});
+
+test('default (sync, no AI) diagram omits the new fields from JSON', () => {
+  const { d } = setup();
+  node(d, NodeType.POOL);
+  const json = d.toJSON();
+  assert(json.timeMode === undefined, 'sync timeMode omitted');
+  assert(json.aiPlayer === undefined, 'empty aiPlayer omitted');
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed) {

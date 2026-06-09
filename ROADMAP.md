@@ -66,9 +66,12 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 - [x] **Gate "all-outputs" / explicit per-output % labels (P2).** New "all"
       gate mode pushes the full weight to every output; probabilistic mode shows
       computed % labels on each outgoing connection.
-- [ ] **Synchronous turn-based vs asynchronous real-time time modes (P3).**
-- [ ] **Artificial player (P3).** Scripted/AI actor that fires interactive
-      actions on schedules or conditions.
+- [x] **Synchronous turn-based vs asynchronous real-time time modes (P3).**
+      Diagram-level Time mode: `sync` fires every automatic node each step;
+      `async` gives each automatic node its own "Fire every" / "Phase" rhythm.
+- [x] **Artificial player (P3).** Scripted actor (diagram panel) that fires
+      interactive nodes during a run — on a fixed interval or when a named
+      variable condition holds.
 
 ## 🔭 Missing — Editor / UX
 
@@ -87,9 +90,15 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 - [x] **Edit node value during play (P2).** +/− steppers in the properties
       panel let you increment/decrement pool/converter/delay/queue resources
       while the simulation is running.
-- [ ] **Tool reverts to Select after placing a node** (optional toggle) (P3).
-- [ ] **Touch / mobile support (P3).**
-- [ ] **Accessibility pass** (keyboard nav, ARIA, contrast) (P3).
+- [x] **Tool reverts to Select after placing a node** (optional toggle) (P3).
+      "↩ Auto" toolbar toggle; when on, the tool snaps back to Select after a
+      single placement.
+- [x] **Touch / mobile support (P3).** Single-touch maps to select/move/connect;
+      two-finger pinch-zoom and pan; `touch-action: none` on the canvas.
+- [x] **Accessibility pass (P3).** Keyboard tool shortcuts, `:focus-visible`
+      outlines, `role`/`aria-label` on the canvas and icon buttons, `aria-pressed`
+      on toggles, decorative icons hidden from assistive tech, higher-contrast
+      dimmed text.
 
 ## 🔭 Missing — Analysis & data
 
@@ -104,7 +113,8 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 - [x] **Diagram-level parameters panel (P2).** Shown in the properties panel
       when nothing is selected; add/edit/delete named numeric constants that seed
       into the shared variable store before each step.
-- [ ] **CSV / data export of run history (P3).**
+- [x] **CSV / data export of run history (P3).** "⬇ CSV" exports every tracked
+      node's value at each recorded step as a CSV file.
 
 ## 🔭 Missing — Persistence & sharing
 
@@ -114,7 +124,9 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       rename, load, and delete named diagrams stored in localStorage.
 - [x] **PNG / SVG export of the diagram (P2).** "⬇ SVG" and "⬇ PNG" toolbar
       buttons; PNG renders at 2× DPI for retina quality.
-- [ ] **Shareable URL / embed (P3).**
+- [x] **Shareable URL / embed (P3).** "🔗 Share" copies a link with the whole
+      diagram base64-encoded in the URL hash (`#d=…`); opening it restores the
+      diagram. `?embed` (or `#embed`) hides the editing chrome for a clean view.
 
 ---
 
@@ -127,8 +139,8 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 - **Goals are terminal on Run.** Reaching a goal stops the engine; pressing Run
   clears the goal and resumes (it re-triggers if still satisfied). No
   "resume past goal" mode yet.
-- **Place tool stays active** after placing a node (rapid placement). Switch to
-  Select to move/edit.
+- **Place tool stays active** after placing a node (rapid placement) unless the
+  "↩ Auto" toggle is on, which snaps back to Select after one placement.
 - **Sub-unit fairness remainder** is handed out round-robin in connection
   order; only matters when a pool is too scarce to give every output one unit.
 - **Capacity-blocked shares aren't re-routed mid-tick** when two connections

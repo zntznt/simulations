@@ -129,6 +129,10 @@ class MNode {
     this.y = y;
     this.label = type.charAt(0).toUpperCase() + type.slice(1);
     this.activation = ActivationMode.AUTOMATIC;
+    // Asynchronous time mode: this automatic node fires every `fireEvery` steps,
+    // offset by `firePhase`. Ignored in synchronous (turn-based) time mode.
+    this.fireEvery = 1;
+    this.firePhase = 0;
     this.resources = 0;
     this.capacity = Infinity;
     this.colorMap = {};       // {colorHex: count}
@@ -264,6 +268,8 @@ class MNode {
     const d = {
       id: this.id, type: this.type, x: this.x, y: this.y,
       label: this.label, activation: this.activation,
+      fireEvery: this.fireEvery !== 1 ? this.fireEvery : undefined,
+      firePhase: this.firePhase ? this.firePhase : undefined,
       resources: (this.type === NodeType.SOURCE && !this.limited) ? 0 : this.resources,
       capacity: this.capacity === Infinity ? null : this.capacity,
       colorMap: Object.keys(this.colorMap).length ? { ...this.colorMap } : undefined,
@@ -392,6 +398,12 @@ class Diagram {
     this.connections = new Map();
     this.variables = {};  // shared store, refreshed each step from state connections
     this.params = {};     // user-defined constants seeded into variables before each step
+    // Time mode: 'sync' (turn-based — every automatic node fires each step) or
+    // 'async' (real-time — each automatic node fires on its own fireEvery rhythm).
+    this.timeMode = 'sync';
+    // Artificial player: scripted actor that fires interactive nodes during a
+    // run, on an interval or when a variable condition holds.
+    this.aiPlayer = { enabled: false, rules: [] };
   }
 
   addNode(n) { this.nodes.set(n.id, n); return n; }
@@ -415,6 +427,10 @@ class Diagram {
       connections: [...this.connections.values()].map(c => c.toJSON()),
       variables: { ...this.variables },
       params: Object.keys(this.params).length ? { ...this.params } : undefined,
+      timeMode: this.timeMode !== 'sync' ? this.timeMode : undefined,
+      aiPlayer: (this.aiPlayer && this.aiPlayer.rules && this.aiPlayer.rules.length)
+        ? { enabled: !!this.aiPlayer.enabled, rules: this.aiPlayer.rules.map(r => ({ ...r })) }
+        : undefined,
     };
   }
 
@@ -424,6 +440,10 @@ class Diagram {
     _idSeq = Math.max(_idSeq, data._idSeq || 0);
     this.variables = { ...(data.variables || {}) };
     this.params = { ...(data.params || {}) };
+    this.timeMode = data.timeMode || 'sync';
+    this.aiPlayer = data.aiPlayer
+      ? { enabled: !!data.aiPlayer.enabled, rules: (data.aiPlayer.rules || []).map(r => ({ ...r })) }
+      : { enabled: false, rules: [] };
     for (const nd of data.nodes) {
       const node = new MNode(nd.type, nd.x, nd.y);
       node.loadJSON(nd);
