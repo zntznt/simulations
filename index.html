@@ -24,8 +24,14 @@
     </div>
 
     <div class="analysis-controls">
-      <button class="btn" id="btn-timeline" title="Toggle timeline chart">📈 Chart</button>
-      <button class="btn" id="btn-batch" title="Run many simulations (Monte Carlo)">🎲 Batch</button>
+      <div class="menu" id="menu-analysis">
+        <button class="btn" id="btn-analysis-menu" aria-haspopup="true" aria-expanded="false"
+                title="Analysis — timeline chart &amp; Monte Carlo">📊 Analysis ▾</button>
+        <div class="menu-popup align-left hidden" role="menu" aria-label="Analysis">
+          <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-timeline">📈 Timeline chart</button>
+          <button class="menu-item" role="menuitem" id="btn-batch">🎲 Batch (Monte Carlo)…</button>
+        </div>
+      </div>
       <div class="zoom-cluster" role="group" aria-label="Zoom controls">
         <button class="btn zoom-btn" id="btn-zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
         <button class="btn zoom-level" id="btn-zoom-level" title="Reset to 100%" aria-label="Current zoom — click to reset to 100%">100%</button>
@@ -39,13 +45,13 @@
     <div class="file-controls">
       <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
       <button class="btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+      <button class="btn" id="btn-new" title="New diagram">New</button>
       <button class="btn" id="btn-library" title="Templates &amp; saved diagrams">📚 Library</button>
 
       <div class="menu" id="menu-file">
         <button class="btn" id="btn-file-menu" aria-haspopup="true" aria-expanded="false"
-                title="File — new, open, save, export, share">File ▾</button>
+                title="File — open, save, export, share">File ▾</button>
         <div class="menu-popup hidden" role="menu" aria-label="File">
-          <button class="menu-item" role="menuitem" id="btn-new">New diagram</button>
           <button class="menu-item" role="menuitem" id="btn-load">Open file…</button>
           <div class="menu-sep"></div>
           <button class="menu-item" role="menuitem" id="btn-save">Save as JSON</button>
@@ -65,7 +71,9 @@
 
     <!-- Node palette / tools -->
     <aside id="palette">
-      <span class="palette-label">Tools</span>
+      <div class="palette-section" data-section="tools">
+        <button class="palette-header" aria-expanded="true" aria-controls="pal-tools">Tools</button>
+        <div class="palette-items" id="pal-tools">
 
       <button data-tool="select" title="Select & Move (S)">
         <div class="tool-icon">
@@ -86,8 +94,12 @@
         Delete
       </button>
 
-      <div class="palette-sep"></div>
-      <span class="palette-label">Connect</span>
+        </div>
+      </div>
+
+      <div class="palette-section" data-section="connect">
+        <button class="palette-header" aria-expanded="true" aria-controls="pal-connect">Connect</button>
+        <div class="palette-items" id="pal-connect">
 
       <button data-tool="connect-resource" title="Draw Resource Connection">
         <div class="tool-icon">
@@ -109,8 +121,12 @@
         State
       </button>
 
-      <div class="palette-sep"></div>
-      <span class="palette-label">Nodes</span>
+        </div>
+      </div>
+
+      <div class="palette-section" data-section="nodes">
+        <button class="palette-header" aria-expanded="true" aria-controls="pal-nodes">Nodes</button>
+        <div class="palette-items" id="pal-nodes">
 
       <button data-tool="place-pool" title="Place Pool node">
         <div class="tool-icon">
@@ -196,8 +212,12 @@
         Queue
       </button>
 
-      <div class="palette-sep"></div>
-      <span class="palette-label">Annotate</span>
+        </div>
+      </div>
+
+      <div class="palette-section" data-section="annotate">
+        <button class="palette-header" aria-expanded="false" aria-controls="pal-annotate">Annotate</button>
+        <div class="palette-items" id="pal-annotate">
 
       <button data-tool="place-group" title="Draw a container group (drag to size)">
         <div class="tool-icon">
@@ -230,6 +250,9 @@
         </div>
         Chart
       </button>
+
+        </div>
+      </div>
     </aside>
 
     <!-- Canvas -->

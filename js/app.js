@@ -28,6 +28,7 @@ class App {
     this._bindControls();
     this._initLibrary();
     this._initMenus();
+    this._initPalette();
 
     this.engine.onStep = (step, fired, transfers) => {
       document.getElementById('step-counter').textContent = `Step: ${step}`;
@@ -238,6 +239,29 @@ class App {
     }
     document.addEventListener('click', () => closeAll());
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
+  }
+
+  // ── Collapsible palette sections ─────────────────────────────────────────────
+
+  // Each palette section can be collapsed to keep the most-used tools dominant.
+  // The expanded/collapsed state is per-section and persisted in localStorage;
+  // the HTML default applies for any section the user hasn't touched.
+  _initPalette() {
+    const KEY = 'sim_palette_sections';
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+    document.querySelectorAll('.palette-section').forEach(sec => {
+      const header = sec.querySelector('.palette-header');
+      const name = sec.dataset.section;
+      if (!header || !name) return;
+      if (name in saved) header.setAttribute('aria-expanded', String(saved[name]));
+      header.addEventListener('click', () => {
+        const expanded = header.getAttribute('aria-expanded') !== 'false';
+        header.setAttribute('aria-expanded', String(!expanded));
+        saved[name] = !expanded;
+        try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {}
+      });
+    });
   }
 
   // ── Library (multiple named diagrams) ──────────────────────────────────────
@@ -785,7 +809,9 @@ class App {
       this._timelineVisible = show;
       document.getElementById('timeline').classList.toggle('hidden', !show);
       tlBtn.classList.toggle('active', show);
-      tlBtn.setAttribute('aria-pressed', String(show));
+      tlBtn.setAttribute('aria-checked', String(show));
+      // Surface the timeline state on the (collapsed) Analysis menu button too.
+      document.getElementById('btn-analysis-menu')?.classList.toggle('active', show);
       if (show) this.timeline.update();
     };
     tlBtn.addEventListener('click', () => toggleTimeline(!this._timelineVisible));
