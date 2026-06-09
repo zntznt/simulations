@@ -122,6 +122,20 @@ class SimEngine {
     }
     this._runFireQueue(initial, ctx, fired);
 
+    // Reverse triggers: auto-nodes that didn't fire pulse their "fail" targets.
+    const firedSet = new Set(fired);
+    const failQueue = [];
+    for (const { node } of initial) {
+      if (firedSet.has(node.id)) continue;
+      for (const c of d.outgoing(node.id)) {
+        if (c.type === ConnectionType.STATE && c.reverseTrigger) {
+          const tgt = d.nodes.get(c.targetId);
+          if (tgt) failQueue.push({ node: tgt, forced: true });
+        }
+      }
+    }
+    if (failQueue.length) this._runFireQueue(failQueue, ctx, fired);
+
     // Advance delay queues and queue nodes (releases respect target capacity).
     this._advanceDelays(ctx);
     this._advanceQueues(ctx);
@@ -196,6 +210,10 @@ class SimEngine {
 
   _updateVariables() {
     const d = this.diagram;
+    // Seed from user-defined params first; state connections override them.
+    for (const [k, v] of Object.entries(d.params || {})) {
+      if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)) d.variables[k] = v;
+    }
     for (const conn of d.connections.values()) {
       if (conn.type !== ConnectionType.STATE) continue;
       const src = d.nodes.get(conn.sourceId);
@@ -469,6 +487,26 @@ class SimEngine {
     const weights = outs.map(c => this._connWeight(c));
     const mode = node.gateMode === 'random' ? 'probabilistic' : node.gateMode;
 
+    if (mode === 'all') {
+      // All-outputs: each output gets its full weight amount (work-conserving).
+      for (const conn of outs) {
+        if (node.resources <= 0) break;
+        const want = Math.max(0, Math.round(this._connWeight(conn)));
+        if (want <= 0) continue;
+        const amt = Math.min(want, node.resources);
+        const accept = this._acceptable(conn.targetId, amt, ctx);
+        if (accept <= 0) continue;
+        const taken = node.takeResources(accept);
+        let moved = 0;
+        for (const { amount, color } of taken) {
+          this._give(conn.targetId, color, amount, conn.id, ctx);
+          moved += amount;
+        }
+        if (moved > 0) { this._reserve(conn.targetId, moved, ctx); movedAny = true; }
+      }
+      return movedAny;
+    }
+
     if (mode === 'probabilistic') {
       // Route each unit to a weighted-random output that still has room.
       for (const color of Object.keys(node.colorMap)) {
@@ -702,7 +740,9 @@ class SimEngine {
     if (conn.interval > 1 && (this.step - 1) % conn.interval !== 0) return false;
     if (conn.chance < 100 && Math.random() * 100 >= conn.chance) return false;
     if (conn.condEnabled) {
-      const val = this._stateValueOf(sourceNode);
+      const val = (conn.condRefMode === 'variable' && conn.condVariable)
+        ? (this.diagram.variables[conn.condVariable] ?? 0)
+        : this._stateValueOf(sourceNode);
       if (!this._evalCond(val, conn.condOperator, conn.condValue)) return false;
     }
     return true;
@@ -722,9 +762,10 @@ class SimEngine {
 
   _connRate(conn) {
     switch (conn.rateMode) {
-      case RateMode.DICE:    return rollDice(conn.dice);
-      case RateMode.FORMULA: return evalFormula(conn.formula, this.diagram.variables);
-      default:               return typeof conn.rate === 'number' ? conn.rate : (parseFloat(conn.rate) || 0);
+      case RateMode.DICE:         return rollDice(conn.dice);
+      case RateMode.FORMULA:      return evalFormula(conn.formula, this.diagram.variables);
+      case RateMode.DISTRIBUTION: return sampleDist(conn.distType, conn.distParam1, conn.distParam2);
+      default:                    return typeof conn.rate === 'number' ? conn.rate : (parseFloat(conn.rate) || 0);
     }
   }
 

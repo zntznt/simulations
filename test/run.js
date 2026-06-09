@@ -17,7 +17,7 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'model.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'engine.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
-    ' MNode, MConnection, Diagram, SimEngine, evalFormula, rollDice, dominantColor };';
+    ' MNode, MConnection, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -25,7 +25,7 @@ function loadEngine() {
 const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
-  MNode, MConnection, Diagram, SimEngine, evalFormula, rollDice,
+  MNode, MConnection, Diagram, SimEngine, evalFormula, rollDice, sampleDist,
 } = API;
 
 // ── Tiny test harness ───────────────────────────────────────────────────────
@@ -727,6 +727,191 @@ test('pull respects the pulling node capacity', () => {
   steps(e, 1);
   eq(b.resources, 4, 'capped at capacity');
   eq(a.resources, 96, 'only the accepted amount left the provider');
+});
+
+// ── P2: reverse triggers ─────────────────────────────────────────────────────
+console.log('\nReverse triggers');
+
+test('reverse trigger fires when a pool is empty (source fails)', () => {
+  const { d, e } = setup();
+  const empty = node(d, NodeType.POOL);   // starts with 0 resources — always fails
+  const sink = node(d, NodeType.POOL);
+  // Normal outgoing resource connection (goes nowhere useful, just keeps pool auto)
+  const marker = node(d, NodeType.DRAIN);
+  conn(d, empty, marker).rate = 1;
+  // Passive target fired only on failure of empty
+  const alert = node(d, NodeType.POOL); alert.setCount(10);
+  alert.activation = ActivationMode.PASSIVE;
+  const tgt = node(d, NodeType.DRAIN);
+  conn(d, alert, tgt).rate = 1;
+  const rc = conn(d, empty, alert, ConnectionType.STATE);
+  rc.reverseTrigger = true;
+  steps(e, 1);
+  eq(tgt.drained, 1, 'passive alert node fired because pool was empty');
+});
+
+test('reverse trigger does NOT fire when source successfully acts', () => {
+  const { d, e } = setup();
+  const pool = node(d, NodeType.POOL); pool.setCount(10);
+  const sink = node(d, NodeType.DRAIN);
+  conn(d, pool, sink).rate = 1;
+  const passive = node(d, NodeType.POOL); passive.setCount(5);
+  passive.activation = ActivationMode.PASSIVE;
+  const pSink = node(d, NodeType.DRAIN);
+  conn(d, passive, pSink).rate = 1;
+  const rc = conn(d, pool, passive, ConnectionType.STATE);
+  rc.reverseTrigger = true;
+  steps(e, 1);
+  eq(pSink.drained, 0, 'passive not triggered when source succeeded');
+  eq(sink.drained, 1, 'source did fire normally');
+});
+
+// ── P2: conditions referencing variables ─────────────────────────────────────
+console.log('\nCondition over variable');
+
+test('condition can compare against a named diagram variable', () => {
+  const { d, e } = setup();
+  // Use diagram.params as the simplest way to put a constant into variables.
+  d.params['level'] = 8;
+  const src = node(d, NodeType.SOURCE);
+  const pool = node(d, NodeType.POOL);
+  const rc = conn(d, src, pool); rc.rate = 3;
+  rc.condEnabled = true; rc.condRefMode = 'variable'; rc.condVariable = 'level';
+  rc.condOperator = '>='; rc.condValue = 5;
+  steps(e, 1);
+  eq(pool.resources, 3, 'fires when level(8) >= 5');
+});
+
+test('condition over variable blocks flow when variable is too low', () => {
+  const { d, e } = setup();
+  const src = node(d, NodeType.SOURCE);
+  const pool = node(d, NodeType.POOL);
+  // Variable 'lvl' stays at 0 (no state conn sets it)
+  const rc = conn(d, src, pool); rc.rate = 5;
+  rc.condEnabled = true; rc.condRefMode = 'variable'; rc.condVariable = 'lvl';
+  rc.condOperator = '>='; rc.condValue = 10;
+  steps(e, 3);
+  eq(pool.resources, 0, 'blocked — lvl not set (defaults to 0 < 10)');
+});
+
+// ── P2: diagram params seeded into variables ─────────────────────────────────
+console.log('\nDiagram params');
+
+test('diagram.params constants are available in register formulas', () => {
+  const { d, e } = setup();
+  d.params['rate'] = 7;
+  const reg = node(d, NodeType.REGISTER); reg.formula = 'rate * 2';
+  steps(e, 1);
+  eq(reg.value, 14, 'register reads diagram param');
+});
+
+// ── P2: distribution rate mode ───────────────────────────────────────────────
+console.log('\nDistribution rates');
+
+test('normal distribution produces non-negative integers near mean', () => {
+  let sum = 0;
+  for (let i = 0; i < 200; i++) sum += sampleDist('normal', 10, 1);
+  const mean = sum / 200;
+  assert(mean >= 8 && mean <= 12, `normal(10,1) mean ~10 (got ${mean.toFixed(2)})`);
+});
+
+test('uniform distribution stays in [min,max]', () => {
+  withRandom(0, () => eq(sampleDist('uniform', 3, 8), 3, 'min at r=0'));
+  withRandom(0.9999, () => {
+    const v = sampleDist('uniform', 3, 8);
+    assert(v >= 3 && v <= 8, `uniform in range (got ${v})`);
+  });
+});
+
+test('exponential distribution produces non-negative integers', () => {
+  for (let i = 0; i < 50; i++) assert(sampleDist('exponential', 2) >= 0, 'non-negative');
+});
+
+test('poisson distribution produces non-negative integers', () => {
+  let sum = 0;
+  for (let i = 0; i < 200; i++) { const v = sampleDist('poisson', 5); assert(v >= 0); sum += v; }
+  const mean = sum / 200;
+  assert(mean >= 3 && mean <= 7, `poisson(5) mean ~5 (got ${mean.toFixed(2)})`);
+});
+
+test('distribution rate mode moves resources stochastically', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p);
+  c.rateMode = RateMode.DISTRIBUTION; c.distType = 'normal'; c.distParam1 = 5; c.distParam2 = 1;
+  steps(e, 20);
+  assert(p.resources > 50 && p.resources < 200, `pool grew stochastically (got ${p.resources})`);
+});
+
+// ── P2: gate all-outputs mode ─────────────────────────────────────────────────
+console.log('\nGate all-outputs mode');
+
+test('gate "all" fires every output with its weight amount', () => {
+  const { d, e } = setup();
+  const g = node(d, NodeType.GATE); g.setCount(10); g.gateMode = 'all';
+  const p1 = node(d, NodeType.POOL);
+  const p2 = node(d, NodeType.POOL);
+  const p3 = node(d, NodeType.POOL);
+  conn(d, g, p1).weight = 2;
+  conn(d, g, p2).weight = 3;
+  conn(d, g, p3).weight = 1;
+  steps(e, 1);
+  eq(p1.resources, 2, 'p1 got its weight (2)');
+  eq(p2.resources, 3, 'p2 got its weight (3)');
+  eq(p3.resources, 1, 'p3 got its weight (1)');
+  eq(g.resources, 4, 'gate has 10-6=4 remaining');
+});
+
+test('gate "all" stops when resources exhausted mid-outputs', () => {
+  const { d, e } = setup();
+  const g = node(d, NodeType.GATE); g.setCount(3); g.gateMode = 'all';
+  const p1 = node(d, NodeType.POOL);
+  const p2 = node(d, NodeType.POOL);
+  conn(d, g, p1).weight = 2;
+  conn(d, g, p2).weight = 2;
+  steps(e, 1);
+  eq(p1.resources + p2.resources, 3, 'total distributed = 3 (all available)');
+  eq(g.resources, 0, 'gate emptied');
+});
+
+// ── P2: serialization of new fields ──────────────────────────────────────────
+console.log('\nP2 serialization');
+
+test('reverse trigger and condRefMode survive JSON round-trip', () => {
+  const { d } = setup();
+  const a = node(d, NodeType.POOL);
+  const b = node(d, NodeType.POOL);
+  const rt = conn(d, a, b, ConnectionType.STATE);
+  rt.reverseTrigger = true;
+  const rc = conn(d, a, b);
+  rc.condEnabled = true; rc.condRefMode = 'variable'; rc.condVariable = 'speed';
+
+  const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  const conns = [...d2.connections.values()];
+  const rt2 = conns.find(c => c.reverseTrigger === true);
+  assert(rt2, 'reverseTrigger preserved');
+  const rc2 = conns.find(c => c.condRefMode === 'variable');
+  assert(rc2 && rc2.condVariable === 'speed', 'condRefMode/condVariable preserved');
+});
+
+test('distribution rate fields survive JSON round-trip', () => {
+  const { d } = setup();
+  const s = node(d, NodeType.SOURCE); const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p);
+  c.rateMode = RateMode.DISTRIBUTION; c.distType = 'poisson'; c.distParam1 = 3; c.distParam2 = 0;
+  const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  const c2 = [...d2.connections.values()][0];
+  eq(c2.rateMode, RateMode.DISTRIBUTION, 'rateMode preserved');
+  eq(c2.distType, 'poisson', 'distType preserved');
+  eq(c2.distParam1, 3, 'distParam1 preserved');
+});
+
+test('diagram.params survive JSON round-trip', () => {
+  const { d } = setup();
+  d.params['alpha'] = 0.5; d.params['cap'] = 100;
+  const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  assert(d2.params['alpha'] === 0.5 && d2.params['cap'] === 100, 'params preserved');
 });
 
 // ── Results ─────────────────────────────────────────────────────────────────

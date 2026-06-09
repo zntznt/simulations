@@ -25,6 +25,7 @@ const RateMode = {
   FIXED: 'fixed',
   DICE: 'dice',
   FORMULA: 'formula',
+  DISTRIBUTION: 'distribution',
 };
 
 // Grey "uncolored" resource — used when a node holds resources without an
@@ -62,6 +63,37 @@ function evalFormula(expr, vars = {}) {
     const r = Number(fn(...vals));
     return isFinite(r) ? r : 0;
   } catch { return 0; }
+}
+
+// Sample from a named statistical distribution. Returns a non-negative integer.
+// p1/p2 meaning: normal→mean/stddev, uniform→min/max, exponential→mean, poisson→lambda.
+function sampleDist(type, p1 = 1, p2 = 0) {
+  const fl0 = n => Math.max(0, Math.round(n));
+  switch (type) {
+    case 'uniform':
+      return fl0((isFinite(p1) ? p1 : 0) + Math.random() * (Math.max(p2, p1) - (isFinite(p1) ? p1 : 0)));
+    case 'exponential': {
+      const mean = Math.max(0.001, isFinite(p1) ? p1 : 1);
+      const r = Math.max(1e-10, Math.random());
+      return fl0(-mean * Math.log(r));
+    }
+    case 'poisson': {
+      const lam = Math.max(0, isFinite(p1) ? p1 : 1);
+      const L = Math.exp(-lam);
+      if (!isFinite(L) || L <= 0) return Math.round(lam);
+      let k = 0, p = Math.random();
+      while (p > L && k < 10000) { p *= Math.random(); k++; }
+      return k;
+    }
+    case 'normal':
+    default: {
+      const u1 = Math.max(1e-10, Math.random()), u2 = Math.random();
+      const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+      const mean = isFinite(p1) ? p1 : 1;
+      const std = isFinite(p2) && p2 > 0 ? p2 : 1;
+      return fl0(mean + z * std);
+    }
+  }
 }
 
 // Roll XdY dice notation (e.g. "2d6" → 2..12). Plain numbers pass through.
@@ -313,6 +345,20 @@ class MConnection {
     // interest in place, without a resource flow.
     this.modifier = false;
     this.modFactor = 1;
+
+    // Reverse trigger (state): fire the target when the source FAILS to act
+    // this step (e.g. pool was empty, limited source ran dry).
+    this.reverseTrigger = false;
+
+    // Condition reference (resource connections): 'source' tests source's own
+    // value; 'variable' compares a named diagram variable instead.
+    this.condRefMode = 'source';
+    this.condVariable = '';
+
+    // Distribution rate parameters (when rateMode === RateMode.DISTRIBUTION).
+    this.distType = 'normal';   // 'normal' | 'uniform' | 'exponential' | 'poisson'
+    this.distParam1 = 5;        // mean (normal/exp/poisson) or min (uniform)
+    this.distParam2 = 2;        // std dev (normal) or max (uniform)
   }
 
   toJSON() {
@@ -320,11 +366,15 @@ class MConnection {
       id: this.id, sourceId: this.sourceId, targetId: this.targetId,
       type: this.type, label: this.label,
       rateMode: this.rateMode, rate: this.rate, dice: this.dice, formula: this.formula,
+      distType: this.distType, distParam1: this.distParam1, distParam2: this.distParam2,
       interval: this.interval, chance: this.chance,
       colorFilter: this.colorFilter,
       condEnabled: this.condEnabled, condOperator: this.condOperator, condValue: this.condValue,
+      condRefMode: this.condRefMode !== 'source' ? this.condRefMode : undefined,
+      condVariable: this.condVariable || undefined,
       variableName: this.variableName,
       trigger: this.trigger || undefined,
+      reverseTrigger: this.reverseTrigger || undefined,
       activator: this.activator || undefined,
       actOperator: this.actOperator, actValue: this.actValue,
       weight: this.weight,
@@ -341,6 +391,7 @@ class Diagram {
     this.nodes = new Map();
     this.connections = new Map();
     this.variables = {};  // shared store, refreshed each step from state connections
+    this.params = {};     // user-defined constants seeded into variables before each step
   }
 
   addNode(n) { this.nodes.set(n.id, n); return n; }
@@ -363,6 +414,7 @@ class Diagram {
       nodes: [...this.nodes.values()].map(n => n.toJSON()),
       connections: [...this.connections.values()].map(c => c.toJSON()),
       variables: { ...this.variables },
+      params: Object.keys(this.params).length ? { ...this.params } : undefined,
     };
   }
 
@@ -371,6 +423,7 @@ class Diagram {
     this.connections.clear();
     _idSeq = Math.max(_idSeq, data._idSeq || 0);
     this.variables = { ...(data.variables || {}) };
+    this.params = { ...(data.params || {}) };
     for (const nd of data.nodes) {
       const node = new MNode(nd.type, nd.x, nd.y);
       node.loadJSON(nd);

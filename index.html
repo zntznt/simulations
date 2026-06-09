@@ -27,6 +27,7 @@
       <button class="btn" id="btn-timeline" title="Toggle timeline chart">📈 Chart</button>
       <button class="btn" id="btn-batch" title="Run many simulations (Monte Carlo)">🎲 Batch</button>
       <button class="btn" id="btn-fit" title="Reset zoom &amp; pan (Ctrl+0)">⤢ Fit</button>
+      <button class="btn" id="btn-snap" title="Toggle grid snap (align nodes to grid)">⊞ Snap</button>
     </div>
 
     <div class="file-controls">
@@ -38,8 +39,11 @@
         <option value="loot">Loot Farm</option>
         <option value="factory">Factory Line</option>
       </select>
+      <button class="btn" id="btn-library" title="Saved diagrams library">📚 Library</button>
       <button class="btn" id="btn-new" title="New diagram">New</button>
-      <button class="btn" id="btn-save" title="Save diagram as JSON">Save</button>
+      <button class="btn" id="btn-save" title="Save diagram as JSON">⬇ JSON</button>
+      <button class="btn" id="btn-export-svg" title="Export diagram as SVG">⬇ SVG</button>
+      <button class="btn" id="btn-export-png" title="Export diagram as PNG">⬇ PNG</button>
       <button class="btn" id="btn-load" title="Load diagram from JSON">Load</button>
     </div>
   </header>
@@ -203,6 +207,21 @@
       <button class="btn" id="tl-close" title="Hide timeline">✕</button>
     </div>
     <canvas id="timeline-canvas"></canvas>
+  </div>
+</div>
+
+<!-- Library modal -->
+<div id="lib-overlay" class="hidden">
+  <div id="lib-modal">
+    <div class="mc-head">
+      <span>📚 Diagram Library</span>
+      <button class="btn" id="lib-close">✕</button>
+    </div>
+    <div class="mc-controls">
+      <label style="flex:1">Name <input type="text" id="lib-name" placeholder="My diagram"></label>
+      <button class="btn btn-primary" id="lib-save">Save current</button>
+    </div>
+    <div id="lib-list"></div>
   </div>
 </div>
 

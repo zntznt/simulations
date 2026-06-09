@@ -280,6 +280,88 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('pull mode: Flow control toggles push/pull and reveals pull policy');
   else fail('pull mode: ' + JSON.stringify(pull));
 
+  // P2: gate "all" mode, reverse trigger, distribution rate mode.
+  const p2eng = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const hasLabel = (t) => [...document.querySelectorAll('#props-content .prop-row label')]
+      .some(l => l.textContent.trim() === t);
+
+    // Gate mode should include 'all' option
+    const g = d.addNode(new MNode(NodeType.GATE, 300, 300));
+    window.app._onSelect(g.id, 'node');
+    const modeOpts = [...document.querySelectorAll('#props-content select option')]
+      .map(o => o.value);
+    const hasAll = modeOpts.includes('all');
+
+    // State connection: reverse trigger checkbox
+    const a = d.addNode(new MNode(NodeType.POOL, 100, 100));
+    const b = d.addNode(new MNode(NodeType.POOL, 200, 100));
+    const sc = d.addConnection(new MConnection(a.id, b.id, ConnectionType.STATE));
+    window.app._onSelect(sc.id, 'conn');
+    const hasFailTrigger = [...document.querySelectorAll('#props-content .prop-row label')]
+      .some(l => l.textContent.includes('Fail trigger'));
+
+    // Resource connection: distribution rate mode exists
+    const rc = d.addConnection(new MConnection(a.id, b.id));
+    window.app._onSelect(rc.id, 'conn');
+    // Change rate mode to distribution
+    for (const row of document.querySelectorAll('#props-content .prop-row')) {
+      const lbl = row.querySelector('label');
+      if (lbl && lbl.textContent.trim() === 'Rate mode') {
+        const sel = row.querySelector('select'); sel.value = 'distribution';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+    const hasDist = hasLabel('Distribution');
+
+    return { hasAll, hasFailTrigger, hasDist };
+  });
+  if (p2eng.hasAll && p2eng.hasFailTrigger && p2eng.hasDist)
+    ok('P2 engine UI: gate all-mode, reverse trigger, distribution rate');
+  else fail('P2 engine UI: ' + JSON.stringify(p2eng));
+
+  // P2: diagram params panel shows when nothing selected.
+  const p2params = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app.editor._select(null, null);
+    const text = document.getElementById('props-content').textContent;
+    return { hasParams: text.includes('Parameters') };
+  });
+  if (p2params.hasParams) ok('P2 params: diagram params panel visible when nothing selected');
+  else fail('P2 params: ' + JSON.stringify(p2params));
+
+  // P2: keyboard tool shortcuts activate tools.
+  const p2keys = await page.evaluate(() => {
+    window.app.editor.setTool('select');
+    const keyEvt = (k) => window.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    keyEvt('d');
+    const tool1 = window.app.editor.tool;
+    keyEvt('s');
+    const tool2 = window.app.editor.tool;
+    keyEvt('r');
+    const tool3 = window.app.editor.tool;
+    keyEvt('t');
+    const tool4 = window.app.editor.tool;
+    return { tool1, tool2, tool3, tool4 };
+  });
+  if (p2keys.tool1 === 'delete' && p2keys.tool2 === 'select' && p2keys.tool3 === 'connect-resource' && p2keys.tool4 === 'connect-state')
+    ok('P2 keyboard: S/D/R/T tool shortcuts work');
+  else fail('P2 keyboard: ' + JSON.stringify(p2keys));
+
+  // P2: snap toggle + library modal present.
+  const p2ui = await page.evaluate(() => {
+    const snapBtn = document.getElementById('btn-snap');
+    const libBtn = document.getElementById('btn-library');
+    const svgBtn = document.getElementById('btn-export-svg');
+    const pngBtn = document.getElementById('btn-export-png');
+    const libModal = document.getElementById('lib-overlay');
+    return { snap: !!snapBtn, lib: !!libBtn, svg: !!svgBtn, png: !!pngBtn, modal: !!libModal };
+  });
+  if (p2ui.snap && p2ui.lib && p2ui.svg && p2ui.png && p2ui.modal)
+    ok('P2 UI: snap button, library button, export SVG/PNG, library modal present');
+  else fail('P2 UI: ' + JSON.stringify(p2ui));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);

@@ -55,14 +55,17 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       decay); self-connections enable interest/decay in place. _(Connection-rate
       modifiers are already covered by formula rates; edge-targeting a
       connection is still future.)_
-- [ ] **Reverse triggers / interrupts (P2).** Fire (or block) a target when the
-      source *fails* to act, not just when it succeeds.
-- [ ] **Conditions referencing arbitrary nodes (P2).** Connection conditions
-      currently compare only the source's value; allow conditions over any
-      named variable / node.
-- [ ] **Richer randomness (P2).** Beyond `XdY`: explicit probability tables and
-      common distributions for rates.
-- [ ] **Gate "all-outputs" / explicit per-output % labels (P2).**
+- [x] **Reverse triggers / interrupts (P2).** A state connection with "Fail
+      trigger" fires its target when the source *fails* to produce output (pool
+      stays empty / gate blocked).
+- [x] **Conditions referencing arbitrary nodes (P2).** Connection conditions can
+      compare against any named diagram variable (`condRefMode = 'variable'`) in
+      addition to the source node's value.
+- [x] **Richer randomness (P2).** Distribution rate mode: normal, uniform,
+      exponential, and Poisson; parameters editable in the properties panel.
+- [x] **Gate "all-outputs" / explicit per-output % labels (P2).** New "all"
+      gate mode pushes the full weight to every output; probabilistic mode shows
+      computed % labels on each outgoing connection.
 - [ ] **Synchronous turn-based vs asynchronous real-time time modes (P3).**
 - [ ] **Artificial player (P3).** Scripted/AI actor that fires interactive
       actions on schedules or conditions.
@@ -75,10 +78,15 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       pan via middle/alt-drag.
 - [x] **Multi-select, copy / paste, duplicate (P1).** Marquee drag + Shift-click
       to select many nodes, drag them as a group, Ctrl+C/V, Ctrl+D, group delete.
-- [ ] **Keyboard shortcuts for tools** (S/P/etc.) (P2).
-- [ ] **Grid snap & alignment guides (P2).**
+- [x] **Keyboard shortcuts for tools** (P2). `S` = Select, `D` = Delete,
+      `R` = Resource connection, `T` = State connection; modifier shortcuts
+      (Ctrl+Z/C/V etc.) unchanged.
+- [x] **Grid snap (P2).** "⊞ Snap" toolbar toggle; snaps placement and drag to
+      a 20 px grid.
 - [ ] **Grouping / containers, sticky-note annotations (P2).**
-- [ ] **Edit node value during play (interactive registers / sliders) (P2).**
+- [x] **Edit node value during play (P2).** +/− steppers in the properties
+      panel let you increment/decrement pool/converter/delay/queue resources
+      while the simulation is running.
 - [ ] **Tool reverts to Select after placing a node** (optional toggle) (P3).
 - [ ] **Touch / mobile support (P3).**
 - [ ] **Accessibility pass** (keyboard nav, ARIA, contrast) (P3).
@@ -93,15 +101,19 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       stats — non-destructive to the live diagram.
 - [ ] **Chart/graph element placed on the canvas (P2).**
 - [ ] **Named resource types** (not just colors) with per-type readouts (P2).
-- [ ] **Diagram-level parameters panel** to expose and tweak shared variables
-      (P2).
+- [x] **Diagram-level parameters panel (P2).** Shown in the properties panel
+      when nothing is selected; add/edit/delete named numeric constants that seed
+      into the shared variable store before each step.
 - [ ] **CSV / data export of run history (P3).**
 
 ## 🔭 Missing — Persistence & sharing
 
-- [ ] **localStorage autosave / recover last diagram (P2).**
-- [ ] **Multiple named diagrams / library (P2).**
-- [ ] **PNG / SVG export of the diagram (P2).**
+- [x] **localStorage autosave / recover last diagram (P2).** Auto-saves on
+      every commit; recovery banner offered on next launch.
+- [x] **Multiple named diagrams / library (P2).** "📚 Library" modal — save,
+      rename, load, and delete named diagrams stored in localStorage.
+- [x] **PNG / SVG export of the diagram (P2).** "⬇ SVG" and "⬇ PNG" toolbar
+      buttons; PNG renders at 2× DPI for retina quality.
 - [ ] **Shareable URL / embed (P3).**
 
 ---

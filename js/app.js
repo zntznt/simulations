@@ -23,6 +23,7 @@ class App {
     this._timelineVisible = false;
 
     this._bindControls();
+    this._initLibrary();
 
     this.engine.onStep = (step, fired, transfers) => {
       document.getElementById('step-counter').textContent = `Step: ${step}`;
@@ -49,8 +50,7 @@ class App {
       this.renderer.render();
     };
 
-    this._loadExample();
-    this._resetHistory();
+    this._initDiagram();
   }
 
   // ── Undo / redo ─────────────────────────────────────────────────────────────
@@ -74,6 +74,7 @@ class App {
     this._redoStack = [];
     this._lastState = this._snapshot();
     this._updateUndoButtons();
+    try { localStorage.setItem('sim_autosave', this._lastState); } catch {}
   }
 
   undo() {
@@ -124,6 +125,171 @@ class App {
     this._clearSparklines();
     this.editor._select(null, null);
     if (this._timelineVisible) this.timeline.update();
+  }
+
+  // ── Init / autosave ───────────────────────────────────────────────────────
+
+  _initDiagram() {
+    const saved = localStorage.getItem('sim_autosave');
+    this._loadExample();
+    this._resetHistory();
+    if (saved) {
+      const banner = document.createElement('div');
+      banner.id = 'autosave-banner';
+      banner.innerHTML = '<span>📂 Autosaved diagram found.</span>';
+      const restoreBtn = document.createElement('button');
+      restoreBtn.textContent = 'Restore';
+      restoreBtn.className = 'btn';
+      const dismissBtn = document.createElement('button');
+      dismissBtn.textContent = 'Dismiss';
+      dismissBtn.className = 'btn';
+      banner.appendChild(restoreBtn);
+      banner.appendChild(dismissBtn);
+      document.getElementById('topbar').appendChild(banner);
+      restoreBtn.addEventListener('click', () => {
+        banner.remove();
+        try {
+          this.diagram.loadJSON(JSON.parse(saved));
+          this.engine.reset();
+          this.renderer.balls.clear();
+          this._clearSparklines();
+          this.editor._select(null, null);
+          this.renderer.render();
+          this._resetHistory();
+        } catch { alert('Failed to restore autosave.'); }
+      });
+      dismissBtn.addEventListener('click', () => {
+        banner.remove();
+        try { localStorage.removeItem('sim_autosave'); } catch {}
+      });
+    }
+  }
+
+  // ── Library (multiple named diagrams) ──────────────────────────────────────
+
+  _initLibrary() {
+    document.getElementById('btn-library').addEventListener('click', () => this._openLibrary());
+    document.getElementById('lib-close').addEventListener('click', () =>
+      document.getElementById('lib-overlay').classList.add('hidden'));
+    document.getElementById('lib-overlay').addEventListener('click', e => {
+      if (e.target.id === 'lib-overlay') e.currentTarget.classList.add('hidden');
+    });
+    document.getElementById('lib-save').addEventListener('click', () => {
+      const name = document.getElementById('lib-name').value.trim() || 'Untitled';
+      const lib = this._getLibrary();
+      lib.push({ name, date: new Date().toLocaleString(), json: this._snapshot() });
+      this._saveLibrary(lib);
+      this._renderLibraryList();
+    });
+  }
+
+  _getLibrary() {
+    try { return JSON.parse(localStorage.getItem('sim_library') || '[]'); } catch { return []; }
+  }
+
+  _saveLibrary(lib) {
+    try { localStorage.setItem('sim_library', JSON.stringify(lib)); } catch {}
+  }
+
+  _openLibrary() {
+    this._renderLibraryList();
+    document.getElementById('lib-overlay').classList.remove('hidden');
+  }
+
+  _renderLibraryList() {
+    const lib = this._getLibrary();
+    const el = document.getElementById('lib-list');
+    el.innerHTML = '';
+    if (!lib.length) {
+      el.innerHTML = '<p class="mc-empty">No saved diagrams yet. Save the current diagram with a name above.</p>';
+      return;
+    }
+    for (let i = 0; i < lib.length; i++) {
+      const entry = lib[i];
+      const row = document.createElement('div');
+      row.className = 'lib-row';
+      const info = document.createElement('div');
+      info.className = 'lib-info';
+      info.innerHTML = `<b>${this._esc(entry.name)}</b> <span class="lib-date">${this._esc(entry.date)}</span>`;
+      const btns = document.createElement('div');
+      btns.style.cssText = 'display:flex;gap:6px;flex-shrink:0';
+      const loadBtn = document.createElement('button');
+      loadBtn.textContent = 'Load';
+      loadBtn.className = 'btn';
+      loadBtn.addEventListener('click', () => {
+        if (!confirm(`Load "${entry.name}"? Unsaved work will be lost.`)) return;
+        this._clearAll();
+        try {
+          this.diagram.loadJSON(JSON.parse(entry.json));
+          this.engine.reset();
+          this.renderer.balls.clear();
+          this._clearSparklines();
+          this.editor._select(null, null);
+          this.renderer.render();
+        } catch (err) { alert('Failed to load: ' + err.message); }
+        this._resetHistory();
+        document.getElementById('lib-overlay').classList.add('hidden');
+      });
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '×';
+      delBtn.className = 'btn';
+      delBtn.addEventListener('click', () => {
+        lib.splice(i, 1);
+        this._saveLibrary(lib);
+        this._renderLibraryList();
+      });
+      btns.appendChild(loadBtn);
+      btns.appendChild(delBtn);
+      row.appendChild(info);
+      row.appendChild(btns);
+      el.appendChild(row);
+    }
+  }
+
+  // ── Tool activation ───────────────────────────────────────────────────────
+
+  _activateTool(tool) {
+    document.querySelectorAll('[data-tool]').forEach(b => b.classList.remove('active'));
+    const btn = document.querySelector(`[data-tool="${tool}"]`);
+    if (btn) btn.classList.add('active');
+    this.editor.setTool(tool);
+  }
+
+  // ── Export ────────────────────────────────────────────────────────────────
+
+  _exportSVG() {
+    const svg = document.getElementById('canvas');
+    const data = new XMLSerializer().serializeToString(svg);
+    const blob = new Blob([data], { type: 'image/svg+xml' });
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob), download: 'diagram.svg',
+    });
+    a.click();
+  }
+
+  _exportPNG() {
+    const svg = document.getElementById('canvas');
+    const w = svg.clientWidth, h = svg.clientHeight;
+    const data = new XMLSerializer().serializeToString(svg);
+    const blob = new Blob([data], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = w * 2; canvas.height = h * 2;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(2, 2);
+      ctx.fillStyle = '#0f1117';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      const a = Object.assign(document.createElement('a'), {
+        download: 'diagram.png', href: canvas.toDataURL('image/png'),
+      });
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
   }
 
   // ── Example diagrams ──────────────────────────────────────────────────────
@@ -347,11 +513,7 @@ class App {
     });
 
     document.querySelectorAll('[data-tool]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('[data-tool]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.editor.setTool(btn.dataset.tool);
-      });
+      btn.addEventListener('click', () => this._activateTool(btn.dataset.tool));
     });
 
     document.getElementById('btn-new').addEventListener('click', () => {
@@ -372,6 +534,15 @@ class App {
       else if (val === 'factory') this._loadFactoryExample();
       this._resetHistory();
     });
+
+    document.getElementById('btn-snap').addEventListener('click', () => {
+      const enabled = !this.editor._snapEnabled;
+      this.editor.setSnap(enabled);
+      document.getElementById('btn-snap').classList.toggle('active', enabled);
+    });
+
+    document.getElementById('btn-export-svg').addEventListener('click', () => this._exportSVG());
+    document.getElementById('btn-export-png').addEventListener('click', () => this._exportPNG());
 
     document.getElementById('btn-save').addEventListener('click', () => {
       const json = JSON.stringify(this.diagram.toJSON(), null, 2);
@@ -424,18 +595,23 @@ class App {
     // Commit a property edit as one undo step (fires on blur / enter / toggle).
     document.getElementById('props-content').addEventListener('change', () => this._commit());
 
-    // Keyboard: undo / redo / reset-view / copy / paste / duplicate.
+    // Keyboard: tool shortcuts (plain) + undo/redo/etc (mod).
     window.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
       const k = e.key.toLowerCase();
-      if (k === 'z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); }
-      else if (k === 'y') { e.preventDefault(); this.redo(); }
-      else if (k === '0') { e.preventDefault(); this.renderer.resetView(); }
-      else if (k === 'c') { this._copy(); }
-      else if (k === 'v') { e.preventDefault(); this._paste(); }
-      else if (k === 'd') { e.preventDefault(); this._duplicate(); }
+      if (mod) {
+        if (k === 'z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); }
+        else if (k === 'y') { e.preventDefault(); this.redo(); }
+        else if (k === '0') { e.preventDefault(); this.renderer.resetView(); }
+        else if (k === 'c') { this._copy(); }
+        else if (k === 'v') { e.preventDefault(); this._paste(); }
+        else if (k === 'd') { e.preventDefault(); this._duplicate(); }
+      } else {
+        // Tool shortcuts: S=select, D=delete, R=resource-connect, T=state-connect
+        const toolKeys = { s: 'select', d: 'delete', r: 'connect-resource', t: 'connect-state' };
+        if (toolKeys[k]) { e.preventDefault(); this._activateTool(toolKeys[k]); }
+      }
     });
 
     // Monte Carlo batch runs
@@ -555,7 +731,7 @@ class App {
     }
 
     if (!this._selectedId) {
-      panel.innerHTML = '<p class="props-empty">Select a node or connection to edit properties.</p>';
+      this._diagramProps(panel);
       return;
     }
 
@@ -565,6 +741,86 @@ class App {
     } else if (this._selectedType === 'conn') {
       const conn = this.diagram.connections.get(this._selectedId);
       if (conn) this._connProps(panel, conn);
+    }
+  }
+
+  // Default panel (nothing selected): shows diagram-level parameters.
+  _diagramProps(panel) {
+    this._title(panel, 'Diagram');
+    this._info(panel, 'Select a node or connection to edit its properties.');
+
+    this._sep(panel);
+    const ptitle = document.createElement('h3');
+    ptitle.className = 'props-title';
+    ptitle.textContent = 'Parameters';
+    panel.appendChild(ptitle);
+    this._info(panel, 'Named constants available to all formulas (e.g. growth_rate * pool).');
+
+    const params = this.diagram.params;
+    for (const [key] of Object.entries(params)) {
+      const row = document.createElement('div');
+      row.className = 'prop-row';
+      const ki = document.createElement('input');
+      ki.type = 'text'; ki.value = key; ki.placeholder = 'name';
+      ki.style.flex = '1';
+      ki.addEventListener('blur', () => {
+        const nk = ki.value.trim();
+        if (!nk || nk === key) { ki.value = key; return; }
+        if (!VALID_IDENT.test(nk)) { ki.value = key; return; }
+        params[nk] = params[key];
+        delete params[key];
+        this._renderProps();
+        this._commit();
+      });
+      const vi = document.createElement('input');
+      vi.type = 'number'; vi.value = params[key]; vi.style.flex = '1';
+      vi.addEventListener('input', () => {
+        const n = parseFloat(vi.value);
+        if (isFinite(n)) { params[key] = n; this._commit(); }
+      });
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '×'; delBtn.className = 'btn';
+      delBtn.style.cssText = 'padding:2px 8px;flex-shrink:0';
+      delBtn.addEventListener('click', () => { delete params[key]; this._renderProps(); this._commit(); });
+      row.appendChild(ki); row.appendChild(vi); row.appendChild(delBtn);
+      panel.appendChild(row);
+    }
+
+    const addRow = document.createElement('div');
+    addRow.className = 'prop-row';
+    addRow.appendChild(document.createElement('label'));
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ Add Parameter';
+    addBtn.className = 'btn';
+    addBtn.style.flex = '1';
+    addBtn.addEventListener('click', () => {
+      let k = 'param' + (Object.keys(params).length + 1);
+      while (params[k] !== undefined) k += '_';
+      params[k] = 0;
+      this._renderProps();
+      this._commit();
+    });
+    addRow.appendChild(addBtn);
+    panel.appendChild(addRow);
+
+    // Live variables readout (during simulation)
+    const vars = Object.entries(this.diagram.variables);
+    if (vars.length) {
+      this._sep(panel);
+      const vtitle = document.createElement('div');
+      vtitle.className = 'chart-label';
+      vtitle.textContent = 'Live Variables';
+      panel.appendChild(vtitle);
+      for (const [k, v] of vars) {
+        const row = document.createElement('div');
+        row.className = 'prop-row';
+        const kl = document.createElement('label'); kl.textContent = k;
+        const vl = document.createElement('span');
+        vl.style.cssText = 'color:var(--accent);font-family:monospace;font-size:12px;';
+        vl.textContent = typeof v === 'number' ? (+v.toFixed(3)) : v;
+        row.appendChild(kl); row.appendChild(vl);
+        panel.appendChild(row);
+      }
     }
   }
 
@@ -603,6 +859,29 @@ class App {
         node.setCount(Math.max(0, parseInt(v) || 0));
         this.renderer.render();
       });
+      // Quick +/- steppers for adjusting resources during play
+      const stepRow = document.createElement('div');
+      stepRow.className = 'prop-row';
+      stepRow.appendChild(document.createElement('label'));
+      const stepBtns = document.createElement('div');
+      stepBtns.style.cssText = 'display:flex;gap:4px;flex:1;';
+      for (const [label, delta] of [['−', -1], ['+', 1]]) {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.className = 'btn';
+        b.style.cssText = 'flex:1;padding:2px 0;font-size:14px;';
+        b.addEventListener('click', () => {
+          if (delta < 0 && node.resources <= 0) return;
+          if (delta > 0 && node.capacity !== Infinity && node.resources >= node.capacity) return;
+          if (delta < 0) node.takeResources(1);
+          else node.addResources(1);
+          this.renderer.render();
+          this._refreshResourceCount();
+        });
+        stepBtns.appendChild(b);
+      }
+      stepRow.appendChild(stepBtns);
+      panel.appendChild(stepRow);
     }
 
     if (node.type === NodeType.POOL || node.type === NodeType.CONVERTER) {
@@ -644,9 +923,9 @@ class App {
 
     if (node.type === NodeType.GATE) {
       if (node.gateMode === 'random') node.gateMode = 'probabilistic';
-      this._select2(panel, 'Gate mode', ['deterministic', 'probabilistic'], node.gateMode,
+      this._select2(panel, 'Gate mode', ['deterministic', 'probabilistic', 'all'], node.gateMode,
         v => { node.gateMode = v; });
-      this._info(panel, 'Outputs split by each connection\'s Weight — deterministic = proportional share; probabilistic = weighted random per unit.');
+      this._info(panel, 'Outputs split by each connection\'s Weight — deterministic = proportional share; probabilistic = weighted random per unit; all = each output gets its full weight per firing.');
     }
 
     if (node.type === NodeType.REGISTER) {
@@ -742,6 +1021,22 @@ class App {
           this._field(panel, 'Formula', 'text', conn.formula, v => {
             conn.formula = v; this.renderer.render();
           }, 'e.g. treasury * 0.1');
+        } else if (conn.rateMode === RateMode.DISTRIBUTION) {
+          const dt = conn.distType || 'normal';
+          this._select2(panel, 'Distribution', ['normal', 'uniform', 'exponential', 'poisson'], dt, v => {
+            conn.distType = v; this._renderProps();
+          });
+          const p1Label = dt === 'uniform' ? 'Min' : (dt === 'exponential' ? 'Mean' : (dt === 'poisson' ? 'Lambda' : 'Mean'));
+          this._field(panel, p1Label, 'number', conn.distParam1 ?? 5, v => {
+            conn.distParam1 = parseFloat(v) || 0;
+          }, dt === 'uniform' ? 'lower bound' : 'expected value');
+          if (dt === 'normal' || dt === 'uniform') {
+            const p2Label = dt === 'uniform' ? 'Max' : 'Std Dev';
+            this._field(panel, p2Label, 'number', conn.distParam2 ?? 2, v => {
+              conn.distParam2 = parseFloat(v) || 0;
+            }, dt === 'uniform' ? 'upper bound' : 'spread');
+          }
+          this._info(panel, { normal: 'Normal: rounded Gaussian (mean ± std dev)', uniform: 'Uniform: integer in [min, max]', exponential: 'Exponential: inter-arrival times (mean)', poisson: 'Poisson: event count per step (λ)' }[dt] || '');
         }
 
         if (fromConverter) {
@@ -771,7 +1066,36 @@ class App {
           this._sep(panel);
 
           this._conditionRow(panel, 'Condition', conn,
-            { enabled: 'condEnabled', op: 'condOperator', val: 'condValue', lead: 'if source' });
+            { enabled: 'condEnabled', op: 'condOperator', val: 'condValue', lead: 'if source' },
+            (details) => {
+              // Compare against: source value OR a named diagram variable
+              const refRow = document.createElement('div');
+              refRow.className = 'prop-row';
+              const rl = document.createElement('label'); rl.textContent = 'Compare';
+              const rs = document.createElement('select');
+              for (const [v, t] of [['source', 'Source value'], ['variable', 'Variable']]) {
+                const o = document.createElement('option');
+                o.value = v; o.textContent = t;
+                if (v === (conn.condRefMode || 'source')) o.selected = true;
+                rs.appendChild(o);
+              }
+              const varRow = document.createElement('div');
+              varRow.className = 'prop-row';
+              varRow.style.display = (conn.condRefMode || 'source') === 'variable' ? '' : 'none';
+              const vl = document.createElement('label'); vl.textContent = 'Variable';
+              const vi = document.createElement('input');
+              vi.type = 'text'; vi.value = conn.condVariable || '';
+              vi.placeholder = 'variable name';
+              vi.addEventListener('input', () => { conn.condVariable = vi.value; });
+              varRow.appendChild(vl); varRow.appendChild(vi);
+              rs.addEventListener('change', () => {
+                conn.condRefMode = rs.value;
+                varRow.style.display = rs.value === 'variable' ? '' : 'none';
+              });
+              refRow.appendChild(rl); refRow.appendChild(rs);
+              details.appendChild(refRow);
+              details.appendChild(varRow);
+            });
         }
       }
 
@@ -788,6 +1112,11 @@ class App {
         conn.trigger = v; this.renderer.render();
       });
       this._info(panel, 'When the source fires, instantly fire the target node (cascades, pulses, on-demand passive nodes).');
+
+      this._checkRow(panel, 'Fail trigger', conn.reverseTrigger, v => {
+        conn.reverseTrigger = v; this.renderer.render();
+      });
+      this._info(panel, 'Fire the target when the source FAILS to produce output (e.g. pool empty, limited source dry). Opposite of trigger.');
 
       this._sep(panel);
 
@@ -848,8 +1177,8 @@ class App {
   }
 
   // A checkbox that reveals an operator + value comparison, editing obj in place.
-  // keys = { enabled, op, val, lead }
-  _conditionRow(panel, title, obj, keys) {
+  // keys = { enabled, op, val, lead }; extraFn(details) may append additional rows.
+  _conditionRow(panel, title, obj, keys, extraFn = null) {
     const chk = this._checkRow(panel, title, obj[keys.enabled], v => {
       obj[keys.enabled] = v;
       details.style.display = v ? 'block' : 'none';
@@ -883,6 +1212,7 @@ class App {
     inner.appendChild(op);
     inner.appendChild(val);
     details.appendChild(inner);
+    if (extraFn) extraFn(details);
     panel.appendChild(details);
     return chk;
   }

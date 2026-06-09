@@ -14,8 +14,18 @@ class Editor {
     this._panDrag = null; // {startX, startY, panX, panY}
     this._marquee = null; // {x0, y0, cur, add, base}
     this.selection = new Set(); // multi-selected node ids
+    this._snapEnabled = false;
+    this._snapSize = 20;
 
     this._bind();
+  }
+
+  setSnap(enabled) { this._snapEnabled = !!enabled; }
+
+  _snapPt(x, y) {
+    if (!this._snapEnabled) return { x, y };
+    const s = this._snapSize;
+    return { x: Math.round(x / s) * s, y: Math.round(y / s) * s };
   }
 
   _changed() { if (this.onChange) this.onChange(); }
@@ -95,7 +105,8 @@ class Editor {
       }
     } else if (this.tool.startsWith('place-')) {
       const type = this.tool.replace('place-', '');
-      const node = this.diagram.addNode(new MNode(type, pt.x, pt.y));
+      const sn = this._snapPt(pt.x, pt.y);
+      const node = this.diagram.addNode(new MNode(type, sn.x, sn.y));
       this.renderer.render();
       this._select(node.id, 'node');
       this._changed();
@@ -159,7 +170,10 @@ class Editor {
       const dy = (e.clientY - this._drag.startY) / s;
       for (const it of this._drag.items) {
         const n = this.diagram.nodes.get(it.nodeId);
-        if (n) { n.x = it.origX + dx; n.y = it.origY + dy; }
+        if (n) {
+          const sn = this._snapPt(it.origX + dx, it.origY + dy);
+          n.x = sn.x; n.y = sn.y;
+        }
       }
       this._dragMoved = true;
       this.renderer.render();

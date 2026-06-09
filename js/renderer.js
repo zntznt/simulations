@@ -286,7 +286,21 @@ class Renderer {
       if (conn.interval > 1) txt += (txt ? ' ' : '') + `/${conn.interval}`;
       if (conn.chance < 100) txt += (txt ? ' ' : '') + `${conn.chance}%`;
       if (conn.colorFilter) txt += (txt ? ' ' : '') + '●';
-      if (src.type === NodeType.GATE && Number(conn.weight) !== 1) txt += (txt ? ' ' : '') + `⚖${conn.weight}`;
+      if (src && src.type === NodeType.GATE) {
+        const gmode = src.gateMode === 'random' ? 'probabilistic' : src.gateMode;
+        if (gmode === 'probabilistic') {
+          const getW = c => { const w = Number(c.weight); return isFinite(w) && w >= 0 ? w : 1; };
+          const allOuts = [...this.diagram.connections.values()]
+            .filter(c => c.sourceId === src.id && c.type === ConnectionType.RESOURCE);
+          const totalW = allOuts.reduce((s, c) => s + getW(c), 0);
+          if (totalW > 0) {
+            const pct = Math.round(getW(conn) / totalW * 100);
+            txt = (txt ? txt + ' ' : '') + `${pct}%`;
+          }
+        } else if (Number(conn.weight) !== 1) {
+          txt += (txt ? ' ' : '') + `⚖${conn.weight}`;
+        }
+      }
     } else if (isTrigger) {
       txt = conn.label ? `✷ ${conn.label}` : '✷';
     } else if (isModifier) {

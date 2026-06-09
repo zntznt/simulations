@@ -254,3 +254,33 @@ input[type="range"] {
 #mc-results th { color: var(--text-dim); font-weight: 600; }
 #mc-results td.swatch-cell { text-align: left; }
 .mc-empty { color: var(--text-dim); font-size: 12px; padding: 8px 0; }
+
+/* ── Autosave banner ── */
+#autosave-banner {
+  display: flex; align-items: center; gap: 8px; margin-left: 12px;
+  padding: 3px 10px; background: rgba(74,158,255,0.1);
+  border: 1px solid rgba(74,158,255,0.3); border-radius: 5px;
+  font-size: 12px; color: var(--accent);
+}
+#autosave-banner .btn { padding: 2px 8px; font-size: 11px; }
+
+/* ── Library modal ── */
+#lib-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+#lib-overlay.hidden { display: none; }
+#lib-modal {
+  width: 500px; max-width: 92vw; max-height: 80vh; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.5);
+}
+#lib-list { padding: 0 16px 16px; }
+.lib-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0; border-bottom: 1px solid var(--border); gap: 10px;
+}
+.lib-row:last-child { border-bottom: none; }
+.lib-info { flex: 1; min-width: 0; font-size: 12px; }
+.lib-info b { display: block; }
+.lib-date { color: var(--text-dim); font-size: 11px; }
