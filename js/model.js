@@ -108,6 +108,12 @@ class MNode {
     this.endOperator = '>=';
     this.endValue = 0;
 
+    // Flow direction (Pool / Drain): 'push' (drive outgoing) is the default;
+    // 'pull' draws resources along incoming connections from pool/source
+    // providers. pullPolicy 'any' takes what's available; 'all' is atomic.
+    this.flowMode = 'push';
+    this.pullPolicy = 'any';
+
     if (type === NodeType.SOURCE) {
       this.resources = Infinity;
       this._initialResources = Infinity;
@@ -232,6 +238,8 @@ class MNode {
       endEnabled: this.endEnabled || undefined,
       endOperator: this.endOperator,
       endValue: this.endValue,
+      flowMode: this.flowMode !== 'push' ? this.flowMode : undefined,
+      pullPolicy: this.pullPolicy,
     };
     if (this.type === NodeType.SOURCE) { d.resourceColor = this.resourceColor; d.limited = this.limited || undefined; }
     if (this.type === NodeType.GATE) d.gateMode = this.gateMode;

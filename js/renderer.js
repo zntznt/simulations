@@ -413,6 +413,7 @@ class Renderer {
     const badge = el.querySelector('.n-badge');
     const bMap = { passive: 'P', interactive: '▶', starting: '1×', automatic: '' };
     let b = bMap[node.activation] ?? '';
+    if (node.flowMode === 'pull') b = '↤' + (b ? ' ' + b : '');
     if (node.endEnabled) b = (b ? b + ' ' : '') + '🏁';
     badge.textContent = b;
   }

@@ -258,6 +258,28 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('editor: marquee multi-select + copy/paste + group delete');
   else fail('editor 3b: ' + JSON.stringify(ms));
 
+  // Pull mode: Flow control toggles and reveals the pull policy.
+  const pull = await page.evaluate(() => {
+    window.app._clearAll();
+    const p = window.app.diagram.addNode(new MNode(NodeType.POOL, 300, 300));
+    window.app.renderer.render();
+    window.app._onSelect(p.id, 'node');
+    const hasLabel = (t) => [...document.querySelectorAll('#props-content .prop-row label')]
+      .some(l => l.textContent.trim() === t);
+    const hasFlow = hasLabel('Flow');
+    for (const row of document.querySelectorAll('#props-content .prop-row')) {
+      const lbl = row.querySelector('label');
+      if (lbl && lbl.textContent.trim() === 'Flow') {
+        const sel = row.querySelector('select'); sel.value = 'pull';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+    return { hasFlow, mode: p.flowMode, hasPolicy: hasLabel('Pull policy') };
+  });
+  if (pull.hasFlow && pull.mode === 'pull' && pull.hasPolicy)
+    ok('pull mode: Flow control toggles push/pull and reveals pull policy');
+  else fail('pull mode: ' + JSON.stringify(pull));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);

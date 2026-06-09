@@ -242,30 +242,95 @@ class SimEngine {
 
   _fireNode(node, ctx, interactive) {
     const d = this.diagram;
+    let any = false;
+
+    // Pull phase: pool/drain in pull mode draws along its incoming connections.
+    if ((node.type === NodeType.POOL || node.type === NodeType.DRAIN) && node.flowMode === 'pull') {
+      if (this._firePull(node, ctx, interactive)) any = true;
+    }
+
     const outs = d.outgoing(node.id).filter(c => c.type === ConnectionType.RESOURCE);
-    if (!outs.length) return false;
+    if (!outs.length) return any;
 
     if (node.type === NodeType.GATE) {
-      return node.resources > 0 ? this._fireGate(node, outs, ctx) : false;
+      return (node.resources > 0 && this._fireGate(node, outs, ctx)) || any;
     }
     if (node.type === NodeType.CONVERTER) {
-      return this._fireConverter(node, outs, ctx);
+      return this._fireConverter(node, outs, ctx) || any;
     }
     if (node.type === NodeType.SOURCE) {
       // A limited source holds a finite stock and behaves like a pool (but
       // still tracks `produced`). An unlimited source emits independently.
-      if (node.limited) return this._firePool(node, outs, ctx, interactive, true);
-      let any = false;
+      if (node.limited) return this._firePool(node, outs, ctx, interactive, true) || any;
       for (const conn of outs) {
+        if (this._targetDriven(conn)) continue; // pulled by its target instead
         if (!interactive && !this._connFires(conn, node)) continue;
         if (this._pushSource(node, conn, ctx)) any = true;
       }
       return any;
     }
     if (node.type === NodeType.POOL) {
-      return this._firePool(node, outs, ctx, interactive);
+      return this._firePool(node, outs, ctx, interactive) || any;
     }
-    return false;
+    return any;
+  }
+
+  // A resource connection is driven by its target (pull) when the target is in
+  // pull mode and the provider is a pool or source; otherwise by its source.
+  _targetDriven(conn) {
+    const tgt = this.diagram.nodes.get(conn.targetId);
+    const src = this.diagram.nodes.get(conn.sourceId);
+    if (!tgt || !src) return false;
+    return tgt.flowMode === 'pull' && (src.type === NodeType.POOL || src.type === NodeType.SOURCE);
+  }
+
+  // Pull phase for a pool/drain: draw each incoming target-driven connection's
+  // rate from its provider (pool stock or infinite source), into this node.
+  _firePull(node, ctx, interactive) {
+    const d = this.diagram;
+    const ins = d.incoming(node.id).filter(c => c.type === ConnectionType.RESOURCE && this._targetDriven(c));
+    if (!ins.length) return false;
+
+    const reqs = [];
+    for (const conn of ins) {
+      const src = d.nodes.get(conn.sourceId);
+      if (!interactive && !this._connFires(conn, src)) continue;
+      const want = Math.max(0, Math.round(this._connRate(conn)));
+      if (want > 0) reqs.push({ conn, src, want });
+    }
+    if (!reqs.length) return false;
+
+    // pull-all is atomic: every provider must be able to supply its full rate.
+    if (node.pullPolicy === 'all') {
+      for (const r of reqs) {
+        const avail = r.src.type === NodeType.SOURCE && !r.src.limited ? Infinity : r.src.resources;
+        if (avail < r.want) return false;
+      }
+    }
+
+    let moved = false;
+    for (const { conn, src, want } of reqs) {
+      const amt = this._acceptable(node.id, want, ctx); // capped by this node's room
+      if (amt <= 0) continue;
+      if (src.type === NodeType.SOURCE && !src.limited) {
+        const color = src.resourceColor || DEFAULT_COLOR;
+        if (conn.colorFilter && color !== conn.colorFilter) continue;
+        src.produced += amt;
+        this._give(node.id, color, amt, conn.id, ctx);
+        this._reserve(node.id, amt, ctx);
+        moved = true;
+      } else {
+        const taken = src.takeResources(amt, conn.colorFilter || null);
+        let total = 0;
+        for (const { amount, color } of taken) { this._give(node.id, color, amount, conn.id, ctx); total += amount; }
+        if (total > 0) {
+          if (src.type === NodeType.SOURCE) src.produced += total; // limited source
+          this._reserve(node.id, total, ctx);
+          moved = true;
+        }
+      }
+    }
+    return moved;
   }
 
   // Sources are infinite, so each outgoing connection is independent.
@@ -292,6 +357,7 @@ class SimEngine {
 
     const reqs = [];
     for (const conn of outs) {
+      if (this._targetDriven(conn)) continue; // pulled by its target instead
       if (!interactive && !this._connFires(conn, node)) continue;
       let want = Math.max(0, Math.round(this._connRate(conn)));
       if (want <= 0) continue;

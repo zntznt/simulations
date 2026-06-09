@@ -662,6 +662,73 @@ test('Monte Carlo does not disturb the live diagram', () => {
   eq(e.step, 0, 'live engine step untouched');
 });
 
+// ── Pull mode ────────────────────────────────────────────────────────────────
+console.log('\nPull mode');
+
+test('a pull pool draws from a provider pool (no double flow)', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const b = node(d, NodeType.POOL); b.flowMode = 'pull';
+  conn(d, a, b).rate = 3;
+  steps(e, 1);
+  eq(b.resources, 3, 'B pulled exactly its rate (not 6)');
+  eq(a.resources, 7, 'provider reduced by the pulled amount');
+});
+
+test('a pull drain consumes from an infinite source', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const dr = node(d, NodeType.DRAIN); dr.flowMode = 'pull';
+  conn(d, s, dr).rate = 2;
+  steps(e, 3);
+  eq(dr.drained, 6, 'drain pulled 2 per step');
+});
+
+test('pull-all is atomic — nothing moves unless every provider can supply', () => {
+  const { d, e } = setup();
+  const a1 = node(d, NodeType.POOL); a1.setCount(1);
+  const a2 = node(d, NodeType.POOL); a2.setCount(10);
+  const b = node(d, NodeType.POOL); b.flowMode = 'pull'; b.pullPolicy = 'all';
+  conn(d, a1, b).rate = 3;
+  conn(d, a2, b).rate = 3;
+  steps(e, 1);
+  eq(b.resources, 0, 'A1 cannot supply 3, so pull-all takes nothing');
+  eq(a2.resources, 10, 'A2 untouched');
+});
+
+test('pull-any takes what is available from each provider', () => {
+  const { d, e } = setup();
+  const a1 = node(d, NodeType.POOL); a1.setCount(1);
+  const a2 = node(d, NodeType.POOL); a2.setCount(10);
+  const b = node(d, NodeType.POOL); b.flowMode = 'pull'; b.pullPolicy = 'any';
+  conn(d, a1, b).rate = 3;
+  conn(d, a2, b).rate = 3;
+  steps(e, 1);
+  eq(b.resources, 4, 'took 1 from A1 and 3 from A2');
+});
+
+test('a pull pool still pushes its own (source-driven) outgoing', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const b = node(d, NodeType.POOL); b.setCount(5); b.flowMode = 'pull';
+  const c = node(d, NodeType.POOL);
+  conn(d, a, b).rate = 3;   // pulled by B
+  conn(d, b, c).rate = 2;   // pushed by B (C is push-mode)
+  steps(e, 1);
+  eq(c.resources, 2, 'B pushed 2 to C from its starting stock');
+  eq(b.resources, 6, 'B = 5 - 2 pushed + 3 pulled');
+});
+
+test('pull respects the pulling node capacity', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(100);
+  const b = node(d, NodeType.POOL); b.flowMode = 'pull'; b.capacity = 4;
+  conn(d, a, b).rate = 10;
+  steps(e, 1);
+  eq(b.resources, 4, 'capped at capacity');
+  eq(a.resources, 96, 'only the accepted amount left the provider');
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed) {

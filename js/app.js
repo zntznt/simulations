@@ -662,6 +662,17 @@ class App {
       this._info(panel, 'State connections feeding this register become variables. Set the connection\'s variable name (label) to use in the formula.');
     }
 
+    if (node.type === NodeType.POOL || node.type === NodeType.DRAIN) {
+      this._select2(panel, 'Flow', ['push', 'pull'], node.flowMode, v => {
+        node.flowMode = v; this._renderProps(); this.renderer.render();
+      });
+      if (node.flowMode === 'pull') {
+        this._select2(panel, 'Pull policy', ['any', 'all'], node.pullPolicy,
+          v => { node.pullPolicy = v; });
+        this._info(panel, 'Pull draws resources along incoming connections from pool/source providers. "all" only pulls when every provider can supply its full rate.');
+      }
+    }
+
     this._select2(panel, 'Activation', Object.values(ActivationMode), node.activation,
       v => { node.activation = v; this.renderer.render(); });
 

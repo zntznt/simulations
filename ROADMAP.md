@@ -40,10 +40,11 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 
 ## 🔭 Missing — Simulation engine
 
-- [ ] **Pull-mode nodes (P1).** Machinations' default is *pull* (a node pulls
-      along its incoming connections); we are push-only. Add per-node
-      push/pull plus the any/all variants (pull-any, pull-all, push-any,
-      push-all), which change how partial availability is resolved.
+- [x] **Pull-mode nodes (P1).** Pools/drains have a Flow mode (push/pull). A
+      pull node draws each incoming connection's rate from its pool/source
+      provider; `pullPolicy` any/all controls partial vs atomic pulls. Each
+      connection is driven by exactly one endpoint (pull takes precedence), so
+      there's no double flow.
 - [x] **Finite / limited Source (P1).** Source can hold a finite starting stock
       ("Limited stock" toggle) and run dry.
 - [x] **Queue node (P1).** Single-server FIFO: one unit in service at a time for
@@ -107,8 +108,10 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 
 ## ⚠️ Known limitations & intentional design notes
 
-- **Push-only flow.** All movement is push-based from Sources/Pools; pull
-  semantics (above) are not yet modeled.
+- **Flow direction.** Push is the default; pools/drains can opt into pull mode
+  (drawing from pool/source providers). Gates/converters/delays/queues always
+  push; pull draws only from pool/source providers, so each connection is
+  driven exactly once.
 - **Goals are terminal on Run.** Reaching a goal stops the engine; pressing Run
   clears the goal and resumes (it re-triggers if still satisfied). No
   "resume past goal" mode yet.
