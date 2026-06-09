@@ -131,6 +131,22 @@ class Editor {
   _onUp(e) {
     if (this._panDrag) { this._panDrag = null; return; }
     this._drag = null;
+
+    // Drag-to-connect: started a connection on a node and released over a
+    // different node. (Click-to-click still works via _onDown.)
+    if (this._connecting) {
+      const pt = this.renderer.svgPoint(e.clientX, e.clientY);
+      const hit = this.renderer.hitTest(pt.x, pt.y);
+      if (hit && hit.type === 'node' && hit.id !== this._connecting.sourceId) {
+        const conn = this.diagram.addConnection(
+          new MConnection(this._connecting.sourceId, hit.id, this._connecting.type)
+        );
+        this._connecting = null;
+        this.renderer.clearTemp();
+        this.renderer.render();
+        this._select(conn.id, 'conn');
+      }
+    }
   }
 
   _onDbl(e) {

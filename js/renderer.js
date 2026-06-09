@@ -338,6 +338,18 @@ class Renderer {
       }
     }
 
+    // Converter: left circle = held input color, right circle = output color
+    if (node.type === NodeType.CONVERTER) {
+      const back = el.querySelector('.ns-back');
+      const front = [...el.querySelectorAll('.ns')].find(s => !s.classList.contains('ns-back'));
+      const inColor = dominantColor(node.colorMap);
+      if (back && inColor) back.setAttribute('fill', this._tintFill(NODE_FILL.converter, inColor, 0.4));
+      if (front && node.outputColor) {
+        front.setAttribute('fill', this._tintFill(NODE_FILL.converter, node.outputColor, 0.4));
+        front.setAttribute('stroke', node.outputColor);
+      }
+    }
+
     el.querySelector('.n-count').textContent = node.displayCount;
 
     const lbl = el.querySelector('.n-label');
@@ -399,14 +411,19 @@ class Renderer {
       if (hit) return { type: 'node', id };
     }
 
-    for (const [id] of this._connEls) {
-      const conn = this.diagram.connections.get(id);
-      if (!conn) continue;
-      const src = this.diagram.nodes.get(conn.sourceId);
-      const tgt = this.diagram.nodes.get(conn.targetId);
-      if (!src || !tgt) continue;
-      const mx = (src.x + tgt.x) / 2, my = (src.y + tgt.y) / 2;
-      if (Math.hypot(x - mx, y - my) <= 18) return { type: 'conn', id };
+    // Sample along each connection's real path so the whole line is clickable.
+    for (const [id, g] of this._connEls) {
+      if (!this.diagram.connections.has(id)) continue;
+      const pathEl = g.querySelector('.conn-path');
+      if (!pathEl) continue;
+      let len;
+      try { len = pathEl.getTotalLength(); } catch { continue; }
+      if (!len) continue;
+      const steps = Math.max(8, Math.floor(len / 12));
+      for (let i = 0; i <= steps; i++) {
+        const pt = pathEl.getPointAtLength((i / steps) * len);
+        if (Math.hypot(x - pt.x, y - pt.y) <= 8) return { type: 'conn', id };
+      }
     }
     return null;
   }

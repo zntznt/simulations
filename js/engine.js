@@ -14,7 +14,6 @@ class SimEngine {
     for (const n of this.diagram.nodes.values()) {
       n._initialResources = n.type === NodeType.SOURCE ? Infinity : n.resources;
       n._initialColorMap = { ...n.colorMap };
-      if (n.type === NodeType.DELAY) n._initialQueue = [];
     }
   }
 
@@ -26,13 +25,24 @@ class SimEngine {
       n.resources = n._initialResources ?? (n.type === NodeType.SOURCE ? Infinity : 0);
       n.colorMap = { ...(n._initialColorMap || {}) };
       if (n.type === NodeType.DELAY) n._queue = [];
+      if (n.type === NodeType.SOURCE) n.produced = 0;
+      if (n.type === NodeType.DRAIN) n.drained = 0;
+      if (n.type === NodeType.REGISTER) n.value = 0;
     }
     this.diagram.variables = {};
+    // Compute initial variable/register values so the display is correct
+    // before the first step runs.
+    this._updateVariables();
+    this._evalRegisters();
     if (this.onStep) this.onStep(0, [], []);
   }
 
   doStep() {
-    if (this.step === 0) this.saveInitial();
+    if (this.step === 0) {
+      this.saveInitial();
+      this._updateVariables();
+      this._evalRegisters();
+    }
     this.step++;
     const { fired, transfers } = this._tick();
     this._record();
@@ -42,7 +52,11 @@ class SimEngine {
   run() {
     if (this.running) { this.stop(); return; }
     this.running = true;
-    if (this.step === 0) this.saveInitial();
+    if (this.step === 0) {
+      this.saveInitial();
+      this._updateVariables();
+      this._evalRegisters();
+    }
     const ms = Math.round(1000 / Math.max(0.1, this.speed));
     this._tid = setInterval(() => this.doStep(), ms);
   }
@@ -58,15 +72,18 @@ class SimEngine {
     const ctx = this._makeCtx();
     this._fireNode(node, ctx, true);
     this._applyCtx(ctx);
+    this._updateVariables();
+    this._evalRegisters();
     if (this.onStep) this.onStep(this.step, [nodeId], ctx.transfers);
   }
 
-  // ── Core ──────────────────────────────────────────────────────────────────
+  // ── Core tick ───────────────────────────────────────────────────────────
 
   _makeCtx() {
     return {
-      gives: new Map(),     // nodeId → {color: amount} to receive
+      gives: new Map(),     // nodeId → {color: amount}
       delayIn: new Map(),   // nodeId → [{amount, color}]
+      reserved: new Map(),  // nodeId → capacity reserved this step
       transfers: [],        // [{connId, color, amount}] for animation
     };
   }
@@ -76,13 +93,9 @@ class SimEngine {
     const ctx = this._makeCtx();
     const fired = [];
 
-    // 1. Update diagram.variables from all state connections
-    this._updateVariables();
-
-    // 2. Evaluate registers
-    this._evalRegisters();
-
-    // 3. Fire automatic/starting nodes
+    // Fire automatic / starting nodes using the committed state. Connection
+    // rate formulas read diagram.variables, which holds the values committed
+    // at the end of the previous step (or from reset()).
     for (const n of d.nodes.values()) {
       const fire =
         n.activation === ActivationMode.AUTOMATIC ||
@@ -91,149 +104,238 @@ class SimEngine {
       if (this._fireNode(n, ctx, false)) fired.push(n.id);
     }
 
-    // 4. Advance delay queues
+    // Advance delay queues (releases respect target capacity).
     this._advanceDelays(ctx);
 
-    // 5. Apply accumulated gives
+    // Commit all flows atomically.
     this._applyCtx(ctx);
+
+    // Refresh shared variables + registers to reflect the new committed state.
+    this._updateVariables();
+    this._evalRegisters();
 
     return { fired, transfers: ctx.transfers };
   }
 
-  // State connections → diagram.variables
+  // ── Variables & registers ─────────────────────────────────────────────────
+
+  _stateValueOf(node) {
+    if (!node) return 0;
+    if (node.type === NodeType.REGISTER) return isFinite(node.value) ? node.value : 0;
+    if (node.type === NodeType.SOURCE) return node.produced || 0;
+    if (node.type === NodeType.DRAIN) return node.drained || 0;
+    return node.resources;
+  }
+
   _updateVariables() {
     const d = this.diagram;
     for (const conn of d.connections.values()) {
       if (conn.type !== ConnectionType.STATE) continue;
       const src = d.nodes.get(conn.sourceId);
       if (!src) continue;
-      const val = src.type === NodeType.REGISTER ? src.value : src.resources;
       const name = conn.variableName || conn.label;
-      if (name) d.variables[name] = val;
+      if (!name) continue;
+      const val = this._stateValueOf(src);
+      d.variables[name] = isFinite(val) ? val : 0;
     }
   }
 
-  // Evaluate all register formulas
   _evalRegisters() {
     const d = this.diagram;
     for (const n of d.nodes.values()) {
       if (n.type !== NodeType.REGISTER) continue;
-      if (n.formula.trim()) {
+      if (n.formula && n.formula.trim()) {
         n.value = evalFormula(n.formula, d.variables);
       } else {
-        // No formula: show value of first incoming state connection's source
+        // No formula: mirror the first incoming state connection's source.
         const inc = d.incoming(n.id).filter(c => c.type === ConnectionType.STATE);
-        if (inc.length > 0) {
-          const src = d.nodes.get(inc[0].sourceId);
-          n.value = src ? (src.type === NodeType.REGISTER ? src.value : src.resources) : 0;
-        }
+        n.value = inc.length ? this._stateValueOf(d.nodes.get(inc[0].sourceId)) : 0;
       }
-      // Publish register value under its label (so other formulas can read it)
-      if (n.label) d.variables[n.label] = n.value;
+      if (!isFinite(n.value)) n.value = 0;
+      // Publish under the register's label so other formulas can chain on it.
+      if (n.label && VALID_IDENT.test(n.label)) d.variables[n.label] = n.value;
     }
   }
+
+  // ── Firing ────────────────────────────────────────────────────────────────
 
   _fireNode(node, ctx, interactive) {
     const d = this.diagram;
     const outs = d.outgoing(node.id).filter(c => c.type === ConnectionType.RESOURCE);
     if (!outs.length) return false;
 
-    let anyFired = false;
-
     if (node.type === NodeType.GATE) {
-      // Gate distributes its accumulated pool to outgoing connections
-      if (node.resources > 0) {
-        anyFired = this._fireGate(node, outs, ctx);
-      }
-    } else {
-      for (const conn of outs) {
-        if (!interactive && !this._connFires(conn, node)) continue;
-        const moved = this._pushConn(node, conn, ctx);
-        if (moved) anyFired = true;
-      }
+      return node.resources > 0 ? this._fireGate(node, outs, ctx) : false;
+    }
+    if (node.type === NodeType.CONVERTER) {
+      return this._fireConverter(node, outs, ctx);
     }
 
-    return anyFired;
+    let any = false;
+    for (const conn of outs) {
+      if (!interactive && !this._connFires(conn, node)) continue;
+      if (this._pushConn(node, conn, ctx)) any = true;
+    }
+    return any;
   }
 
-  // Returns true if resources were sent
+  // Push along one resource connection from a Source or Pool.
   _pushConn(node, conn, ctx) {
-    const rate = this._connRate(conn);
+    const rate = Math.max(0, Math.round(this._connRate(conn)));
     if (rate <= 0) return false;
 
     if (node.type === NodeType.SOURCE) {
-      const color = node.resourceColor || '#ffa726';
+      const color = node.resourceColor || DEFAULT_COLOR;
       if (conn.colorFilter && color !== conn.colorFilter) return false;
-      this._give(conn.targetId, color, rate, conn.id, ctx);
+      const accept = this._acceptable(conn.targetId, rate, ctx);
+      if (accept <= 0) return false;
+      node.produced += accept;
+      this._give(conn.targetId, color, accept, conn.id, ctx);
+      this._reserve(conn.targetId, accept, ctx);
       return true;
     }
 
-    if (node.type === NodeType.POOL || node.type === NodeType.CONVERTER) {
+    if (node.type === NodeType.POOL) {
       if (node.resources <= 0) return false;
-      const filter = conn.colorFilter || null;
-      const taken = node.takeResources(rate, filter);
-      let any = false;
+      const accept = this._acceptable(conn.targetId, rate, ctx);
+      if (accept <= 0) return false;
+      const taken = node.takeResources(accept, conn.colorFilter || null);
+      let total = 0;
       for (const { amount, color } of taken) {
-        if (amount > 0) { this._give(conn.targetId, color, amount, conn.id, ctx); any = true; }
+        if (amount > 0) { this._give(conn.targetId, color, amount, conn.id, ctx); total += amount; }
       }
-      return any;
+      if (total > 0) this._reserve(conn.targetId, total, ctx);
+      return total > 0;
     }
 
     return false;
   }
 
-  _fireGate(node, outs, ctx) {
-    if (!outs.length || node.resources <= 0) return false;
-    const total = node.resources;
+  // Converter: consumes `inputAmount` of held resources per conversion and
+  // emits each outgoing connection's rate in the converter's output color.
+  _fireConverter(node, outs, ctx) {
+    const need = Math.max(1, Math.round(node.inputAmount || 1));
+    let conversions = 0, guard = 0;
 
-    // Take resources proportionally from colorMap
-    const totalTaken = node.takeResources(total);
+    while (node.resources >= need && guard++ < 10000) {
+      // Figure out how much each output can take before consuming input.
+      let canPlace = false;
+      const grants = outs.map(c => {
+        const want = Math.max(0, Math.round(this._connRate(c)));
+        const amt = this._acceptable(c.targetId, want, ctx);
+        if (amt > 0) canPlace = true;
+        return { c, amt };
+      });
+      if (!canPlace) break; // every output full — stop, keep the input
 
-    if (node.gateMode === 'random') {
-      const pick = outs[Math.floor(Math.random() * outs.length)];
-      for (const { amount, color } of totalTaken)
-        this._give(pick.targetId, color, amount, pick.id, ctx);
-    } else {
-      // Proportional distribution by connection rates
-      const rates = outs.map(c => Math.max(0.001, this._connRate(c)));
-      const rateSum = rates.reduce((a, b) => a + b, 0);
-
-      for (const { amount, color } of totalTaken) {
-        let rem = amount;
-        outs.forEach((conn, i) => {
-          const share = i === outs.length - 1 ? rem : Math.floor(amount * rates[i] / rateSum);
-          rem -= share;
-          if (share > 0) this._give(conn.targetId, color, share, conn.id, ctx);
-        });
+      node.takeResources(need);
+      conversions++;
+      const color = node.outputColor || DEFAULT_COLOR;
+      for (const g of grants) {
+        if (g.amt > 0) {
+          this._give(g.c.targetId, color, g.amt, g.c.id, ctx);
+          this._reserve(g.c.targetId, g.amt, ctx);
+        }
       }
     }
-    return true;
+    return conversions > 0;
+  }
+
+  // Gate: redistributes everything it holds across its outputs.
+  _fireGate(node, outs, ctx) {
+    node.reconcile();
+    let movedAny = false;
+
+    if (node.gateMode === 'random') {
+      // Route each unit to a random output that still has room.
+      for (const color of Object.keys(node.colorMap)) {
+        while (node.colorMap[color] > 0) {
+          const candidates = outs.filter(c => this._acceptable(c.targetId, 1, ctx) >= 1);
+          if (!candidates.length) break;
+          const pick = candidates[Math.floor(Math.random() * candidates.length)];
+          this._give(pick.targetId, color, 1, pick.id, ctx);
+          this._reserve(pick.targetId, 1, ctx);
+          node.colorMap[color] -= 1;
+          node.resources -= 1;
+          movedAny = true;
+        }
+      }
+      for (const k of Object.keys(node.colorMap)) if (node.colorMap[k] <= 0) delete node.colorMap[k];
+      return movedAny;
+    }
+
+    // Deterministic: split proportionally to output rates.
+    const total = node.resources;
+    const rates = outs.map(c => Math.max(0, this._connRate(c)));
+    const rateSum = rates.reduce((a, b) => a + b, 0) || outs.length;
+    const shares = outs.map((c, i) => Math.floor(total * (rates[i] || 1) / rateSum));
+    let rem = total - shares.reduce((a, b) => a + b, 0);
+    for (let i = 0; rem > 0; i++, rem--) shares[i % outs.length]++;
+
+    outs.forEach((conn, i) => {
+      const accept = this._acceptable(conn.targetId, shares[i], ctx);
+      if (accept <= 0) return;
+      const taken = node.takeResources(accept);
+      let moved = 0;
+      for (const { amount, color } of taken) {
+        this._give(conn.targetId, color, amount, conn.id, ctx);
+        moved += amount;
+      }
+      if (moved > 0) { this._reserve(conn.targetId, moved, ctx); movedAny = true; }
+    });
+    return movedAny;
   }
 
   _advanceDelays(ctx) {
     const d = this.diagram;
     for (const n of d.nodes.values()) {
       if (n.type !== NodeType.DELAY) continue;
+      const outs = d.outgoing(n.id).filter(c => c.type === ConnectionType.RESOURCE);
       const still = [];
       for (const item of (n._queue || [])) {
         item.stepsLeft--;
-        if (item.stepsLeft <= 0) {
-          const outs = d.outgoing(n.id).filter(c => c.type === ConnectionType.RESOURCE);
-          for (const c of outs)
-            this._give(c.targetId, item.color, item.amount, c.id, ctx);
-          n.resources = Math.max(0, n.resources - item.amount);
-          if (n.colorMap[item.color])
-            n.colorMap[item.color] = Math.max(0, n.colorMap[item.color] - item.amount);
-        } else {
-          still.push(item);
+        if (item.stepsLeft > 0) { still.push(item); continue; }
+
+        if (!outs.length) { still.push({ ...item, stepsLeft: 1 }); continue; }
+
+        let remaining = item.amount;
+        for (const c of outs) {
+          if (remaining <= 0) break;
+          const accept = this._acceptable(c.targetId, remaining, ctx);
+          if (accept <= 0) continue;
+          this._give(c.targetId, item.color, accept, c.id, ctx);
+          this._reserve(c.targetId, accept, ctx);
+          n.resources = Math.max(0, n.resources - accept);
+          if (n.colorMap[item.color]) n.colorMap[item.color] = Math.max(0, n.colorMap[item.color] - accept);
+          remaining -= accept;
         }
+        if (remaining > 0) still.push({ amount: remaining, color: item.color, stepsLeft: 1 });
       }
       n._queue = still;
+      for (const k of Object.keys(n.colorMap)) if (n.colorMap[k] <= 0) delete n.colorMap[k];
     }
   }
 
-  // Route `amount` of `color` to target node
+  // ── Flow plumbing ─────────────────────────────────────────────────────────
+
+  // How much a target can still accept this step (capacity-aware).
+  _acceptable(targetId, want, ctx) {
+    const tgt = this.diagram.nodes.get(targetId);
+    if (!tgt || want <= 0) return 0;
+    if (tgt.type === NodeType.SOURCE) return 0; // can't push into a source
+    if (tgt.capacity === Infinity || tgt.type === NodeType.DRAIN || tgt.type === NodeType.DELAY)
+      return want;
+    const reserved = ctx.reserved.get(targetId) || 0;
+    const room = tgt.capacity - tgt.resources - reserved;
+    return Math.max(0, Math.min(want, room));
+  }
+
+  _reserve(targetId, amt, ctx) {
+    ctx.reserved.set(targetId, (ctx.reserved.get(targetId) || 0) + amt);
+  }
+
   _give(targetId, color, amount, connId, ctx) {
+    if (amount <= 0) return;
     const tgt = this.diagram.nodes.get(targetId);
     ctx.transfers.push({ connId, color, amount });
 
@@ -253,12 +355,12 @@ class SimEngine {
 
     for (const [id, colorAmounts] of gives) {
       const n = d.nodes.get(id);
-      if (!n || n.type === NodeType.SOURCE || n.type === NodeType.DRAIN) continue;
-      for (const [color, amount] of Object.entries(colorAmounts)) {
-        const cap = n.capacity;
-        const space = cap === Infinity ? amount : Math.min(amount, cap - n.resources);
-        if (space > 0) n.addResources(space, color);
+      if (!n || n.type === NodeType.SOURCE) continue;
+      if (n.type === NodeType.DRAIN) {
+        for (const amt of Object.values(colorAmounts)) n.drained = (n.drained || 0) + amt;
+        continue;
       }
+      for (const [color, amount] of Object.entries(colorAmounts)) n.addResources(amount, color);
     }
 
     for (const [id, items] of delayIn) {
@@ -275,15 +377,11 @@ class SimEngine {
 
   // ── Connection helpers ────────────────────────────────────────────────────
 
-  // Should this resource connection fire this step?
   _connFires(conn, sourceNode) {
-    // Interval
     if (conn.interval > 1 && (this.step - 1) % conn.interval !== 0) return false;
-    // Chance
     if (conn.chance < 100 && Math.random() * 100 >= conn.chance) return false;
-    // Condition on source's resource count (or register value)
     if (conn.condEnabled) {
-      const val = sourceNode.type === NodeType.REGISTER ? sourceNode.value : sourceNode.resources;
+      const val = this._stateValueOf(sourceNode);
       if (!this._evalCond(val, conn.condOperator, conn.condValue)) return false;
     }
     return true;
@@ -305,14 +403,16 @@ class SimEngine {
     switch (conn.rateMode) {
       case RateMode.DICE:    return rollDice(conn.dice);
       case RateMode.FORMULA: return evalFormula(conn.formula, this.diagram.variables);
-      default:               return typeof conn.rate === 'number' ? conn.rate : (parseFloat(conn.rate) || 1);
+      default:               return typeof conn.rate === 'number' ? conn.rate : (parseFloat(conn.rate) || 0);
     }
   }
 
   _record() {
     const snap = {};
-    for (const n of this.diagram.nodes.values())
-      if (n.type !== NodeType.SOURCE) snap[n.id] = n.resources;
+    for (const n of this.diagram.nodes.values()) {
+      if (n.type === NodeType.SOURCE) continue;
+      snap[n.id] = n.chartValue;
+    }
     this.history.push({ step: this.step, snap });
     if (this.history.length > 300) this.history.shift();
   }

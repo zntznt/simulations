@@ -173,6 +173,12 @@ input[type="range"] {
 .cond-details select { width: 60px; flex: none; }
 .cond-details input[type="number"] { width: 70px; flex: none; }
 
+.prop-row input[type="checkbox"] {
+  flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer;
+}
+
+.reg-value.drain-stat { color: var(--red); }
+
 /* ── Node SVG text ── */
 .n-count { fill: #fff; font-size: 13px; font-weight: 700; font-family: monospace; }
 .n-label { fill: var(--text); font-size: 11px; font-family: var(--font); }

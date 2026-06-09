@@ -68,10 +68,10 @@ class App {
     this.diagram.addConnection(new MConnection(gate.id, pool2.id));
     this.diagram.addConnection(new MConnection(gate.id, pool3.id));
 
-    // Register example
+    // Register example: reads the Treasury count via a named state variable.
     const reg = this.diagram.addNode(new MNode(NodeType.REGISTER, 620, 460));
     reg.label = 'Total';
-    reg.formula = 'treasury + 0';
+    reg.formula = 'treasury * 2';
 
     const sc = this.diagram.addConnection(new MConnection(pool.id, reg.id, ConnectionType.STATE));
     sc.variableName = 'treasury';
@@ -124,6 +124,7 @@ class App {
       this.diagram.connections.clear();
       this.diagram.variables = {};
       this.engine.reset();
+      this.renderer.balls.clear();
       this._clearSparklines();
       this._onSelect(null, null);
       this.renderer.render();
@@ -148,6 +149,7 @@ class App {
           try {
             this.diagram.loadJSON(JSON.parse(ev.target.result));
             this.engine.reset();
+            this.renderer.balls.clear();
             this._clearSparklines();
             this._onSelect(null, null);
             this.renderer.render();
@@ -200,20 +202,34 @@ class App {
       });
     }
 
-    if (node.type !== NodeType.SOURCE && node.type !== NodeType.REGISTER) {
+    if (node.type !== NodeType.SOURCE && node.type !== NodeType.REGISTER && node.type !== NodeType.DRAIN) {
       this._field(panel, 'Resources', 'number', node.resources, v => {
-        const n = Math.max(0, parseInt(v) || 0);
-        node.resources = n;
-        node._initialResources = n;
-        node.renderer?.render();
+        node.setCount(Math.max(0, parseInt(v) || 0));
         this.renderer.render();
       });
     }
 
-    if (node.type === NodeType.POOL) {
+    if (node.type === NodeType.POOL || node.type === NodeType.CONVERTER) {
       this._field(panel, 'Capacity', 'text', node.capacity === Infinity ? '' : node.capacity,
         v => { node.capacity = v === '' || v === '∞' ? Infinity : (parseInt(v) || Infinity); },
         '∞ = unlimited');
+    }
+
+    if (node.type === NodeType.CONVERTER) {
+      this._field(panel, 'Input / conversion', 'number', node.inputAmount,
+        v => { node.inputAmount = Math.max(1, parseInt(v) || 1); });
+      this._colorField(panel, 'Output color', node.outputColor || '#ffa726', v => {
+        node.outputColor = v; this.renderer.render();
+      });
+      this._info(panel, 'Consumes this many held resources per conversion, then emits each output connection’s rate in the output color.');
+    }
+
+    if (node.type === NodeType.DRAIN) {
+      const stat = document.createElement('div');
+      stat.className = 'reg-value drain-stat';
+      stat.textContent = `${node.drained || 0}`;
+      panel.appendChild(stat);
+      this._info(panel, 'Total resources consumed (drained) this run.');
     }
 
     if (node.type === NodeType.DELAY) {
@@ -456,15 +472,20 @@ class App {
     const node = this.diagram.nodes.get(this._selectedId);
     if (!node || node.type === NodeType.SOURCE) return;
 
-    // Update register display
     if (node.type === NodeType.REGISTER) {
       const rv = document.querySelector('#props-content .reg-value');
       if (rv) rv.textContent = `= ${node.displayCount}`;
       return;
     }
 
-    const inputs = document.querySelectorAll('#props-content input[type="number"]');
-    const inp = inputs[0];
+    if (node.type === NodeType.DRAIN) {
+      const el = document.querySelector('#props-content .drain-stat');
+      if (el) el.textContent = `${node.drained || 0}`;
+      return;
+    }
+
+    // First number input is always the Resources field.
+    const inp = document.querySelector('#props-content input[type="number"]');
     if (inp && document.activeElement !== inp) inp.value = node.resources;
   }
 

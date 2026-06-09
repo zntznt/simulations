@@ -26,6 +26,10 @@ const RateMode = {
   FORMULA: 'formula',
 };
 
+// Grey "uncolored" resource — used when a node holds resources without an
+// explicit color (e.g. resources typed directly into the properties panel).
+const DEFAULT_COLOR = '#9e9e9e';
+
 const NODE_FILL = {
   pool: '#1a3a6b', source: '#1a4a2a', drain: '#4a1a1a',
   gate: '#3a1a5a', converter: '#4a2a00', register: '#1a2a38', delay: '#004a4a',
@@ -36,32 +40,41 @@ const NODE_STROKE = {
   gate: '#ba68c8', converter: '#ffa726', register: '#78909c', delay: '#26c6da',
 };
 
-// Safely evaluate a math formula with given variables
+const VALID_IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+// Safely evaluate a math expression against a set of variables.
+// Only variables with valid identifier names and finite numeric values are
+// exposed, so one bad variable name can't break every formula.
 function evalFormula(expr, vars = {}) {
-  if (!expr || typeof expr !== 'string') return 0;
+  if (!expr || typeof expr !== 'string' || !expr.trim()) return 0;
+  const keys = [], vals = [];
+  for (const [k, v] of Object.entries(vars || {})) {
+    if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)) {
+      keys.push(k); vals.push(v);
+    }
+  }
   try {
-    const keys = Object.keys(vars);
-    const vals = Object.values(vars);
     // eslint-disable-next-line no-new-func
-    const fn = new Function(...keys, `"use strict"; return +(${expr.trim()})`);
-    const r = fn(...vals);
+    const fn = new Function(...keys, `"use strict"; return (${expr.trim()});`);
+    const r = Number(fn(...vals));
     return isFinite(r) ? r : 0;
   } catch { return 0; }
 }
 
-// Roll XdY dice (e.g. "2d6" → 2-12)
+// Roll XdY dice notation (e.g. "2d6" → 2..12). Plain numbers pass through.
 function rollDice(expr) {
-  if (!expr) return 0;
+  if (expr == null) return 0;
   const s = String(expr).trim().toLowerCase();
-  const m = s.match(/^(\d+)d(\d+)$/);
+  const m = s.match(/^(\d+)\s*d\s*(\d+)$/);
   if (!m) { const n = parseFloat(s); return isNaN(n) ? 0 : n; }
   const count = parseInt(m[1]), sides = parseInt(m[2]);
+  if (sides < 1) return 0;
   let sum = 0;
   for (let i = 0; i < count; i++) sum += Math.floor(Math.random() * sides) + 1;
   return sum;
 }
 
-// Return the dominant color in a colorMap, or fallback
+// Dominant (most common) color in a {color: count} map.
 function dominantColor(colorMap, fallback = null) {
   let max = 0, best = fallback;
   for (const [c, n] of Object.entries(colorMap || {})) {
@@ -91,12 +104,18 @@ class MNode {
       this.resources = Infinity;
       this._initialResources = Infinity;
       this.resourceColor = '#ffa726';
+      this.produced = 0;        // total emitted this run (for state connections)
+    } else if (type === NodeType.DRAIN) {
+      this.drained = 0;         // total consumed this run
     } else if (type === NodeType.REGISTER) {
       this.value = 0;
       this.formula = '';
+    } else if (type === NodeType.CONVERTER) {
+      this.inputAmount = 1;     // resources consumed per conversion
+      this.outputColor = '#ffa726';
     } else if (type === NodeType.DELAY) {
       this.delay = 2;
-      this._queue = [];  // [{amount, color, stepsLeft}]
+      this._queue = [];         // [{amount, color, stepsLeft}]
     } else if (type === NodeType.GATE) {
       this.gateMode = 'deterministic';
     }
@@ -104,24 +123,67 @@ class MNode {
 
   get displayCount() {
     if (this.type === NodeType.SOURCE) return '∞';
-    if (this.type === NodeType.REGISTER) return isNaN(this.value) ? '?' : +this.value.toFixed(2);
+    if (this.type === NodeType.DRAIN) return this.drained || 0;
+    if (this.type === NodeType.REGISTER) {
+      if (!isFinite(this.value)) return '∞';
+      return +Number(this.value).toFixed(2);
+    }
     return this.resources;
   }
 
-  // Primary display color (dominant held resource or source color)
+  // Numeric value used for history charts.
+  get chartValue() {
+    if (this.type === NodeType.DRAIN) return this.drained || 0;
+    if (this.type === NodeType.REGISTER) return isFinite(this.value) ? this.value : 0;
+    if (this.type === NodeType.SOURCE) return 0;
+    return this.resources;
+  }
+
+  // Primary display color (dominant held resource, or source's output color).
   get displayColor() {
     if (this.type === NodeType.SOURCE) return this.resourceColor || '#ffa726';
+    if (this.type === NodeType.CONVERTER) return dominantColor(this.colorMap) || this.outputColor;
     return dominantColor(this.colorMap);
   }
 
-  addResources(amount, color = '#ffffff') {
+  // Set a concrete resource count, keeping colorMap consistent. This is the
+  // authoring path (properties panel), so it also becomes the reset baseline.
+  setCount(n, color = DEFAULT_COLOR) {
+    this.resources = Math.max(0, n);
+    this.colorMap = this.resources > 0 ? { [color]: this.resources } : {};
+    this._initialResources = this.resources;
+    this._initialColorMap = { ...this.colorMap };
+  }
+
+  // Ensure colorMap totals equal `resources`. Untracked resources become
+  // DEFAULT_COLOR; excess color entries are trimmed.
+  reconcile() {
+    if (this.resources === Infinity) return;
+    let sum = 0;
+    for (const v of Object.values(this.colorMap)) sum += v;
+    if (sum < this.resources) {
+      this.colorMap[DEFAULT_COLOR] = (this.colorMap[DEFAULT_COLOR] || 0) + (this.resources - sum);
+    } else if (sum > this.resources) {
+      let excess = sum - this.resources;
+      for (const k of Object.keys(this.colorMap)) {
+        if (excess <= 0) break;
+        const take = Math.min(this.colorMap[k], excess);
+        this.colorMap[k] -= take; excess -= take;
+      }
+    }
+    for (const k of Object.keys(this.colorMap)) if (this.colorMap[k] <= 0) delete this.colorMap[k];
+  }
+
+  addResources(amount, color = DEFAULT_COLOR) {
+    if (amount <= 0) return;
     this.resources += amount;
     this.colorMap[color] = (this.colorMap[color] || 0) + amount;
   }
 
-  // Take up to `amount` resources, optionally filtered by color.
-  // Modifies node immediately. Returns [{amount, color}].
+  // Take up to `amount` resources, optionally only of `colorFilter`.
+  // Mutates this node immediately. Returns [{amount, color}].
   takeResources(amount, colorFilter = null) {
+    this.reconcile();
     const taken = [];
     let rem = amount;
 
@@ -143,10 +205,7 @@ class MNode {
       }
     }
 
-    // Clean zero/negative entries
-    for (const k of Object.keys(this.colorMap))
-      if (this.colorMap[k] <= 0) delete this.colorMap[k];
-
+    for (const k of Object.keys(this.colorMap)) if (this.colorMap[k] <= 0) delete this.colorMap[k];
     return taken;
   }
 
@@ -161,6 +220,7 @@ class MNode {
     if (this.type === NodeType.SOURCE) d.resourceColor = this.resourceColor;
     if (this.type === NodeType.GATE) d.gateMode = this.gateMode;
     if (this.type === NodeType.REGISTER) { d.value = this.value; d.formula = this.formula; }
+    if (this.type === NodeType.CONVERTER) { d.inputAmount = this.inputAmount; d.outputColor = this.outputColor; }
     if (this.type === NodeType.DELAY) d.delay = this.delay;
     return d;
   }
@@ -171,7 +231,8 @@ class MNode {
     this.colorMap = { ...(d.colorMap || {}) };
     this._initialResources = this.type === NodeType.SOURCE ? Infinity : this.resources;
     this._initialColorMap = { ...this.colorMap };
-    if (this.type === NodeType.SOURCE) this.resources = Infinity;
+    if (this.type === NodeType.SOURCE) { this.resources = Infinity; this.produced = 0; }
+    if (this.type === NodeType.DRAIN) this.drained = 0;
     if (this.type === NodeType.DELAY) this._queue = [];
     return this;
   }
@@ -196,14 +257,14 @@ class MConnection {
     this.chance = 100;     // % chance to fire each interval
 
     // Filters
-    this.colorFilter = '';  // only accept resources of this color
+    this.colorFilter = '';  // only move resources of this color
 
-    // Conditional activation
+    // Conditional activation (compares source's count to a threshold)
     this.condEnabled = false;
     this.condOperator = '>';  // '>' | '>=' | '<' | '<=' | '==' | '!='
     this.condValue = 0;
 
-    // For state connections: variable name written to diagram.variables
+    // State connections: variable name written to diagram.variables
     this.variableName = '';
   }
 
@@ -226,7 +287,7 @@ class Diagram {
   constructor() {
     this.nodes = new Map();
     this.connections = new Map();
-    this.variables = {};  // shared variable store (updated by state connections each step)
+    this.variables = {};  // shared store, refreshed each step from state connections
   }
 
   addNode(n) { this.nodes.set(n.id, n); return n; }
