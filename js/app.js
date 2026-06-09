@@ -120,6 +120,8 @@ class App {
   _clearAll() {
     this.diagram.nodes.clear();
     this.diagram.connections.clear();
+    this.diagram.groups.clear();
+    this.diagram.notes.clear();
     this.diagram.variables = {};
     this.diagram.params = {};
     this.diagram.timeMode = 'sync';
@@ -866,6 +868,12 @@ class App {
     } else if (this._selectedType === 'conn') {
       const conn = this.diagram.connections.get(this._selectedId);
       if (conn) this._connProps(panel, conn);
+    } else if (this._selectedType === 'group') {
+      const group = this.diagram.groups.get(this._selectedId);
+      if (group) this._groupProps(panel, group);
+    } else if (this._selectedType === 'note') {
+      const note = this.diagram.notes.get(this._selectedId);
+      if (note) this._noteProps(panel, note);
     }
   }
 
@@ -1056,6 +1064,58 @@ class App {
       this._renderProps(); this._commit();
     });
     addRow.appendChild(add); panel.appendChild(addRow);
+  }
+
+  _groupProps(panel, group) {
+    this._title(panel, 'Container Group');
+    this._info(panel, 'Drag inside to move with its contained nodes. Drag the border to resize by editing Width / Height below.');
+    this._field(panel, 'Label', 'text', group.label, v => { group.label = v; this.renderer.render(); });
+    this._colorField(panel, 'Color', group.color || '#4a9eff', v => { group.color = v; this.renderer.render(); });
+    this._field(panel, 'Width', 'number', group.w, v => { group.w = Math.max(40, parseInt(v) || 100); this.renderer.render(); });
+    this._field(panel, 'Height', 'number', group.h, v => { group.h = Math.max(30, parseInt(v) || 80); this.renderer.render(); });
+    this._sep(panel);
+    const delRow = document.createElement('div');
+    delRow.className = 'prop-row';
+    delRow.appendChild(document.createElement('label'));
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Delete group'; delBtn.className = 'btn btn-danger'; delBtn.style.flex = '1';
+    delBtn.addEventListener('click', () => {
+      this.diagram.removeGroup(group.id);
+      this.editor._select(null, null);
+      this.renderer.render();
+      this._commit();
+    });
+    delRow.appendChild(delBtn);
+    panel.appendChild(delRow);
+  }
+
+  _noteProps(panel, note) {
+    this._title(panel, 'Sticky Note');
+    const row = document.createElement('div');
+    row.className = 'prop-row'; row.style.alignItems = 'flex-start';
+    const lbl = document.createElement('label'); lbl.textContent = 'Text';
+    const ta = document.createElement('textarea');
+    ta.className = 'note-textarea'; ta.value = note.text || '';
+    ta.addEventListener('input', () => { note.text = ta.value; this.renderer.render(); });
+    row.appendChild(lbl); row.appendChild(ta);
+    panel.appendChild(row);
+    this._colorField(panel, 'Color', note.color || '#f6e05e', v => { note.color = v; this.renderer.render(); });
+    this._field(panel, 'Width', 'number', note.w, v => { note.w = Math.max(40, parseInt(v) || 100); this.renderer.render(); });
+    this._field(panel, 'Height', 'number', note.h, v => { note.h = Math.max(30, parseInt(v) || 60); this.renderer.render(); });
+    this._sep(panel);
+    const delRow = document.createElement('div');
+    delRow.className = 'prop-row';
+    delRow.appendChild(document.createElement('label'));
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Delete note'; delBtn.className = 'btn btn-danger'; delBtn.style.flex = '1';
+    delBtn.addEventListener('click', () => {
+      this.diagram.removeNote(note.id);
+      this.editor._select(null, null);
+      this.renderer.render();
+      this._commit();
+    });
+    delRow.appendChild(delBtn);
+    panel.appendChild(delRow);
   }
 
   _nodeProps(panel, node) {

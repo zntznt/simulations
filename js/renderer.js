@@ -132,6 +132,8 @@ class Renderer {
     this._firing = new Set();
     this._nodeEls = new Map();
     this._connEls = new Map();
+    this._groupEls = new Map();
+    this._noteEls = new Map();
     this._panX = 0;
     this._panY = 0;
     this._scale = 1;
@@ -178,11 +180,13 @@ class Renderer {
     this.svg.appendChild(svgEl('rect', { width: '100%', height: '100%', fill: 'url(#grid)' }));
 
     this.root = svgEl('g', { id: 'root' });
+    this.groupLayer = svgEl('g');
     this.connLayer = svgEl('g');
     this.nodeLayer = svgEl('g');
+    this.noteLayer = svgEl('g');
     this.ballLayer = svgEl('g');
     this.tempLayer = svgEl('g');
-    this.root.append(this.connLayer, this.nodeLayer, this.ballLayer, this.tempLayer);
+    this.root.append(this.groupLayer, this.connLayer, this.nodeLayer, this.noteLayer, this.ballLayer, this.tempLayer);
     this.svg.appendChild(this.root);
 
     this._updateTransform();
@@ -226,8 +230,153 @@ class Renderer {
   }
 
   render() {
+    this._renderGroups();
     this._renderConns();
     this._renderNodes();
+    this._renderNotes();
+  }
+
+  // ── Groups ───────────────────────────────────────────────────────────────
+
+  _renderGroups() {
+    const d = this.diagram;
+    for (const [id, el] of this._groupEls)
+      if (!d.groups.has(id)) { el.remove(); this._groupEls.delete(id); }
+    for (const group of d.groups.values()) {
+      let el = this._groupEls.get(group.id);
+      if (!el) { el = this._makeGroupEl(group); this.groupLayer.appendChild(el); this._groupEls.set(group.id, el); }
+      this._updateGroupEl(el, group);
+    }
+  }
+
+  _makeGroupEl(group) {
+    const g = svgEl('g', { 'data-id': group.id, cursor: 'pointer' });
+    g.appendChild(svgEl('rect', { class: 'grp-bg', rx: '8', 'stroke-dasharray': '6,4' }));
+    g.appendChild(svgEl('text', { class: 'grp-label', 'font-size': '11', 'font-family': 'var(--font)', 'font-weight': '600', 'pointer-events': 'none' }));
+    return g;
+  }
+
+  _updateGroupEl(el, group) {
+    const isSel = this.selectedId === group.id;
+    el.setAttribute('class', `group-container${isSel ? ' selected' : ''}`);
+    const color = group.color || '#4a9eff';
+    const rect = el.querySelector('.grp-bg');
+    rect.setAttribute('x', group.x);
+    rect.setAttribute('y', group.y);
+    rect.setAttribute('width', group.w);
+    rect.setAttribute('height', group.h);
+    rect.setAttribute('fill', this._hexToRgba(color, 0.07));
+    rect.setAttribute('stroke', color);
+    rect.setAttribute('stroke-width', isSel ? '2.5' : '1.5');
+    if (isSel) rect.setAttribute('filter', 'url(#glow)');
+    else rect.removeAttribute('filter');
+    const lbl = el.querySelector('.grp-label');
+    lbl.setAttribute('x', String(group.x + 12));
+    lbl.setAttribute('y', String(group.y + 16));
+    lbl.textContent = group.label || '';
+    lbl.setAttribute('fill', color);
+  }
+
+  // ── Notes ─────────────────────────────────────────────────────────────────
+
+  _renderNotes() {
+    const d = this.diagram;
+    for (const [id, el] of this._noteEls)
+      if (!d.notes.has(id)) { el.remove(); this._noteEls.delete(id); }
+    for (const note of d.notes.values()) {
+      let el = this._noteEls.get(note.id);
+      if (!el) { el = this._makeNoteEl(note); this.noteLayer.appendChild(el); this._noteEls.set(note.id, el); }
+      this._updateNoteEl(el, note);
+    }
+  }
+
+  _makeNoteEl(note) {
+    const g = svgEl('g', { 'data-id': note.id, cursor: 'pointer' });
+    g.appendChild(svgEl('rect', { class: 'note-bg', rx: '4', 'stroke-width': '1.5' }));
+    g.appendChild(svgEl('text', { class: 'note-text', 'font-size': '11', 'font-family': 'var(--font)', 'pointer-events': 'none' }));
+    return g;
+  }
+
+  _updateNoteEl(el, note) {
+    const isSel = this.selectedId === note.id;
+    el.setAttribute('class', `sticky-note${isSel ? ' selected' : ''}`);
+    const color = note.color || '#f6e05e';
+    const rect = el.querySelector('.note-bg');
+    rect.setAttribute('x', note.x);
+    rect.setAttribute('y', note.y);
+    rect.setAttribute('width', note.w);
+    rect.setAttribute('height', note.h);
+    rect.setAttribute('fill', color);
+    rect.setAttribute('stroke', this._darkenHex(color));
+    if (isSel) rect.setAttribute('filter', 'url(#glow)');
+    else rect.removeAttribute('filter');
+
+    const textEl = el.querySelector('.note-text');
+    while (textEl.firstChild) textEl.removeChild(textEl.firstChild);
+    const maxChars = Math.max(8, Math.floor((note.w - 16) / 6.5));
+    const maxLines = Math.max(1, Math.floor((note.h - 12) / 15));
+    const lines = this._wrapNoteText(note.text || '', maxChars);
+    lines.slice(0, maxLines).forEach((line, i) => {
+      if (!line) return;
+      const ts = document.createElementNS(SVG_NS, 'tspan');
+      ts.setAttribute('x', String(note.x + 8));
+      ts.setAttribute('y', String(note.y + 16 + i * 15));
+      ts.textContent = line;
+      textEl.appendChild(ts);
+    });
+    textEl.setAttribute('fill', '#1a1a1a');
+  }
+
+  _wrapNoteText(text, maxChars) {
+    if (!text) return [];
+    const result = [];
+    for (const para of text.split('\n')) {
+      if (!para) { result.push(''); continue; }
+      const words = para.split(' ');
+      let line = '';
+      for (const word of words) {
+        if (!word) continue;
+        if (line && line.length + 1 + word.length > maxChars) {
+          result.push(line); line = word;
+        } else {
+          line = line ? line + ' ' + word : word;
+        }
+      }
+      result.push(line);
+    }
+    return result;
+  }
+
+  _darkenHex(hex) {
+    try {
+      const n = parseInt((hex || '#000').replace('#', ''), 16);
+      const r = Math.max(0, (n >> 16) - 60);
+      const g = Math.max(0, ((n >> 8) & 0xff) - 60);
+      const b = Math.max(0, (n & 0xff) - 60);
+      return `rgb(${r},${g},${b})`;
+    } catch { return '#000'; }
+  }
+
+  _hexToRgba(hex, alpha) {
+    try {
+      const n = parseInt((hex || '#4a9eff').replace('#', ''), 16);
+      const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
+      return `rgba(${r},${g},${b},${alpha})`;
+    } catch { return `rgba(74,158,255,${alpha})`; }
+  }
+
+  // Show a preview rect in the temp layer while dragging to create a group.
+  setGroupPreview(x0, y0, x1, y1) {
+    const x = Math.min(x0, x1), y = Math.min(y0, y1);
+    const w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
+    this.tempLayer.innerHTML = '';
+    if (w > 5 && h > 5) {
+      this.tempLayer.appendChild(svgEl('rect', {
+        x, y, width: w, height: h, rx: '8',
+        fill: 'rgba(74,158,255,0.06)', stroke: '#4a9eff',
+        'stroke-width': '1.5', 'stroke-dasharray': '6,4', 'pointer-events': 'none',
+      }));
+    }
   }
 
   // ── Connections ──────────────────────────────────────────────────────────
@@ -491,6 +640,7 @@ class Renderer {
   // ── Hit test ─────────────────────────────────────────────────────────────
 
   hitTest(x, y) {
+    // Nodes have highest priority.
     for (const [id] of this._nodeEls) {
       const node = this.diagram.nodes.get(id);
       if (!node) continue;
@@ -508,6 +658,14 @@ class Renderer {
       if (hit) return { type: 'node', id };
     }
 
+    // Notes are rendered above nodes visually; test before connections.
+    for (const [id] of this._noteEls) {
+      const note = this.diagram.notes.get(id);
+      if (!note) continue;
+      if (x >= note.x && x <= note.x + note.w && y >= note.y && y <= note.y + note.h)
+        return { type: 'note', id };
+    }
+
     // Sample along each connection's real path so the whole line is clickable.
     for (const [id, g] of this._connEls) {
       if (!this.diagram.connections.has(id)) continue;
@@ -522,6 +680,15 @@ class Renderer {
         if (Math.hypot(x - pt.x, y - pt.y) <= 8) return { type: 'conn', id };
       }
     }
+
+    // Groups are lowest priority — match any click inside their rect.
+    for (const [id] of this._groupEls) {
+      const grp = this.diagram.groups.get(id);
+      if (!grp) continue;
+      if (x >= grp.x && x <= grp.x + grp.w && y >= grp.y && y <= grp.y + grp.h)
+        return { type: 'group', id };
+    }
+
     return null;
   }
 }

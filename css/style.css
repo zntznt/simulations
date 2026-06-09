@@ -309,6 +309,20 @@ input[type="range"] {
 }
 #app-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+/* ── Sticky note textarea (props panel) ── */
+.note-textarea {
+  flex: 1; min-height: 70px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); padding: 4px 8px; font-size: 12px;
+  font-family: var(--font); resize: vertical; outline: none;
+  transition: border-color 0.15s;
+}
+.note-textarea:focus { border-color: var(--accent); }
+
+/* ── Group / note canvas elements ── */
+.group-container { cursor: pointer; }
+.sticky-note { cursor: pointer; }
+
 /* ── Embed mode (clean, shareable view) ── */
 body.embed #palette,
 body.embed #props-panel,

@@ -20,6 +20,8 @@ class Editor {
     this.onToolChange = null;    // callback(tool) when the editor changes its own tool
     this._touchMode = null;      // 'single' | 'pinch'
     this._pinch = null;          // last pinch state {dist, cx, cy}
+    this._specialDrag = null;    // {type:'note'|'group', id, origX, origY, nodeItems?, startX, startY, moved}
+    this._groupPlaceDrag = null; // {x0, y0} while dragging to define a new group
 
     this._bind();
   }
@@ -39,11 +41,12 @@ class Editor {
     this.selection = new Set(ids);
     this.renderer.selectedIds = this.selection;
     const single = this.selection.size === 1 ? [...this.selection][0] : null;
-    this.renderer.selectedId = primaryType === 'conn' ? primaryId : single;
+    const nonNodeType = primaryType === 'conn' || primaryType === 'group' || primaryType === 'note';
+    this.renderer.selectedId = nonNodeType ? primaryId : single;
     this.renderer.render();
     if (this.onSelect) {
-      const pType = primaryType === 'conn' ? 'conn' : (this.selection.size ? 'node' : null);
-      const pId = primaryType === 'conn' ? primaryId : single;
+      const pType = nonNodeType ? primaryType : (this.selection.size ? 'node' : null);
+      const pId = nonNodeType ? primaryId : single;
       this.onSelect(pId, pType, this.selection.size);
     }
   }
@@ -107,11 +110,39 @@ class Editor {
         this._startGroupDrag(e);
       } else if (hit && hit.type === 'conn') {
         this._setSelection([], hit.id, 'conn');
+      } else if (hit && hit.type === 'note') {
+        const note = this.diagram.notes.get(hit.id);
+        if (note) {
+          this._setSelection([], hit.id, 'note');
+          this._specialDrag = { type: 'note', id: hit.id, origX: note.x, origY: note.y, startX: e.clientX, startY: e.clientY, moved: false };
+        }
+      } else if (hit && hit.type === 'group') {
+        const grp = this.diagram.groups.get(hit.id);
+        if (grp) {
+          this._setSelection([], hit.id, 'group');
+          // Collect nodes inside the group for co-movement.
+          const nodeItems = [];
+          for (const n of this.diagram.nodes.values()) {
+            if (n.x >= grp.x && n.x <= grp.x + grp.w && n.y >= grp.y && n.y <= grp.y + grp.h)
+              nodeItems.push({ nodeId: n.id, origX: n.x, origY: n.y });
+          }
+          this._specialDrag = { type: 'group', id: hit.id, origX: grp.x, origY: grp.y, nodeItems, startX: e.clientX, startY: e.clientY, moved: false };
+        }
       } else {
         // Empty canvas: begin a marquee (extends selection when Shift held).
         if (!e.shiftKey) this._setSelection([], null, null);
         this._marquee = { x0: pt.x, y0: pt.y, cur: null, add: e.shiftKey, base: new Set(this.selection) };
       }
+    } else if (this.tool === 'place-group') {
+      const sn = this._snapPt(pt.x, pt.y);
+      this._groupPlaceDrag = { x0: sn.x, y0: sn.y };
+    } else if (this.tool === 'place-note') {
+      const sn = this._snapPt(pt.x, pt.y);
+      const note = this.diagram.addNote(new MNote(sn.x, sn.y));
+      this.renderer.render();
+      this._select(note.id, 'note');
+      this._changed();
+      if (this.autoRevert) { this.setTool('select'); if (this.onToolChange) this.onToolChange('select'); }
     } else if (this.tool.startsWith('place-')) {
       const type = this.tool.replace('place-', '');
       const sn = this._snapPt(pt.x, pt.y);
@@ -151,7 +182,9 @@ class Editor {
     } else if (this.tool === 'delete') {
       if (hit) {
         if (hit.type === 'node') this.diagram.removeNode(hit.id);
-        else this.diagram.removeConnection(hit.id);
+        else if (hit.type === 'conn') this.diagram.removeConnection(hit.id);
+        else if (hit.type === 'group') this.diagram.removeGroup(hit.id);
+        else if (hit.type === 'note') this.diagram.removeNote(hit.id);
         this._select(null, null);
         this.renderer.render();
         this._changed();
@@ -175,6 +208,41 @@ class Editor {
       const dx = e.clientX - this._panDrag.startX;
       const dy = e.clientY - this._panDrag.startY;
       this.renderer.setPan(this._panDrag.panX + dx, this._panDrag.panY + dy);
+      return;
+    }
+
+    if (this._specialDrag) {
+      const s = this.renderer._scale || 1;
+      const dx = (e.clientX - this._specialDrag.startX) / s;
+      const dy = (e.clientY - this._specialDrag.startY) / s;
+      if (this._specialDrag.type === 'note') {
+        const note = this.diagram.notes.get(this._specialDrag.id);
+        if (note) {
+          const sn = this._snapPt(this._specialDrag.origX + dx, this._specialDrag.origY + dy);
+          note.x = sn.x; note.y = sn.y;
+        }
+      } else if (this._specialDrag.type === 'group') {
+        const grp = this.diagram.groups.get(this._specialDrag.id);
+        if (grp) {
+          const sn = this._snapPt(this._specialDrag.origX + dx, this._specialDrag.origY + dy);
+          grp.x = sn.x; grp.y = sn.y;
+          for (const it of this._specialDrag.nodeItems) {
+            const n = this.diagram.nodes.get(it.nodeId);
+            if (n) {
+              const nsn = this._snapPt(it.origX + dx, it.origY + dy);
+              n.x = nsn.x; n.y = nsn.y;
+            }
+          }
+        }
+      }
+      this._specialDrag.moved = true;
+      this.renderer.render();
+      return;
+    }
+
+    if (this._groupPlaceDrag) {
+      const pt = this.renderer.svgPoint(e.clientX, e.clientY);
+      this.renderer.setGroupPreview(this._groupPlaceDrag.x0, this._groupPlaceDrag.y0, pt.x, pt.y);
       return;
     }
 
@@ -222,6 +290,31 @@ class Editor {
       this._drag = null;
       this._dragMoved = false;
       if (moved) this._changed();  // commit the move as one undo step
+      return;
+    }
+
+    if (this._specialDrag) {
+      const moved = this._specialDrag.moved;
+      this._specialDrag = null;
+      if (moved) this._changed();
+      return;
+    }
+
+    if (this._groupPlaceDrag) {
+      const gd = this._groupPlaceDrag;
+      this._groupPlaceDrag = null;
+      this.renderer.clearTemp();
+      const pt = this.renderer.svgPoint(e.clientX, e.clientY);
+      const sn = this._snapPt(pt.x, pt.y);
+      const x = Math.min(gd.x0, sn.x), y = Math.min(gd.y0, sn.y);
+      const w = Math.abs(sn.x - gd.x0), h = Math.abs(sn.y - gd.y0);
+      if (w >= 20 && h >= 20) {
+        const grp = this.diagram.addGroup(new MGroup(x, y, w, h));
+        this.renderer.render();
+        this._select(grp.id, 'group');
+        this._changed();
+        if (this.autoRevert) { this.setTool('select'); if (this.onToolChange) this.onToolChange('select'); }
+      }
       return;
     }
 
@@ -277,7 +370,9 @@ class Editor {
     const hit = this.renderer.hitTest(pt.x, pt.y);
     if (hit) {
       if (hit.type === 'node') this.diagram.removeNode(hit.id);
-      else this.diagram.removeConnection(hit.id);
+      else if (hit.type === 'conn') this.diagram.removeConnection(hit.id);
+      else if (hit.type === 'group') this.diagram.removeGroup(hit.id);
+      else if (hit.type === 'note') this.diagram.removeNote(hit.id);
       this._select(null, null);
       this.renderer.render();
       this._changed();
@@ -357,16 +452,19 @@ class Editor {
         this._select(null, null);
         this.renderer.render();
         this._changed();
-      } else if (this.renderer.selectedId && this.diagram.connections.has(this.renderer.selectedId)) {
-        this.diagram.removeConnection(this.renderer.selectedId);
-        this._select(null, null);
-        this.renderer.render();
-        this._changed();
+      } else if (this.renderer.selectedId) {
+        const id = this.renderer.selectedId;
+        let changed = false;
+        if (this.diagram.connections.has(id)) { this.diagram.removeConnection(id); changed = true; }
+        else if (this.diagram.groups.has(id)) { this.diagram.removeGroup(id); changed = true; }
+        else if (this.diagram.notes.has(id)) { this.diagram.removeNote(id); changed = true; }
+        if (changed) { this._select(null, null); this.renderer.render(); this._changed(); }
       }
     }
     if (e.key === 'Escape') {
       this._connecting = null;
       this._marquee = null;
+      this._groupPlaceDrag = null;
       this.renderer.clearTemp();
       this.renderer.clearMarquee();
       this._select(null, null);
@@ -377,6 +475,8 @@ class Editor {
   _select(id, type) {
     if (type === 'node') this._setSelection([id], id, 'node');
     else if (type === 'conn') this._setSelection([], id, 'conn');
+    else if (type === 'group') this._setSelection([], id, 'group');
+    else if (type === 'note') this._setSelection([], id, 'note');
     else this._setSelection([], null, null);
   }
 }

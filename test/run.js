@@ -17,7 +17,7 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'model.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'engine.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
-    ' MNode, MConnection, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist };';
+    ' MNode, MConnection, MGroup, MNote, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -25,7 +25,7 @@ function loadEngine() {
 const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
-  MNode, MConnection, Diagram, SimEngine, evalFormula, rollDice, sampleDist,
+  MNode, MConnection, MGroup, MNote, Diagram, SimEngine, evalFormula, rollDice, sampleDist,
 } = API;
 
 // ── Tiny test harness ───────────────────────────────────────────────────────
@@ -1033,6 +1033,58 @@ test('default (sync, no AI) diagram omits the new fields from JSON', () => {
   const json = d.toJSON();
   assert(json.timeMode === undefined, 'sync timeMode omitted');
   assert(json.aiPlayer === undefined, 'empty aiPlayer omitted');
+});
+
+// ── P2: groups and sticky notes ───────────────────────────────────────────────
+console.log('\nGroups and sticky notes');
+
+test('MGroup serializes and deserializes correctly', () => {
+  const g = new MGroup(10, 20, 200, 150);
+  g.label = 'Layer A'; g.color = '#ba68c8';
+  const json = JSON.parse(JSON.stringify(g.toJSON()));
+  eq(json.x, 10, 'x'); eq(json.y, 20, 'y'); eq(json.w, 200, 'w'); eq(json.h, 150, 'h');
+  eq(json.label, 'Layer A', 'label'); eq(json.color, '#ba68c8', 'color');
+  const g2 = new MGroup(0, 0, 10, 10); g2.loadJSON(json);
+  eq(g2.label, 'Layer A', 'label round-trip'); eq(g2.w, 200, 'w round-trip');
+});
+
+test('MNote serializes and deserializes correctly', () => {
+  const n = new MNote(50, 80);
+  n.text = 'Hello\nWorld'; n.color = '#f6e05e'; n.w = 180; n.h = 90;
+  const json = JSON.parse(JSON.stringify(n.toJSON()));
+  eq(json.x, 50, 'x'); eq(json.y, 80, 'y'); eq(json.text, 'Hello\nWorld', 'text');
+  const n2 = new MNote(0, 0); n2.loadJSON(json);
+  eq(n2.text, 'Hello\nWorld', 'text round-trip'); eq(n2.w, 180, 'w round-trip');
+});
+
+test('Diagram with groups and notes round-trips through JSON', () => {
+  const { d } = setup();
+  const g = d.addGroup(new MGroup(0, 0, 200, 100)); g.label = 'Section'; g.color = '#4caf50';
+  const note = d.addNote(new MNote(50, 50)); note.text = 'annotate'; note.color = '#ff9800';
+  const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  eq(d2.groups.size, 1, 'groups preserved');
+  eq(d2.notes.size, 1, 'notes preserved');
+  const g2 = [...d2.groups.values()][0];
+  eq(g2.label, 'Section', 'group label'); eq(g2.color, '#4caf50', 'group color');
+  const n2 = [...d2.notes.values()][0];
+  eq(n2.text, 'annotate', 'note text'); eq(n2.color, '#ff9800', 'note color');
+});
+
+test('Diagram without groups/notes omits those fields from JSON', () => {
+  const { d } = setup();
+  node(d, NodeType.POOL);
+  const json = d.toJSON();
+  assert(json.groups === undefined, 'groups omitted when empty');
+  assert(json.notes === undefined, 'notes omitted when empty');
+});
+
+test('removeGroup and removeNote delete entries from the diagram', () => {
+  const { d } = setup();
+  const g = d.addGroup(new MGroup(0, 0, 100, 80));
+  const note = d.addNote(new MNote(10, 10));
+  eq(d.groups.size, 1, 'group added'); eq(d.notes.size, 1, 'note added');
+  d.removeGroup(g.id); d.removeNote(note.id);
+  eq(d.groups.size, 0, 'group removed'); eq(d.notes.size, 0, 'note removed');
 });
 
 // ── Results ─────────────────────────────────────────────────────────────────

@@ -392,10 +392,40 @@ class MConnection {
   loadJSON(d) { Object.assign(this, d); return this; }
 }
 
+class MGroup {
+  constructor(x, y, w, h) {
+    this.id = genId('grp');
+    this.x = x; this.y = y;
+    this.w = Math.max(40, w); this.h = Math.max(30, h);
+    this.label = 'Group';
+    this.color = '#4a9eff';
+  }
+  toJSON() {
+    return { id: this.id, x: this.x, y: this.y, w: this.w, h: this.h, label: this.label, color: this.color };
+  }
+  loadJSON(d) { Object.assign(this, d); return this; }
+}
+
+class MNote {
+  constructor(x, y) {
+    this.id = genId('note');
+    this.x = x; this.y = y;
+    this.w = 160; this.h = 80;
+    this.text = '';
+    this.color = '#f6e05e';
+  }
+  toJSON() {
+    return { id: this.id, x: this.x, y: this.y, w: this.w, h: this.h, text: this.text, color: this.color };
+  }
+  loadJSON(d) { Object.assign(this, d); return this; }
+}
+
 class Diagram {
   constructor() {
     this.nodes = new Map();
     this.connections = new Map();
+    this.groups = new Map();
+    this.notes = new Map();
     this.variables = {};  // shared store, refreshed each step from state connections
     this.params = {};     // user-defined constants seeded into variables before each step
     // Time mode: 'sync' (turn-based — every automatic node fires each step) or
@@ -417,6 +447,12 @@ class Diagram {
   addConnection(c) { this.connections.set(c.id, c); return c; }
   removeConnection(id) { this.connections.delete(id); }
 
+  addGroup(g) { this.groups.set(g.id, g); return g; }
+  removeGroup(id) { this.groups.delete(id); }
+
+  addNote(n) { this.notes.set(n.id, n); return n; }
+  removeNote(id) { this.notes.delete(id); }
+
   outgoing(nodeId) { return [...this.connections.values()].filter(c => c.sourceId === nodeId); }
   incoming(nodeId) { return [...this.connections.values()].filter(c => c.targetId === nodeId); }
 
@@ -425,6 +461,8 @@ class Diagram {
       _idSeq,
       nodes: [...this.nodes.values()].map(n => n.toJSON()),
       connections: [...this.connections.values()].map(c => c.toJSON()),
+      groups: this.groups.size ? [...this.groups.values()].map(g => g.toJSON()) : undefined,
+      notes: this.notes.size ? [...this.notes.values()].map(n => n.toJSON()) : undefined,
       variables: { ...this.variables },
       params: Object.keys(this.params).length ? { ...this.params } : undefined,
       timeMode: this.timeMode !== 'sync' ? this.timeMode : undefined,
@@ -437,6 +475,8 @@ class Diagram {
   loadJSON(data) {
     this.nodes.clear();
     this.connections.clear();
+    this.groups.clear();
+    this.notes.clear();
     _idSeq = Math.max(_idSeq, data._idSeq || 0);
     this.variables = { ...(data.variables || {}) };
     this.params = { ...(data.params || {}) };
@@ -453,6 +493,16 @@ class Diagram {
       const conn = new MConnection(cd.sourceId, cd.targetId, cd.type);
       conn.loadJSON(cd);
       this.connections.set(conn.id, conn);
+    }
+    for (const gd of (data.groups || [])) {
+      const g = new MGroup(gd.x, gd.y, gd.w, gd.h);
+      g.loadJSON(gd);
+      this.groups.set(g.id, g);
+    }
+    for (const nd of (data.notes || [])) {
+      const note = new MNote(nd.x, nd.y);
+      note.loadJSON(nd);
+      this.notes.set(note.id, note);
     }
   }
 }

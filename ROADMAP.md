@@ -86,7 +86,10 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       (Ctrl+Z/C/V etc.) unchanged.
 - [x] **Grid snap (P2).** "⊞ Snap" toolbar toggle; snaps placement and drag to
       a 20 px grid.
-- [ ] **Grouping / containers, sticky-note annotations (P2).**
+- [x] **Grouping / containers, sticky-note annotations (P2).** Drag the Group tool to
+      draw a labeled, color-coded container rect (moves with its contained nodes); click
+      the Note tool to place a resizable sticky note with text, color, and a properties
+      panel textarea. Both are serialized in diagram JSON and undo/redo.
 - [x] **Edit node value during play (P2).** +/− steppers in the properties
       panel let you increment/decrement pool/converter/delay/queue resources
       while the simulation is running.

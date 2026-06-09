@@ -479,6 +479,32 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P3 embed: embed mode hides palette and properties panel');
   else fail('P3 embed: ' + JSON.stringify(p3embed));
 
+  // P2: groups and sticky notes create, render, select, and serialize.
+  const p2annotate = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const g = d.addGroup(new MGroup(50, 50, 220, 160));
+    g.label = 'Test Group'; g.color = '#ba68c8';
+    const note = d.addNote(new MNote(300, 80));
+    note.text = 'Hello note'; note.color = '#f6e05e';
+    window.app.renderer.render();
+
+    window.app._onSelect(g.id, 'group');
+    const hasGroupTitle = document.getElementById('props-content').textContent.includes('Container Group');
+    window.app._onSelect(note.id, 'note');
+    const hasNoteTitle = document.getElementById('props-content').textContent.includes('Sticky Note');
+
+    const json = JSON.parse(JSON.stringify(d.toJSON()));
+    const d2 = new Diagram();
+    d2.loadJSON(json);
+    const groupsOk = d2.groups.size === 1 && [...d2.groups.values()][0].label === 'Test Group';
+    const notesOk = d2.notes.size === 1 && [...d2.notes.values()][0].text === 'Hello note';
+    return { hasGroupTitle, hasNoteTitle, groupsOk, notesOk };
+  });
+  if (p2annotate.hasGroupTitle && p2annotate.hasNoteTitle && p2annotate.groupsOk && p2annotate.notesOk)
+    ok('P2 annotate: groups + sticky notes create, render, show props, serialize');
+  else fail('P2 annotate: ' + JSON.stringify(p2annotate));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);
