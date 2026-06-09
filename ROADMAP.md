@@ -154,13 +154,13 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 - **Place tool stays active** after placing a node (rapid placement) unless the
   "↩ Auto" toggle is on, which snaps back to Select after one placement.
 - **Sub-unit fairness remainder** is handed out round-robin in connection
-  order; only matters when a pool is too scarce to give every output one unit.
+  order within one pool's outputs; only matters when a pool is too scarce
+  to give every output one unit.
 - **Capacity-blocked shares aren't re-routed mid-tick** when two connections
   target the *same* full node (rare); resources stay in the source pool and are
   retried next step (never lost).
-- **Cross-node contention is node-order-dependent.** Max-min fairness applies
-  within a single node's outputs. When two *separate* source nodes push into one
-  capacity-limited target, the limited room is filled in node order rather than
-  shared fairly. Conservation always holds (no overfill, nothing created/lost);
-  only the split between competing nodes is order-dependent.
+- **Sub-unit fairness remainder** is handed out round-robin in connection
+  order within a single pool's outputs, and round-robin in source-node order
+  across competing pushers to the same target; only matters when capacity
+  is exhausted and no even split exists.
 - **Single time granularity** (integer steps); rates are rounded to integers.

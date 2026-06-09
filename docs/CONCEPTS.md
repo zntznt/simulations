@@ -251,10 +251,10 @@ live diagram.
 - **Capacity‑blocked shares aren't re‑routed mid‑tick** when two connections target
   the *same* full node (rare); the resources stay in the source and retry next step
   (never lost).
-- **Cross‑node contention is node‑order‑dependent.** Max‑min fairness (§7) applies
-  within one node's outputs. When two *separate* nodes push into a single
-  capacity‑limited target, the limited room is filled in node order, not shared
-  fairly between them. Conservation still holds — only the split is order‑dependent.
+- **Sub‑unit remainder across competing pushers** is handed out round‑robin in
+  source‑node order; only observable when several source pools push into the same
+  capacity‑limited target and available room is not evenly divisible among them.
+  Conservation always holds — nothing is created or lost.
 - **Edge‑targeting a connection** (a state link modifying another connection) isn't
   supported; connection‑rate modulation is done with formula rates instead.
 

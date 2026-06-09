@@ -1319,6 +1319,57 @@ test('pull-all moves nothing when one provider lacks the filtered colour', () =>
   eq(provA.resources, 5, 'provider A untouched (atomic)');
 });
 
+// ── Cross-node contention: fair allocation across competing push pools ────────
+console.log('\nCross-node push contention');
+
+test('two pools competing for a shared capacity-limited target split fairly', () => {
+  // Pool A (5 resources) and Pool B (5 resources) both push into Target (capacity 6).
+  // Old behaviour: A fires first, claims all 5; B only gets 1.
+  // New behaviour: fair-allocate 6 across A:5 + B:5 → A gets 3, B gets 3.
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(5);
+  const b = node(d, NodeType.POOL); b.setCount(5);
+  const t = node(d, NodeType.POOL); t.capacity = 6;
+  conn(d, a, t).rate = 5;
+  conn(d, b, t).rate = 5;
+  steps(e, 1);
+  eq(t.resources, 6, 'target filled to capacity');
+  eq(a.resources + b.resources, 4, 'remaining resources conserved across both pools');
+  assert(a.resources >= 2 && a.resources <= 4, `A got a fair share (resources=${a.resources})`);
+  assert(b.resources >= 2 && b.resources <= 4, `B got a fair share (resources=${b.resources})`);
+});
+
+test('three pools competing for shared capacity get max-min fair shares', () => {
+  // Three pools each want 4; target capacity 6.
+  // Max-min fair: each pool gets 2 (6 / 3 = 2 each).
+  const { d, e } = setup();
+  const pools = [
+    (() => { const p = node(d, NodeType.POOL); p.setCount(4); return p; })(),
+    (() => { const p = node(d, NodeType.POOL); p.setCount(4); return p; })(),
+    (() => { const p = node(d, NodeType.POOL); p.setCount(4); return p; })(),
+  ];
+  const t = node(d, NodeType.POOL); t.capacity = 6;
+  for (const p of pools) conn(d, p, t).rate = 4;
+  steps(e, 1);
+  eq(t.resources, 6, 'target filled to capacity');
+  for (const p of pools) {
+    assert(p.resources >= 1 && p.resources <= 3, `each pool lost a fair share (remaining=${p.resources})`);
+  }
+});
+
+test('cross-node push: conservation holds — no resources created or lost', () => {
+  // Two pools (total 10) push into target (capacity 6). After step:
+  // target + pool remainders must still equal 10.
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(5);
+  const b = node(d, NodeType.POOL); b.setCount(5);
+  const t = node(d, NodeType.POOL); t.capacity = 6;
+  conn(d, a, t).rate = 5;
+  conn(d, b, t).rate = 5;
+  steps(e, 1);
+  eq(a.resources + b.resources + t.resources, 10, 'total conserved');
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed) {

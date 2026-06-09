@@ -87,6 +87,7 @@ class SimEngine {
     const ctx = this._makeCtx();
     const fired = [];
     this._runFireQueue([{ node, forced: true }], ctx, fired);
+    this._applyPushProposals(ctx);
     this._applyCtx(ctx);
     this._updateVariables();
     this._evalRegisters();
@@ -98,10 +99,11 @@ class SimEngine {
 
   _makeCtx() {
     return {
-      gives: new Map(),     // nodeId → {color: amount}
-      delayIn: new Map(),   // nodeId → [{amount, color}]
-      reserved: new Map(),  // nodeId → capacity reserved this step
-      transfers: [],        // [{connId, color, amount}] for animation
+      gives: new Map(),        // nodeId → {color: amount}
+      delayIn: new Map(),      // nodeId → [{amount, color}]
+      reserved: new Map(),     // nodeId → capacity reserved this step
+      transfers: [],           // [{connId, color, amount}] for animation
+      pushProposals: [],       // [{srcNode, srcId, tgtId, connId, colorFilter, want, ...}]
     };
   }
 
@@ -163,6 +165,10 @@ class SimEngine {
       }
       if (aiQueue.length) this._runFireQueue(aiQueue, ctx, fired, activated);
     }
+
+    // Resolve cross-node push contention: fair-allocate capacity across
+    // competing source nodes BEFORE delays/queues claim remaining room.
+    this._applyPushProposals(ctx);
 
     // Advance delay queues and queue nodes (releases respect target capacity).
     this._advanceDelays(ctx);
@@ -395,16 +401,24 @@ class SimEngine {
   }
 
   // Sources are infinite, so each outgoing connection is independent.
+  // We queue a proposal rather than applying immediately; _applyPushProposals
+  // runs cross-node fair allocation across all competing pushers after all
+  // nodes have declared their wants.
   _pushSource(node, conn, ctx) {
     const rate = Math.max(0, Math.round(this._connRate(conn)));
     if (rate <= 0) return false;
     const color = node.resourceColor || DEFAULT_COLOR;
     if (conn.colorFilter && color !== conn.colorFilter) return false;
-    const accept = this._acceptable(conn.targetId, rate, ctx);
-    if (accept <= 0) return false;
-    node.produced += accept;
-    this._give(conn.targetId, color, accept, conn.id, ctx);
-    this._reserve(conn.targetId, accept, ctx);
+    // Only enqueue if the target can accept at least 1 unit from non-pool
+    // sources already seen (converters, gates, pull nodes). If the target is
+    // already fully reserved by those, skip — the source didn't fire.
+    if (this._acceptable(conn.targetId, 1, ctx) <= 0) return false;
+    ctx.pushProposals.push({
+      srcNode: node, srcId: node.id,
+      tgtId: conn.targetId, connId: conn.id,
+      colorFilter: conn.colorFilter || null,
+      want: rate, isInfSource: true, srcColor: color,
+    });
     return true;
   }
 
@@ -412,42 +426,135 @@ class SimEngine {
   // max-min fair (each activating connection gets its first unit before any
   // gets a second), so distribution is order-independent and a greedy
   // high-rate connection can't starve low-rate / probabilistic ones.
+  //
+  // Rather than applying immediately, we queue proposals into ctx.pushProposals.
+  // _applyPushProposals (called after all nodes have declared their wants) then
+  // runs cross-node fair allocation so two separate pools pushing into the same
+  // capacity-limited target each receive a fair share — not first-come-first-served.
   _firePool(node, outs, ctx, interactive, trackProduced = false) {
     node.reconcile();
     if (node.resources <= 0) return false;
 
+    // localReserved tracks this pool's own promises to the same target on
+    // multiple connections (rare). It is separate from ctx.reserved (which only
+    // holds non-pool contributions such as converters, gates, and pull nodes).
+    const localReserved = new Map();
     const reqs = [];
     for (const conn of outs) {
-      if (this._targetDriven(conn)) continue; // pulled by its target instead
+      if (this._targetDriven(conn)) continue;
       if (!interactive && !this._connFires(conn, node)) continue;
       let want = Math.max(0, Math.round(this._connRate(conn)));
       if (want <= 0) continue;
-      // Cap by the target's remaining room so a full target doesn't consume a
-      // fair share that another output could have used (work-conserving).
-      want = this._acceptable(conn.targetId, want, ctx);
-      if (want > 0) reqs.push({ conn, want });
+      const tgt = this.diagram.nodes.get(conn.targetId);
+      if (!tgt) continue;
+      if (tgt.type === NodeType.SOURCE || tgt.type === NodeType.REGISTER) continue;
+      // Work-conserving cap: use ctx.reserved (converters, gates, pull nodes)
+      // plus localReserved (this pool's other connections to the same target).
+      // We deliberately exclude other pools' proposals so _applyPushProposals
+      // can distribute that remaining room fairly across all competing pools.
+      if (tgt.capacity !== Infinity && tgt.type !== NodeType.DRAIN) {
+        const lRes = localReserved.get(conn.targetId) || 0;
+        const room = Math.max(0, tgt.capacity - tgt.resources - (ctx.reserved.get(conn.targetId) || 0) - lRes);
+        want = Math.min(want, room);
+      }
+      if (want <= 0) continue;
+      localReserved.set(conn.targetId, (localReserved.get(conn.targetId) || 0) + want);
+      reqs.push({ conn, want });
     }
     if (!reqs.length) return false;
 
     const alloc = this._fairAllocate(node.resources, reqs.map(r => r.want));
-    let moved = false;
+    let any = false;
     reqs.forEach((r, i) => {
-      // Re-check room for the rare case of two connections to the same target.
-      const amt = Math.min(alloc[i], this._acceptable(r.conn.targetId, alloc[i], ctx));
-      if (amt <= 0) return;
-      const taken = node.takeResources(amt, r.conn.colorFilter || null);
-      let total = 0;
-      for (const { amount, color } of taken) {
-        this._give(r.conn.targetId, color, amount, r.conn.id, ctx);
-        total += amount;
-      }
-      if (total > 0) {
-        this._reserve(r.conn.targetId, total, ctx);
-        if (trackProduced) node.produced += total;
-        moved = true;
-      }
+      if (alloc[i] <= 0) return;
+      ctx.pushProposals.push({
+        srcNode: node, srcId: node.id,
+        tgtId: r.conn.targetId, connId: r.conn.id,
+        colorFilter: r.conn.colorFilter || null,
+        want: alloc[i], trackProduced,
+      });
+      any = true;
     });
-    return moved;
+    return any;
+  }
+
+  // Apply all push proposals accumulated during the fire phase. For each target
+  // with proposals from multiple source nodes, run max-min fair allocation
+  // across those source groups so capacity is shared equitably — not awarded by
+  // node-insertion order. Conservation is maintained: sources only lose what the
+  // target actually accepts.
+  _applyPushProposals(ctx) {
+    const d = this.diagram;
+    if (!ctx.pushProposals.length) return;
+
+    // Group proposals by target.
+    const byTarget = new Map();
+    for (const p of ctx.pushProposals) {
+      if (!byTarget.has(p.tgtId)) byTarget.set(p.tgtId, []);
+      byTarget.get(p.tgtId).push(p);
+    }
+
+    for (const [tgtId, proposals] of byTarget) {
+      const tgt = d.nodes.get(tgtId);
+      if (!tgt) continue;
+
+      // Room after non-pool reservations (converters, gates, pull nodes).
+      let room;
+      if (tgt.type === NodeType.DRAIN || tgt.capacity === Infinity) {
+        room = Infinity;
+      } else {
+        room = Math.max(0, tgt.capacity - tgt.resources - (ctx.reserved.get(tgtId) || 0));
+      }
+
+      // Group proposals by source node for cross-node fair allocation.
+      const srcEntries = [];
+      const srcIdx = new Map();
+      for (const p of proposals) {
+        if (!srcIdx.has(p.srcId)) {
+          srcIdx.set(p.srcId, srcEntries.length);
+          srcEntries.push({ proposals: [], totalWant: 0 });
+        }
+        const entry = srcEntries[srcIdx.get(p.srcId)];
+        entry.proposals.push(p);
+        entry.totalWant += p.want;
+      }
+
+      // Fair-allocate room across competing source nodes.
+      const groupWants = srcEntries.map(e => e.totalWant);
+      const groupAllocs = room === Infinity
+        ? groupWants.slice()
+        : this._fairAllocate(room, groupWants);
+
+      srcEntries.forEach((entry, gi) => {
+        let budget = groupAllocs[gi];
+        if (budget <= 0) return;
+
+        for (const p of entry.proposals) {
+          if (budget <= 0) break;
+          const give = Math.min(p.want, budget);
+          if (give <= 0) continue;
+
+          if (p.isInfSource) {
+            p.srcNode.produced += give;
+            this._give(tgtId, p.srcColor, give, p.connId, ctx);
+            this._reserve(tgtId, give, ctx);
+            budget -= give;
+          } else {
+            const taken = p.srcNode.takeResources(give, p.colorFilter);
+            let moved = 0;
+            for (const { amount, color } of taken) {
+              this._give(tgtId, color, amount, p.connId, ctx);
+              moved += amount;
+            }
+            if (moved > 0) {
+              if (p.trackProduced) p.srcNode.produced += moved;
+              this._reserve(tgtId, moved, ctx);
+              budget -= moved;
+            }
+          }
+        }
+      });
+    }
   }
 
   // Max-min fair integer allocation of `available` across `wants`.
