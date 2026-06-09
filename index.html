@@ -272,8 +272,10 @@
 
   <!-- Timeline chart (toggle) -->
   <div id="timeline" class="hidden">
+    <div id="tl-resize" title="Drag to resize"></div>
     <div class="timeline-head">
-      <span>Timeline — node values over time</span>
+      <span class="timeline-title">Timeline</span>
+      <div id="tl-legend" class="tl-legend"></div>
       <button class="btn" id="tl-close" title="Hide timeline">✕</button>
     </div>
     <canvas id="timeline-canvas"></canvas>

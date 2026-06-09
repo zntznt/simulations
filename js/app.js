@@ -22,7 +22,7 @@ class App {
     this._redoStack = [];
     this._lastState = null;
 
-    this.timeline = new TimelineChart(document.getElementById('timeline-canvas'), this.diagram, this.engine);
+    this.timeline = new TimelineChart(document.getElementById('timeline-canvas'), document.getElementById('tl-legend'), this.diagram, this.engine);
     this._timelineVisible = false;
 
     this._bindControls();
@@ -817,6 +817,24 @@ class App {
     tlBtn.addEventListener('click', () => toggleTimeline(!this._timelineVisible));
     document.getElementById('tl-close').addEventListener('click', () => toggleTimeline(false));
     window.addEventListener('resize', () => { if (this._timelineVisible) this.timeline.update(); });
+
+    // Resize handle — drag up/down to change timeline panel height
+    const tlPanel = document.getElementById('timeline');
+    document.getElementById('tl-resize').addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = tlPanel.offsetHeight;
+      const onMove = (ev) => {
+        tlPanel.style.height = Math.max(120, Math.min(600, startH - (ev.clientY - startY))) + 'px';
+        if (this._timelineVisible) this.timeline.update();
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
 
     // Undo / redo
     document.getElementById('btn-undo').addEventListener('click', () => this.undo());

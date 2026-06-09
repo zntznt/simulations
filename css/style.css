@@ -265,13 +265,31 @@ input[type="range"] {
   border-top: 1px solid var(--border); display: flex; flex-direction: column;
 }
 #timeline.hidden { display: none; }
-.timeline-head {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 4px 10px; font-size: 11px; color: var(--text-dim);
-  border-bottom: 1px solid var(--border); flex-shrink: 0;
+#tl-resize {
+  height: 5px; cursor: ns-resize; flex-shrink: 0;
+  background: transparent; transition: background 0.15s;
 }
-.timeline-head .btn { padding: 2px 8px; font-size: 11px; }
-#timeline-canvas { flex: 1; width: 100%; min-height: 0; }
+#tl-resize:hover { background: var(--accent); }
+.timeline-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 10px; font-size: 11px; color: var(--text-dim);
+  border-bottom: 1px solid var(--border); flex-shrink: 0; min-height: 28px;
+}
+.timeline-title { flex-shrink: 0; }
+.timeline-head .btn { padding: 2px 8px; font-size: 11px; margin-left: auto; }
+.tl-legend {
+  display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0;
+}
+.tl-chip {
+  padding: 1px 7px; border-radius: 10px; font-size: 10px; cursor: pointer;
+  border: 1px solid var(--chip-color, #4a9eff);
+  color: var(--chip-color, #4a9eff); background: transparent;
+  transition: opacity 0.15s, background 0.15s;
+  white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis;
+}
+.tl-chip:hover { background: color-mix(in srgb, var(--chip-color, #4a9eff) 15%, transparent); }
+.tl-chip-off { opacity: 0.35; text-decoration: line-through; }
+#timeline-canvas { flex: 1; width: 100%; min-height: 0; cursor: crosshair; }
 
 /* ── Monte Carlo modal ── */
 #mc-overlay {
