@@ -116,7 +116,12 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       to plot in the properties panel; each series is color-coded with a live end-value
       readout and the chart redraws every step (distinct from the global timeline panel).
       Movable, resizable, deletable, and serialized in diagram JSON.
-- [ ] **Named resource types** (not just colors) with per-type readouts (P2).
+- [x] **Named resource types** (not just colors) with per-type readouts (P2). A
+      "Resource Types" registry (diagram panel) maps readable names to colors; the
+      colour fields on sources, converters, and filters gain a type dropdown. Nodes
+      show a live "Holdings by type" readout, and the diagram panel shows live
+      per-type totals across the whole model. Tracked under the existing color key,
+      so the engine is unchanged; types serialize in diagram JSON.
 - [x] **Diagram-level parameters panel (P2).** Shown in the properties panel
       when nothing is selected; add/edit/delete named numeric constants that seed
       into the shared variable store before each step.

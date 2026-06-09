@@ -447,6 +447,10 @@ class Diagram {
     this.groups = new Map();
     this.notes = new Map();
     this.charts = new Map();
+    // Named resource types: [{ name, color }]. The color is the underlying key
+    // resources are tracked by (colorMap), so this is a human-readable naming
+    // layer over the existing color-based engine — no engine changes needed.
+    this.resourceTypes = [];
     this.variables = {};  // shared store, refreshed each step from state connections
     this.params = {};     // user-defined constants seeded into variables before each step
     // Time mode: 'sync' (turn-based — every automatic node fires each step) or
@@ -477,6 +481,14 @@ class Diagram {
   addChart(c) { this.charts.set(c.id, c); return c; }
   removeChart(id) { this.charts.delete(id); }
 
+  // Human-readable name of the resource type whose color matches, or null.
+  resourceTypeName(color) {
+    if (!color) return null;
+    const target = String(color).toLowerCase();
+    const t = this.resourceTypes.find(rt => rt.color && rt.color.toLowerCase() === target);
+    return t ? t.name : null;
+  }
+
   outgoing(nodeId) { return [...this.connections.values()].filter(c => c.sourceId === nodeId); }
   incoming(nodeId) { return [...this.connections.values()].filter(c => c.targetId === nodeId); }
 
@@ -488,6 +500,8 @@ class Diagram {
       groups: this.groups.size ? [...this.groups.values()].map(g => g.toJSON()) : undefined,
       notes: this.notes.size ? [...this.notes.values()].map(n => n.toJSON()) : undefined,
       charts: this.charts.size ? [...this.charts.values()].map(c => c.toJSON()) : undefined,
+      resourceTypes: this.resourceTypes.length
+        ? this.resourceTypes.map(t => ({ name: t.name, color: t.color })) : undefined,
       variables: { ...this.variables },
       params: Object.keys(this.params).length ? { ...this.params } : undefined,
       timeMode: this.timeMode !== 'sync' ? this.timeMode : undefined,
@@ -504,6 +518,7 @@ class Diagram {
     this.notes.clear();
     this.charts.clear();
     _idSeq = Math.max(_idSeq, data._idSeq || 0);
+    this.resourceTypes = (data.resourceTypes || []).map(t => ({ name: t.name, color: t.color }));
     this.variables = { ...(data.variables || {}) };
     this.params = { ...(data.params || {}) };
     this.timeMode = data.timeMode || 'sync';

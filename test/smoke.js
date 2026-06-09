@@ -544,6 +544,49 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P2 chart: on-canvas chart tracks a node, plots a line after a run, serializes');
   else fail('P2 chart: ' + JSON.stringify(p2chart));
 
+  // P2: named resource types — editor, type pickers, per-type readouts.
+  const p2types = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    d.resourceTypes = [{ name: 'Gold', color: '#ffd700' }, { name: 'Wood', color: '#8d6e63' }];
+
+    // Diagram panel shows the Resource Types editor with the type names.
+    window.app.editor._select(null, null);
+    const diagText = document.getElementById('props-content').textContent;
+    const hasTypesEditor = diagText.includes('Resource Types') && diagText.includes('Gold')
+      && diagText.includes('Totals held');
+
+    // A pool holding gold shows the type NAME (not the hex) in its readout.
+    const p = d.addNode(new MNode(NodeType.POOL, 200, 200));
+    p.setCount(5, '#ffd700');
+    window.app._onSelect(p.id, 'node');
+    const holdings = document.getElementById('node-holdings');
+    const holdingsText = holdings ? holdings.textContent : '';
+    const showsGold = holdingsText.includes('Gold') && holdingsText.includes('5');
+
+    // A source's colour field offers a resource-type dropdown.
+    const s = d.addNode(new MNode(NodeType.SOURCE, 400, 200));
+    window.app._onSelect(s.id, 'node');
+    const hasTypeDropdown = [...document.querySelectorAll('#props-content .prop-row label')]
+      .some(l => l.textContent.trim() === 'Type');
+
+    // Live totals refresh: diagram panel + a step recomputes the per-type total.
+    window.app.editor._select(null, null);
+    window.app._refreshTypeReadouts();
+    const totalsText = document.getElementById('diagram-totals').textContent;
+    const totalsOk = totalsText.includes('Gold') && totalsText.includes('5') && totalsText.includes('Wood');
+
+    // Serialization round-trip + name lookup.
+    const d2 = new Diagram();
+    d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+    const typesOk = d2.resourceTypes.length === 2 && d2.resourceTypeName('#ffd700') === 'Gold';
+
+    return { hasTypesEditor, showsGold, hasTypeDropdown, totalsOk, typesOk };
+  });
+  if (p2types.hasTypesEditor && p2types.showsGold && p2types.hasTypeDropdown && p2types.totalsOk && p2types.typesOk)
+    ok('P2 resource types: editor, type pickers, per-type holdings + live totals, serialize');
+  else fail('P2 resource types: ' + JSON.stringify(p2types));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);

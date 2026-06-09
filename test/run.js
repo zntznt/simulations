@@ -1134,6 +1134,55 @@ test('removeChart deletes the chart from the diagram', () => {
   eq(d.charts.size, 0, 'chart removed');
 });
 
+// ── P2: named resource types ──────────────────────────────────────────────────
+console.log('\nNamed resource types');
+
+test('resourceTypeName maps a color to its type name (case-insensitive)', () => {
+  const { d } = setup();
+  d.resourceTypes = [{ name: 'Gold', color: '#FFD700' }, { name: 'Wood', color: '#8d6e63' }];
+  eq(d.resourceTypeName('#ffd700'), 'Gold', 'matches lowercase variant');
+  eq(d.resourceTypeName('#8d6e63'), 'Wood', 'matches second type');
+  eq(d.resourceTypeName('#123456'), null, 'unknown color → null');
+  eq(d.resourceTypeName(''), null, 'empty → null');
+});
+
+test('resource types survive JSON round-trip', () => {
+  const { d } = setup();
+  d.resourceTypes = [{ name: 'Gold', color: '#ffd700' }, { name: 'Mana', color: '#42a5f5' }];
+  const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  eq(d2.resourceTypes.length, 2, 'count preserved');
+  eq(d2.resourceTypes[0].name, 'Gold', 'name preserved');
+  eq(d2.resourceTypes[1].color, '#42a5f5', 'color preserved');
+  eq(d2.resourceTypeName('#ffd700'), 'Gold', 'lookup still works after load');
+});
+
+test('resource types are copied, not aliased, on load', () => {
+  const { d } = setup();
+  d.resourceTypes = [{ name: 'Gold', color: '#ffd700' }];
+  const json = d.toJSON();
+  const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(json)));
+  d2.resourceTypes[0].name = 'Silver';
+  eq(d.resourceTypes[0].name, 'Gold', 'source diagram unaffected by mutating the loaded copy');
+});
+
+test('default diagram omits resourceTypes from JSON', () => {
+  const { d } = setup();
+  node(d, NodeType.POOL);
+  assert(d.toJSON().resourceTypes === undefined, 'resourceTypes omitted when empty');
+});
+
+test('named-type resources still flow as colors through the engine', () => {
+  const { d, e } = setup();
+  d.resourceTypes = [{ name: 'Gold', color: '#ffd700' }];
+  const s = node(d, NodeType.SOURCE); s.resourceColor = '#ffd700';
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 3;
+  steps(e, 2);
+  eq(p.resources, 6, 'pool accumulated gold');
+  eq(p.colorMap['#ffd700'], 6, 'tracked under the type color');
+  eq(d.resourceTypeName(Object.keys(p.colorMap)[0]), 'Gold', 'held color resolves to the type name');
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed) {

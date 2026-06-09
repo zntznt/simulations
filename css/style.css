@@ -324,6 +324,19 @@ input[type="range"] {
 .sticky-note { cursor: pointer; }
 .chart-elem { cursor: pointer; }
 
+/* ── Per-type resource readouts ── */
+.type-readout { margin-bottom: 8px; }
+.type-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.type-swatch {
+  flex: 0 0 12px; width: 12px; height: 12px; border-radius: 2px;
+  border: 1px solid var(--border);
+}
+.type-name {
+  flex: 1; font-size: 12px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.type-count { font-family: monospace; font-size: 12px; color: var(--accent); }
+
 /* ── Embed mode (clean, shareable view) ── */
 body.embed #palette,
 body.embed #props-panel,

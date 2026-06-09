@@ -44,6 +44,7 @@ class App {
       this._updateSparklines();
       if (this._timelineVisible) this.timeline.update();
       this._refreshResourceCount();
+      this._refreshTypeReadouts();
     };
 
     this.engine.onEnd = (ended) => {
@@ -123,6 +124,7 @@ class App {
     this.diagram.groups.clear();
     this.diagram.notes.clear();
     this.diagram.charts.clear();
+    this.diagram.resourceTypes = [];
     this.diagram.variables = {};
     this.diagram.params = {};
     this.diagram.timeMode = 'sync';
@@ -950,6 +952,9 @@ class App {
     addRow.appendChild(addBtn);
     panel.appendChild(addRow);
 
+    // Named resource types + live per-type totals.
+    this._resourceTypesEditor(panel);
+
     // Artificial player (scripted actor firing interactive nodes).
     this._diagramAI(panel);
 
@@ -1068,6 +1073,125 @@ class App {
       this._renderProps(); this._commit();
     });
     addRow.appendChild(add); panel.appendChild(addRow);
+  }
+
+  // Named resource types editor + live per-type totals (diagram panel).
+  _resourceTypesEditor(panel) {
+    this._sep(panel);
+    const h = document.createElement('h3');
+    h.className = 'props-title';
+    h.textContent = 'Resource Types';
+    panel.appendChild(h);
+    this._info(panel, 'Give resources readable names. Each type maps a name to a color, which the engine uses to track it. Pick a type from the colour fields on sources, converters, and filters.');
+
+    const types = this.diagram.resourceTypes;
+    types.forEach((t, i) => {
+      const row = document.createElement('div');
+      row.className = 'prop-row';
+      const ni = document.createElement('input');
+      ni.type = 'text'; ni.value = t.name; ni.placeholder = 'name'; ni.style.flex = '1';
+      ni.addEventListener('input', () => { t.name = ni.value; this.renderer.render(); });
+      ni.addEventListener('change', () => this._commit());
+      const ci = document.createElement('input');
+      ci.type = 'color'; ci.value = t.color || '#ffa726';
+      ci.style.cssText = 'width:36px;height:28px;padding:1px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:none;flex:0 0 auto;';
+      ci.addEventListener('input', () => { t.color = ci.value; this.renderer.render(); });
+      ci.addEventListener('change', () => this._commit());
+      const del = document.createElement('button');
+      del.textContent = '×'; del.className = 'btn';
+      del.style.cssText = 'padding:2px 8px;flex-shrink:0;';
+      del.addEventListener('click', () => { types.splice(i, 1); this._renderProps(); this._commit(); });
+      row.appendChild(ni); row.appendChild(ci); row.appendChild(del);
+      panel.appendChild(row);
+    });
+
+    const addRow = document.createElement('div');
+    addRow.className = 'prop-row';
+    addRow.appendChild(document.createElement('label'));
+    const add = document.createElement('button');
+    add.textContent = '+ Add Resource Type'; add.className = 'btn'; add.style.flex = '1';
+    add.addEventListener('click', () => {
+      const swatches = ['#ffd700', '#8d6e63', '#4caf50', '#42a5f5', '#ef5350', '#ab47bc', '#ff7043', '#26c6da'];
+      types.push({ name: 'Type ' + (types.length + 1), color: swatches[types.length % swatches.length] });
+      this._renderProps(); this._commit();
+    });
+    addRow.appendChild(add);
+    panel.appendChild(addRow);
+
+    // Live per-type totals across the diagram.
+    const tl = document.createElement('div');
+    tl.className = 'chart-label'; tl.style.marginTop = '10px';
+    tl.textContent = 'Totals held (live)';
+    panel.appendChild(tl);
+    const tot = document.createElement('div');
+    tot.className = 'type-readout'; tot.id = 'diagram-totals';
+    panel.appendChild(tot);
+    this._fillTotals(tot);
+  }
+
+  // One swatch + name + count row inside a per-type readout container.
+  _typeRow(container, color, name, count) {
+    const row = document.createElement('div');
+    row.className = 'type-row';
+    const sw = document.createElement('span');
+    sw.className = 'type-swatch';
+    sw.style.background = color || 'transparent';
+    const nm = document.createElement('span');
+    nm.className = 'type-name';
+    nm.textContent = name;
+    const ct = document.createElement('span');
+    ct.className = 'type-count';
+    ct.textContent = String(count);
+    row.appendChild(sw); row.appendChild(nm); row.appendChild(ct);
+    container.appendChild(row);
+  }
+
+  // Per-type holdings for a single node (its colorMap, named where possible).
+  _fillHoldings(container, node) {
+    container.innerHTML = '';
+    if (node.type === NodeType.SOURCE && !node.limited) {
+      const color = node.resourceColor || DEFAULT_COLOR;
+      this._typeRow(container, color, this.diagram.resourceTypeName(color) || color, '∞');
+      return;
+    }
+    const entries = Object.entries(node.colorMap || {}).filter(([, c]) => c > 0);
+    if (!entries.length) { container.innerHTML = '<p class="props-info">Empty.</p>'; return; }
+    for (const [color, count] of entries) {
+      this._typeRow(container, color, this.diagram.resourceTypeName(color) || color, count);
+    }
+  }
+
+  // Diagram-wide totals per resource type (defined types first, then any
+  // untyped colors actually present). Infinite sources are not counted.
+  _fillTotals(container) {
+    container.innerHTML = '';
+    const totals = {};
+    for (const n of this.diagram.nodes.values()) {
+      if (n.type === NodeType.SOURCE && !n.limited) continue;
+      for (const [c, cnt] of Object.entries(n.colorMap || {})) totals[c] = (totals[c] || 0) + cnt;
+    }
+    const shown = new Set();
+    for (const t of this.diagram.resourceTypes) {
+      const key = (t.color || '').toLowerCase();
+      this._typeRow(container, t.color, t.name || '(unnamed)', totals[t.color] || 0);
+      shown.add(key);
+    }
+    for (const [color, cnt] of Object.entries(totals)) {
+      if (shown.has(color.toLowerCase())) continue;
+      this._typeRow(container, color, this.diagram.resourceTypeName(color) || color, cnt);
+    }
+    if (!container.childElementCount) container.innerHTML = '<p class="props-info">No resources held yet.</p>';
+  }
+
+  // Re-fill whichever per-type readout is currently on screen (called each step).
+  _refreshTypeReadouts() {
+    const nodeEl = document.getElementById('node-holdings');
+    if (nodeEl && this._selectedType === 'node') {
+      const node = this.diagram.nodes.get(this._selectedId);
+      if (node) this._fillHoldings(nodeEl, node);
+    }
+    const totEl = document.getElementById('diagram-totals');
+    if (totEl) this._fillTotals(totEl);
   }
 
   _groupProps(panel, group) {
@@ -1212,7 +1336,7 @@ class App {
     if (node.type === NodeType.SOURCE) {
       this._colorField(panel, 'Resource Color', node.resourceColor || '#ffa726', v => {
         node.resourceColor = v; this.renderer.render();
-      });
+      }, false, true);
       this._checkRow(panel, 'Limited stock', node.limited, v => {
         node.limited = v;
         if (v) {
@@ -1278,7 +1402,7 @@ class App {
         v => { node.inputAmount = Math.max(1, parseInt(v) || 1); });
       this._colorField(panel, 'Output color', node.outputColor || '#ffa726', v => {
         node.outputColor = v; this.renderer.render();
-      });
+      }, false, true);
       this._info(panel, 'Consumes this many held resources per conversion, then emits each output connection’s rate in the output color.');
     }
 
@@ -1341,6 +1465,18 @@ class App {
       this._field(panel, 'Phase', 'number', node.firePhase || 0,
         v => { node.firePhase = Math.max(0, parseInt(v) || 0); }, 'start offset (steps)');
       this._info(panel, 'This automatic node fires every "Fire every" steps, offset by "Phase".');
+    }
+
+    // Per-type holdings readout (nodes that carry colored resources).
+    if (node.type !== NodeType.REGISTER && node.type !== NodeType.DRAIN) {
+      const hlabel = document.createElement('div');
+      hlabel.className = 'chart-label'; hlabel.style.marginTop = '12px';
+      hlabel.textContent = 'Holdings by type';
+      panel.appendChild(hlabel);
+      const hc = document.createElement('div');
+      hc.className = 'type-readout'; hc.id = 'node-holdings';
+      panel.appendChild(hc);
+      this._fillHoldings(hc, node);
     }
 
     // End / goal condition (any node with a numeric value)
@@ -1448,7 +1584,7 @@ class App {
           this._colorField(panel, 'Color filter', conn.colorFilter || '', v => {
             conn.colorFilter = v;
             this.renderer.render();
-          }, true);
+          }, true, true);
           this._info(panel, 'Only resources of this color pass. Leave empty for any color.');
 
           this._sep(panel);
@@ -1621,7 +1757,39 @@ class App {
     return inp;
   }
 
-  _colorField(panel, label, value, onChange, clearable = false) {
+  _colorField(panel, label, value, onChange, clearable = false, withTypes = false) {
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.value = value || '#ffa726';
+    picker.style.cssText = 'width:36px;height:28px;padding:1px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:none;';
+    picker.addEventListener('input', () => onChange(picker.value));
+
+    // When named resource types exist, offer a dropdown that sets the colour to
+    // the chosen type's colour (the raw picker stays available for custom hues).
+    if (withTypes && this.diagram.resourceTypes.length) {
+      const trow = document.createElement('div');
+      trow.className = 'prop-row';
+      const tl = document.createElement('label');
+      tl.textContent = 'Type';
+      const ts = document.createElement('select');
+      ts.style.flex = '1';
+      const blank = document.createElement('option');
+      blank.value = ''; blank.textContent = '— custom —';
+      ts.appendChild(blank);
+      const cur = value ? String(value).toLowerCase() : '';
+      for (const t of this.diagram.resourceTypes) {
+        const o = document.createElement('option');
+        o.value = t.color; o.textContent = t.name || '(unnamed)';
+        if (t.color && t.color.toLowerCase() === cur) o.selected = true;
+        ts.appendChild(o);
+      }
+      ts.addEventListener('change', () => {
+        if (ts.value) { picker.value = ts.value; onChange(ts.value); }
+      });
+      trow.appendChild(tl); trow.appendChild(ts);
+      panel.appendChild(trow);
+    }
+
     const row = document.createElement('div');
     row.className = 'prop-row';
     const lbl = document.createElement('label');
@@ -1630,12 +1798,6 @@ class App {
 
     const wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;gap:6px;align-items:center;flex:1;';
-
-    const picker = document.createElement('input');
-    picker.type = 'color';
-    picker.value = value || '#ffa726';
-    picker.style.cssText = 'width:36px;height:28px;padding:1px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:none;';
-    picker.addEventListener('input', () => onChange(picker.value));
     wrap.appendChild(picker);
 
     if (clearable) {
