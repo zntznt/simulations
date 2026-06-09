@@ -40,13 +40,23 @@
       <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
       <button class="btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
       <button class="btn" id="btn-library" title="Templates &amp; saved diagrams">📚 Library</button>
-      <button class="btn" id="btn-new" title="New diagram">New</button>
-      <button class="btn" id="btn-save" title="Save diagram as JSON">⬇ JSON</button>
-      <button class="btn" id="btn-export-svg" title="Export diagram as SVG">⬇ SVG</button>
-      <button class="btn" id="btn-export-png" title="Export diagram as PNG">⬇ PNG</button>
-      <button class="btn" id="btn-export-csv" title="Export run history as CSV">⬇ CSV</button>
-      <button class="btn" id="btn-share" title="Copy a shareable link to this diagram">🔗 Share</button>
-      <button class="btn" id="btn-load" title="Load diagram from JSON">Load</button>
+
+      <div class="menu" id="menu-file">
+        <button class="btn" id="btn-file-menu" aria-haspopup="true" aria-expanded="false"
+                title="File — new, open, save, export, share">File ▾</button>
+        <div class="menu-popup hidden" role="menu" aria-label="File">
+          <button class="menu-item" role="menuitem" id="btn-new">New diagram</button>
+          <button class="menu-item" role="menuitem" id="btn-load">Open file…</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" role="menuitem" id="btn-save">Save as JSON</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" role="menuitem" id="btn-export-svg">Export as SVG</button>
+          <button class="menu-item" role="menuitem" id="btn-export-png">Export as PNG</button>
+          <button class="menu-item" role="menuitem" id="btn-export-csv">Export data as CSV</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" role="menuitem" id="btn-share">Copy share link</button>
+        </div>
+      </div>
     </div>
   </header>
 

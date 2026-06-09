@@ -157,6 +157,23 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .btn.btn-danger { border-color: var(--red); color: var(--red); }
 .btn.btn-danger:hover { background: rgba(239,83,80,0.1); }
 
+/* ── Dropdown menus (File, …) ── */
+.menu { position: relative; display: inline-flex; }
+.menu-popup {
+  position: absolute; top: calc(100% + 6px); right: 0; min-width: 190px;
+  padding: 5px; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 7px; box-shadow: 0 10px 32px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column; gap: 1px; z-index: 60;
+}
+.menu-popup.hidden { display: none; }
+.menu-item {
+  text-align: left; background: none; border: none; color: var(--text);
+  padding: 7px 12px; border-radius: 5px; font-size: 12px; font-family: var(--font);
+  cursor: pointer; white-space: nowrap;
+}
+.menu-item:hover { background: rgba(74,158,255,0.14); color: var(--accent); }
+.menu-sep { height: 1px; background: var(--border); margin: 4px 8px; }
+
 /* ── Node SVG styles ── */
 .node { user-select: none; }
 /* ── Connection SVG styles ── */

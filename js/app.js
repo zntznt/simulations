@@ -27,6 +27,7 @@ class App {
 
     this._bindControls();
     this._initLibrary();
+    this._initMenus();
 
     this.engine.onStep = (step, fired, transfers) => {
       document.getElementById('step-counter').textContent = `Step: ${step}`;
@@ -200,6 +201,43 @@ class App {
         try { localStorage.removeItem('sim_autosave'); } catch {}
       });
     }
+  }
+
+  // ── Dropdown menus (File, …) ────────────────────────────────────────────────
+
+  // Generic toolbar dropdowns: a trigger button (aria-haspopup) toggles its
+  // sibling .menu-popup. Each item keeps its own id/handler (wired elsewhere),
+  // so choosing one runs that action and then closes the menu. Clicking outside
+  // or pressing Escape closes any open menu.
+  _initMenus() {
+    const menus = [...document.querySelectorAll('.menu')];
+    const closeAll = (except = null) => {
+      for (const m of menus) {
+        if (m === except) continue;
+        m.querySelector('.menu-popup')?.classList.add('hidden');
+        m.querySelector('[aria-haspopup]')?.setAttribute('aria-expanded', 'false');
+      }
+    };
+    for (const m of menus) {
+      const btn = m.querySelector('[aria-haspopup]');
+      const pop = m.querySelector('.menu-popup');
+      if (!btn || !pop) continue;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const willOpen = pop.classList.contains('hidden');
+        closeAll(willOpen ? m : null);
+        pop.classList.toggle('hidden', !willOpen);
+        btn.setAttribute('aria-expanded', String(willOpen));
+      });
+      pop.addEventListener('click', (e) => {
+        if (e.target.closest('.menu-item')) {
+          pop.classList.add('hidden');
+          btn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+    document.addEventListener('click', () => closeAll());
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
   }
 
   // ── Library (multiple named diagrams) ──────────────────────────────────────
