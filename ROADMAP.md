@@ -81,11 +81,12 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 
 ## 🔭 Missing — Analysis & data
 
-- [ ] **Global timeline chart (P1).** A multi-series plot of all tracked nodes
-      over time (we only show a sparkline for the selected node).
-- [ ] **Monte Carlo / batch runs (P1).** Run N simulations and show
-      distributions (mean / min / max / percentiles) — Machinations' headline
-      analytics feature.
+- [x] **Global timeline chart (P1).** Toggleable bottom panel plotting every
+      tracked node's value over time, with a legend ("📈 Chart").
+- [x] **Monte Carlo / batch runs (P1).** "🎲 Batch" runs N isolated
+      simulations for up to M steps and reports per-node distributions
+      (mean / min / p10 / p50 / p90 / max) plus goal reach-rate and end-step
+      stats — non-destructive to the live diagram.
 - [ ] **Chart/graph element placed on the canvas (P2).**
 - [ ] **Named resource types** (not just colors) with per-type readouts (P2).
 - [ ] **Diagram-level parameters panel** to expose and tweak shared variables

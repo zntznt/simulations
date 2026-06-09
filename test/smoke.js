@@ -165,6 +165,34 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P1 panels: queue+process-time, source limited+stock, state modifier');
   else fail('P1 panels: ' + JSON.stringify(p1));
 
+  // Analysis: timeline chart toggle + Monte Carlo modal.
+  const analysis = await page.evaluate(async () => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 400, 200));
+    d.addConnection(new MConnection(s.id, p.id)).rate = 3;
+    window.app.renderer.render();
+
+    document.getElementById('btn-timeline').click();
+    const tlShown = !document.getElementById('timeline').classList.contains('hidden');
+    window.app.engine.reset();
+    for (let i = 0; i < 6; i++) window.app.engine.doStep();
+    const cw = document.getElementById('timeline-canvas').width;
+
+    document.getElementById('btn-batch').click();
+    const mcShown = !document.getElementById('mc-overlay').classList.contains('hidden');
+    document.getElementById('mc-runs').value = '20';
+    document.getElementById('mc-steps').value = '10';
+    document.getElementById('mc-run').click();
+    await new Promise(r => setTimeout(r, 150));
+    const rows = document.querySelectorAll('#mc-results table tbody tr').length;
+    return { tlShown, cw, mcShown, rows };
+  });
+  if (analysis.tlShown && analysis.cw > 0 && analysis.mcShown && analysis.rows >= 1)
+    ok(`analysis: timeline chart + Monte Carlo (${analysis.rows} result rows)`);
+  else fail('analysis: ' + JSON.stringify(analysis));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);

@@ -617,6 +617,51 @@ test('toJSON/loadJSON preserves limited source, queue, and modifier', () => {
   assert(m2 && m2.modFactor === -0.5, 'modifier factor preserved');
 });
 
+console.log('\nMonte Carlo');
+
+test('deterministic diagram gives identical stats across runs', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 5;
+  const res = e.runMonteCarlo(5, 10);
+  const pn = res.nodes.find(x => x.id === p.id);
+  eq(pn.mean, 50, 'mean'); eq(pn.min, 50, 'min'); eq(pn.max, 50, 'max');
+  assert(!res.nodes.find(x => x.type === NodeType.SOURCE), 'unlimited source not tracked');
+});
+
+test('random diagram yields a spread around the expected mean', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p); c.rate = 1; c.chance = 50;
+  const res = e.runMonteCarlo(60, 100);
+  const pn = res.nodes.find(x => x.id === p.id);
+  assert(pn.mean >= 35 && pn.mean <= 65, `~50 mean (got ${pn.mean})`);
+  assert(pn.max > pn.min, 'runs vary');
+});
+
+test('Monte Carlo reports goal reach rate and end-step stats', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 5;
+  p.endEnabled = true; p.endOperator = '>='; p.endValue = 12;
+  const res = e.runMonteCarlo(10, 50);
+  eq(res.endedRate, 1, 'always reaches the goal');
+  assert(res.endStep && res.endStep.min === 3 && res.endStep.max === 3, 'ends at step 3 each run');
+});
+
+test('Monte Carlo does not disturb the live diagram', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL); p.setCount(7);
+  conn(d, s, p).rate = 5;
+  e.runMonteCarlo(10, 20);
+  eq(p.resources, 7, 'live pool untouched');
+  eq(e.step, 0, 'live engine step untouched');
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed) {

@@ -665,10 +665,60 @@ class SimEngine {
   _record() {
     const snap = {};
     for (const n of this.diagram.nodes.values()) {
-      if (n.type === NodeType.SOURCE) continue;
+      if (n.type === NodeType.SOURCE && !n.limited) continue;
       snap[n.id] = n.chartValue;
     }
     this.history.push({ step: this.step, snap });
     if (this.history.length > 300) this.history.shift();
+  }
+
+  // ── Monte Carlo ───────────────────────────────────────────────────────────
+
+  // Run the diagram `runs` times (each on an isolated clone, fresh RNG) for up
+  // to `maxSteps` steps, and summarise the distribution of every tracked node's
+  // final value plus goal statistics. Does not touch the live diagram.
+  runMonteCarlo(runs = 100, maxSteps = 200) {
+    runs = Math.max(1, Math.round(runs));
+    maxSteps = Math.max(1, Math.round(maxSteps));
+    const base = this.diagram.toJSON();
+    const tracked = [...this.diagram.nodes.values()].filter(n => n.type !== NodeType.SOURCE || n.limited);
+    const samples = new Map(tracked.map(n => [n.id, []]));
+    const endSteps = [];
+    let endedCount = 0;
+
+    for (let r = 0; r < runs; r++) {
+      const dg = new Diagram();
+      dg.loadJSON(JSON.parse(JSON.stringify(base)));
+      const eng = new SimEngine(dg);
+      eng.reset();
+      let s = 0;
+      while (s < maxSteps && !eng.ended) { eng.doStep(); s++; }
+      for (const [id, arr] of samples) {
+        const n = dg.nodes.get(id);
+        arr.push(n ? n.chartValue : 0);
+      }
+      if (eng.ended) { endedCount++; endSteps.push(eng.ended.step); }
+    }
+
+    return {
+      runs, maxSteps,
+      nodes: tracked.map(n => ({
+        id: n.id, label: n.label, type: n.type, ...this._stats(samples.get(n.id)),
+      })),
+      endedRate: endedCount / runs,
+      endStep: endSteps.length ? this._stats(endSteps) : null,
+    };
+  }
+
+  _stats(arr) {
+    if (!arr || !arr.length) return { mean: 0, min: 0, max: 0, p10: 0, p50: 0, p90: 0 };
+    const s = [...arr].sort((a, b) => a - b);
+    const pct = p => s[Math.min(s.length - 1, Math.round(p * (s.length - 1)))];
+    const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+    return {
+      mean: Math.round(mean * 100) / 100,
+      min: s[0], max: s[s.length - 1],
+      p10: pct(0.10), p50: pct(0.50), p90: pct(0.90),
+    };
   }
 }

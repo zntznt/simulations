@@ -23,6 +23,11 @@
       <span id="sim-status"></span>
     </div>
 
+    <div class="analysis-controls">
+      <button class="btn" id="btn-timeline" title="Toggle timeline chart">📈 Chart</button>
+      <button class="btn" id="btn-batch" title="Run many simulations (Monte Carlo)">🎲 Batch</button>
+    </div>
+
     <div class="file-controls">
       <select class="btn" id="btn-examples" title="Load a sample diagram">
         <option value="">Examples…</option>
@@ -186,6 +191,31 @@
       </div>
     </aside>
 
+  </div>
+
+  <!-- Timeline chart (toggle) -->
+  <div id="timeline" class="hidden">
+    <div class="timeline-head">
+      <span>Timeline — node values over time</span>
+      <button class="btn" id="tl-close" title="Hide timeline">✕</button>
+    </div>
+    <canvas id="timeline-canvas"></canvas>
+  </div>
+</div>
+
+<!-- Monte Carlo modal -->
+<div id="mc-overlay" class="hidden">
+  <div id="mc-modal">
+    <div class="mc-head">
+      <span>🎲 Monte Carlo — batch runs</span>
+      <button class="btn" id="mc-close">✕</button>
+    </div>
+    <div class="mc-controls">
+      <label>Runs <input type="number" id="mc-runs" value="100" min="1" max="5000"></label>
+      <label>Steps <input type="number" id="mc-steps" value="200" min="1" max="5000"></label>
+      <button class="btn btn-primary" id="mc-run">Run</button>
+    </div>
+    <div id="mc-results"></div>
   </div>
 </div>
 

@@ -145,6 +145,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .btn:hover { border-color: var(--accent); color: var(--accent); }
 .btn.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.btn-primary:hover { background: #3a8ef0; }
+.btn.active { border-color: var(--accent); color: var(--accent); background: rgba(74,158,255,0.12); }
 .btn.btn-danger { border-color: var(--red); color: var(--red); }
 .btn.btn-danger:hover { background: rgba(239,83,80,0.1); }
 
@@ -204,3 +205,50 @@ input[type="range"] {
 
 /* Tooltip */
 [title] { position: relative; }
+
+/* ── Analysis controls ── */
+.analysis-controls { display: flex; gap: 6px; margin-left: 8px; }
+
+/* ── Timeline panel ── */
+#timeline {
+  height: 200px; flex-shrink: 0; background: var(--panel);
+  border-top: 1px solid var(--border); display: flex; flex-direction: column;
+}
+#timeline.hidden { display: none; }
+.timeline-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 10px; font-size: 11px; color: var(--text-dim);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.timeline-head .btn { padding: 2px 8px; font-size: 11px; }
+#timeline-canvas { flex: 1; width: 100%; min-height: 0; }
+
+/* ── Monte Carlo modal ── */
+#mc-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+#mc-overlay.hidden { display: none; }
+#mc-modal {
+  width: 560px; max-width: 92vw; max-height: 86vh; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.5);
+}
+.mc-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 13px;
+}
+.mc-head .btn { padding: 2px 8px; }
+.mc-controls { display: flex; gap: 12px; align-items: center; padding: 12px 16px; }
+.mc-controls label { font-size: 12px; color: var(--text-dim); display: flex; gap: 6px; align-items: center; }
+.mc-controls input { width: 70px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text); padding: 4px 6px; }
+#mc-results { padding: 0 16px 16px; }
+#mc-results .mc-summary { font-size: 12px; color: var(--text); margin: 6px 0 10px; }
+#mc-results table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#mc-results th, #mc-results td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+#mc-results th:first-child, #mc-results td:first-child { text-align: left; }
+#mc-results th { color: var(--text-dim); font-weight: 600; }
+#mc-results td.swatch-cell { text-align: left; }
+.mc-empty { color: var(--text-dim); font-size: 12px; padding: 8px 0; }

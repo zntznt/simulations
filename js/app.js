@@ -13,6 +13,9 @@ class App {
     this._selectedType = null;
     this._sparklines = new Map();
 
+    this.timeline = new TimelineChart(document.getElementById('timeline-canvas'), this.diagram, this.engine);
+    this._timelineVisible = false;
+
     this._bindControls();
 
     this.engine.onStep = (step, fired, transfers) => {
@@ -29,6 +32,7 @@ class App {
       else this.renderer.render();
 
       this._updateSparklines();
+      if (this._timelineVisible) this.timeline.update();
       this._refreshResourceCount();
     };
 
@@ -54,6 +58,7 @@ class App {
     this.renderer.balls.clear();
     this._clearSparklines();
     this._onSelect(null, null);
+    if (this._timelineVisible) this.timeline.update();
   }
 
   // ── Example diagrams ──────────────────────────────────────────────────────
@@ -262,6 +267,7 @@ class App {
       this.renderer.balls.clear();
       this._clearSparklines();
       this.renderer.render();
+      if (this._timelineVisible) this.timeline.update();
     });
 
     const speedEl = document.getElementById('sim-speed');
@@ -329,6 +335,73 @@ class App {
       };
       inp.click();
     });
+
+    // Timeline chart toggle
+    const tlBtn = document.getElementById('btn-timeline');
+    const toggleTimeline = (show) => {
+      this._timelineVisible = show;
+      document.getElementById('timeline').classList.toggle('hidden', !show);
+      tlBtn.classList.toggle('active', show);
+      if (show) this.timeline.update();
+    };
+    tlBtn.addEventListener('click', () => toggleTimeline(!this._timelineVisible));
+    document.getElementById('tl-close').addEventListener('click', () => toggleTimeline(false));
+    window.addEventListener('resize', () => { if (this._timelineVisible) this.timeline.update(); });
+
+    // Monte Carlo batch runs
+    document.getElementById('btn-batch').addEventListener('click', () => this._openMonteCarlo());
+    document.getElementById('mc-close').addEventListener('click', () =>
+      document.getElementById('mc-overlay').classList.add('hidden'));
+    document.getElementById('mc-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'mc-overlay') e.currentTarget.classList.add('hidden');
+    });
+    document.getElementById('mc-run').addEventListener('click', () => this._runMonteCarlo());
+  }
+
+  // ── Monte Carlo ─────────────────────────────────────────────────────────────
+
+  _openMonteCarlo() {
+    this.engine.stop();
+    document.getElementById('btn-run').textContent = '▶ Run';
+    document.getElementById('mc-results').innerHTML =
+      '<p class="mc-empty">Choose runs &amp; steps, then press Run.</p>';
+    document.getElementById('mc-overlay').classList.remove('hidden');
+  }
+
+  _runMonteCarlo() {
+    const runs = Math.max(1, Math.min(5000, parseInt(document.getElementById('mc-runs').value) || 100));
+    const steps = Math.max(1, Math.min(5000, parseInt(document.getElementById('mc-steps').value) || 200));
+    const out = document.getElementById('mc-results');
+    out.innerHTML = '<p class="mc-empty">Running…</p>';
+
+    // Defer so the "Running…" message paints before the (synchronous) batch.
+    setTimeout(() => {
+      const t0 = performance.now();
+      const res = this.engine.runMonteCarlo(runs, steps);
+      const ms = Math.round(performance.now() - t0);
+
+      let html = `<p class="mc-summary">${res.runs} runs × up to ${res.maxSteps} steps `
+        + `<span style="color:var(--text-dim)">(${ms} ms)</span>`;
+      if (res.endStep) {
+        html += `<br>Goal reached in <b>${Math.round(res.endedRate * 100)}%</b> of runs`
+          + ` — end step mean <b>${res.endStep.mean}</b> (min ${res.endStep.min}, max ${res.endStep.max}).`;
+      }
+      html += '</p>';
+
+      html += '<table><thead><tr><th>Node</th><th>mean</th><th>min</th>'
+        + '<th>p10</th><th>p50</th><th>p90</th><th>max</th></tr></thead><tbody>';
+      for (const n of res.nodes) {
+        html += `<tr><td>${this._esc(n.label || n.type)}</td>`
+          + `<td>${n.mean}</td><td>${n.min}</td><td>${n.p10}</td>`
+          + `<td>${n.p50}</td><td>${n.p90}</td><td>${n.max}</td></tr>`;
+      }
+      html += '</tbody></table>';
+      out.innerHTML = html;
+    }, 30);
+  }
+
+  _esc(s) {
+    return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   }
 
   // ── Selection ─────────────────────────────────────────────────────────────
