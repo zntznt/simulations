@@ -148,6 +148,7 @@ class Renderer {
     };
     mkArrow('arrow-resource', '#ffa726');
     mkArrow('arrow-state', '#78909c');
+    mkArrow('arrow-trigger', '#66bb6a');
     mkArrow('arrow-sel', '#fff');
 
     // Glow
@@ -223,18 +224,24 @@ class Renderer {
 
   _updateConnEl(el, conn, src, tgt) {
     const isRes = conn.type === ConnectionType.RESOURCE;
+    const isTrigger = !isRes && conn.trigger;
+    const isActivator = !isRes && conn.activator;
     const isSel = this.selectedId === conn.id;
     const d = connPathD(src, tgt);
     const lp = connLabelPos(src, tgt);
+
+    const baseColor = isTrigger ? '#66bb6a' : (isRes ? '#ffa726' : '#78909c');
+    const color = isSel ? '#fff' : baseColor;
 
     el.querySelector('.conn-hitbox').setAttribute('d', d);
 
     const path = el.querySelector('.conn-path');
     path.setAttribute('d', d);
-    path.setAttribute('stroke', isSel ? '#fff' : (isRes ? '#ffa726' : '#78909c'));
-    if (!isRes) path.setAttribute('stroke-dasharray', '7,4');
+    path.setAttribute('stroke', color);
+    if (isTrigger) path.setAttribute('stroke-dasharray', '2,4');
+    else if (!isRes) path.setAttribute('stroke-dasharray', '7,4');
     else path.removeAttribute('stroke-dasharray');
-    const marker = isSel ? 'arrow-sel' : (isRes ? 'arrow-resource' : 'arrow-state');
+    const marker = isSel ? 'arrow-sel' : (isTrigger ? 'arrow-trigger' : (isRes ? 'arrow-resource' : 'arrow-state'));
     path.setAttribute('marker-end', `url(#${marker})`);
 
     const label = el.querySelector('.conn-label');
@@ -246,13 +253,18 @@ class Renderer {
       if (conn.interval > 1) txt += (txt ? ' ' : '') + `/${conn.interval}`;
       if (conn.chance < 100) txt += (txt ? ' ' : '') + `${conn.chance}%`;
       if (conn.colorFilter) txt += (txt ? ' ' : '') + '●';
+      if (src.type === NodeType.GATE && Number(conn.weight) !== 1) txt += (txt ? ' ' : '') + `⚖${conn.weight}`;
+    } else if (isTrigger) {
+      txt = conn.label ? `✷ ${conn.label}` : '✷';
+    } else if (isActivator) {
+      txt = `⊢ ${conn.actOperator}${conn.actValue}`;
     } else {
       txt = conn.variableName || conn.label || '';
     }
     label.textContent = txt;
     label.setAttribute('x', lp.x);
     label.setAttribute('y', lp.y);
-    label.setAttribute('fill', isSel ? '#fff' : (isRes ? '#ffa726' : '#78909c'));
+    label.setAttribute('fill', color);
 
     el.setAttribute('class', `conn${isSel ? ' selected' : ''}`);
   }
@@ -360,7 +372,9 @@ class Renderer {
 
     const badge = el.querySelector('.n-badge');
     const bMap = { passive: 'P', interactive: '▶', starting: '1×', automatic: '' };
-    badge.textContent = bMap[node.activation] ?? '';
+    let b = bMap[node.activation] ?? '';
+    if (node.endEnabled) b = (b ? b + ' ' : '') + '🏁';
+    badge.textContent = b;
   }
 
   // Blend fill color with tint

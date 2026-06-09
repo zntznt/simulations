@@ -100,6 +100,11 @@ class MNode {
     this._initialResources = 0;
     this._initialColorMap = {};
 
+    // End / goal condition: when met, the simulation halts (any node type).
+    this.endEnabled = false;
+    this.endOperator = '>=';
+    this.endValue = 0;
+
     if (type === NodeType.SOURCE) {
       this.resources = Infinity;
       this._initialResources = Infinity;
@@ -216,6 +221,9 @@ class MNode {
       resources: this.type === NodeType.SOURCE ? 0 : this.resources,
       capacity: this.capacity === Infinity ? null : this.capacity,
       colorMap: Object.keys(this.colorMap).length ? { ...this.colorMap } : undefined,
+      endEnabled: this.endEnabled || undefined,
+      endOperator: this.endOperator,
+      endValue: this.endValue,
     };
     if (this.type === NodeType.SOURCE) d.resourceColor = this.resourceColor;
     if (this.type === NodeType.GATE) d.gateMode = this.gateMode;
@@ -266,6 +274,19 @@ class MConnection {
 
     // State connections: variable name written to diagram.variables
     this.variableName = '';
+
+    // Trigger (state connection): fire the target node when the source fires.
+    this.trigger = false;
+
+    // Activator (state connection): the target node may only fire while the
+    // source value satisfies this condition.
+    this.activator = false;
+    this.actOperator = '>=';
+    this.actValue = 0;
+
+    // Gate output weight (resource connection out of a Gate): relative share
+    // for deterministic splits / weighted chance for probabilistic routing.
+    this.weight = 1;
   }
 
   toJSON() {
@@ -277,6 +298,10 @@ class MConnection {
       colorFilter: this.colorFilter,
       condEnabled: this.condEnabled, condOperator: this.condOperator, condValue: this.condValue,
       variableName: this.variableName,
+      trigger: this.trigger || undefined,
+      activator: this.activator || undefined,
+      actOperator: this.actOperator, actValue: this.actValue,
+      weight: this.weight,
     };
   }
 

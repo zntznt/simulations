@@ -32,6 +32,13 @@ class App {
       this._refreshResourceCount();
     };
 
+    this.engine.onEnd = (ended) => {
+      const status = document.getElementById('sim-status');
+      if (status) status.textContent = `🏁 ${ended.label} reached ${ended.value} at step ${ended.step}`;
+      document.getElementById('btn-run').textContent = '▶ Run';
+      this.renderer.render();
+    };
+
     this._loadExample();
   }
 
@@ -42,6 +49,8 @@ class App {
     this.diagram.connections.clear();
     this.diagram.variables = {};
     this.engine.reset();
+    document.getElementById('btn-run').textContent = '▶ Run';
+    document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
     this._clearSparklines();
     this._onSelect(null, null);
@@ -119,6 +128,9 @@ class App {
     const reg = d.addNode(new MNode(NodeType.REGISTER, 780, 390));
     reg.label = 'Wealth';
     reg.formula = 'gold * 10 + rare * 50';
+    reg.endEnabled = true;            // stop the run once we're rich enough
+    reg.endOperator = '>=';
+    reg.endValue = 1000;
 
     // Enemy Spawn → Combat: 3 enemies per step
     const c1 = d.addConnection(new MConnection(src.id, combat.id));
@@ -163,6 +175,74 @@ class App {
     this.renderer.render();
   }
 
+  // Factory Line: showcases triggers, activators, weighted gates, and a goal.
+  _loadFactoryExample() {
+    const d = this.diagram;
+
+    // Power plant whose output gates the whole line via an activator.
+    const power = d.addNode(new MNode(NodeType.SOURCE, 130, 130));
+    power.label = 'Power';
+    power.resourceColor = '#ffeb3b';
+    const grid = d.addNode(new MNode(NodeType.POOL, 130, 300));
+    grid.label = 'Grid';
+    grid.capacity = 12;
+    const pc = d.addConnection(new MConnection(power.id, grid.id));
+    pc.rate = 2;
+
+    // Ore line: a source feeds a stockpile that triggers a passive smelter.
+    const ore = d.addNode(new MNode(NodeType.SOURCE, 130, 470));
+    ore.label = 'Ore Vein';
+    ore.resourceColor = '#8d6e63';
+    const stock = d.addNode(new MNode(NodeType.POOL, 340, 470));
+    stock.label = 'Stockpile';
+    const oc = d.addConnection(new MConnection(ore.id, stock.id));
+    oc.rate = 3;
+
+    // Smelter is PASSIVE — it only runs when triggered by the Stockpile, and
+    // only while the Grid has power (activator).
+    const smelter = d.addNode(new MNode(NodeType.CONVERTER, 540, 470));
+    smelter.label = 'Smelter';
+    smelter.activation = ActivationMode.PASSIVE;
+    smelter.inputAmount = 2;
+    smelter.outputColor = '#ff7043';
+    const feed = d.addConnection(new MConnection(stock.id, smelter.id));
+    feed.rate = 3;
+
+    // Trigger: every step the Stockpile fires, pulse the Smelter.
+    const trig = d.addConnection(new MConnection(stock.id, smelter.id, ConnectionType.STATE));
+    trig.trigger = true;
+
+    // Activator: Smelter only runs while Grid >= 4 power.
+    const act = d.addConnection(new MConnection(grid.id, smelter.id, ConnectionType.STATE));
+    act.activator = true;
+    act.actOperator = '>=';
+    act.actValue = 4;
+
+    // Smelter output → a probabilistic gate splitting ingots two ways.
+    const gate = d.addNode(new MNode(NodeType.GATE, 750, 470));
+    gate.label = 'QC';
+    gate.gateMode = 'probabilistic';
+    const sg = d.addConnection(new MConnection(smelter.id, gate.id));
+    sg.rate = 4;
+
+    const goods = d.addNode(new MNode(NodeType.POOL, 900, 380));
+    goods.label = 'Ingots';
+    const scrap = d.addNode(new MNode(NodeType.DRAIN, 900, 560));
+    scrap.label = 'Scrap';
+
+    const gGood = d.addConnection(new MConnection(gate.id, goods.id));
+    gGood.weight = 4;            // 80% pass
+    const gScrap = d.addConnection(new MConnection(gate.id, scrap.id));
+    gScrap.weight = 1;           // 20% scrap
+
+    // Goal: produce 60 ingots, then halt.
+    goods.endEnabled = true;
+    goods.endOperator = '>=';
+    goods.endValue = 60;
+
+    this.renderer.render();
+  }
+
   // ── Controls ──────────────────────────────────────────────────────────────
 
   _bindControls() {
@@ -170,6 +250,7 @@ class App {
 
     const runBtn = document.getElementById('btn-run');
     runBtn.addEventListener('click', () => {
+      if (!this.engine.running) document.getElementById('sim-status').textContent = '';
       this.engine.run();
       runBtn.textContent = this.engine.running ? '⏸ Pause' : '▶ Run';
     });
@@ -177,6 +258,7 @@ class App {
     document.getElementById('btn-reset').addEventListener('click', () => {
       this.engine.reset();
       document.getElementById('btn-run').textContent = '▶ Run';
+      document.getElementById('sim-status').textContent = '';
       this.renderer.balls.clear();
       this._clearSparklines();
       this.renderer.render();
@@ -215,6 +297,7 @@ class App {
       this._clearAll();
       if (val === 'basic') this._loadExample();
       else if (val === 'loot') this._loadLootExample();
+      else if (val === 'factory') this._loadFactoryExample();
     });
 
     document.getElementById('btn-save').addEventListener('click', () => {
@@ -324,8 +407,10 @@ class App {
     }
 
     if (node.type === NodeType.GATE) {
-      this._select2(panel, 'Gate mode', ['deterministic', 'random'], node.gateMode,
+      if (node.gateMode === 'random') node.gateMode = 'probabilistic';
+      this._select2(panel, 'Gate mode', ['deterministic', 'probabilistic'], node.gateMode,
         v => { node.gateMode = v; });
+      this._info(panel, 'Outputs split by each connection\'s Weight — deterministic = proportional share; probabilistic = weighted random per unit.');
     }
 
     if (node.type === NodeType.REGISTER) {
@@ -343,6 +428,14 @@ class App {
 
     this._select2(panel, 'Activation', Object.values(ActivationMode), node.activation,
       v => { node.activation = v; this.renderer.render(); });
+
+    // End / goal condition (any node with a numeric value)
+    if (node.type !== NodeType.SOURCE) {
+      this._sep(panel);
+      this._conditionRow(panel, 'End / goal', node,
+        { enabled: 'endEnabled', op: 'endOperator', val: 'endValue', lead: 'stop when value' });
+      this._info(panel, 'Halt the simulation when this node\'s value meets the condition.');
+    }
 
     // Chart
     if (node.type !== NodeType.SOURCE) {
@@ -385,6 +478,13 @@ class App {
         this._field(panel, 'Formula', 'text', conn.formula, v => {
           conn.formula = v; this.renderer.render();
         }, 'e.g. treasury * 0.1');
+      }
+
+      // Gate output weight (only meaningful when the source is a Gate)
+      if (src && src.type === NodeType.GATE) {
+        this._field(panel, 'Gate weight', 'number', conn.weight, v => {
+          conn.weight = Math.max(0, parseFloat(v) || 0); this.renderer.render();
+        }, 'output share (0 = off)');
       }
 
       this._sep(panel);
@@ -454,11 +554,24 @@ class App {
       });
 
     } else {
-      // State connection
+      // State connection: variable / trigger / activator (independent roles)
       this._field(panel, 'Variable name', 'text', conn.variableName || conn.label, v => {
         conn.variableName = v; conn.label = v; this.renderer.render();
       }, 'used in register formulas');
-      this._info(panel, 'Each step, this variable is set to the source\'s resource count. Use the variable name in Register formulas or connection rate formulas.');
+      this._info(panel, 'Each step this variable is set to the source\'s value (pool count, source produced, drain consumed, or register value). Use it in Register or rate formulas.');
+
+      this._sep(panel);
+
+      this._checkRow(panel, 'Trigger (✷)', conn.trigger, v => {
+        conn.trigger = v; this.renderer.render();
+      });
+      this._info(panel, 'When the source fires, instantly fire the target node (cascades, pulses, on-demand passive nodes).');
+
+      this._sep(panel);
+
+      this._conditionRow(panel, 'Activator (⊢)', conn,
+        { enabled: 'activator', op: 'actOperator', val: 'actValue', lead: 'enable target when source' });
+      this._info(panel, 'The target node may only fire while the source value satisfies this condition.');
     }
   }
 
@@ -482,6 +595,62 @@ class App {
     const hr = document.createElement('div');
     hr.className = 'props-sep';
     panel.appendChild(hr);
+  }
+
+  // A labelled checkbox row. onChange(checked).
+  _checkRow(panel, label, checked, onChange) {
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+    const lbl = document.createElement('label');
+    lbl.textContent = label;
+    const chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.checked = !!checked;
+    chk.addEventListener('change', () => onChange(chk.checked));
+    row.appendChild(lbl);
+    row.appendChild(chk);
+    panel.appendChild(row);
+    return chk;
+  }
+
+  // A checkbox that reveals an operator + value comparison, editing obj in place.
+  // keys = { enabled, op, val, lead }
+  _conditionRow(panel, title, obj, keys) {
+    const chk = this._checkRow(panel, title, obj[keys.enabled], v => {
+      obj[keys.enabled] = v;
+      details.style.display = v ? 'block' : 'none';
+      this.renderer.render();
+    });
+
+    const details = document.createElement('div');
+    details.className = 'cond-details';
+    details.style.display = obj[keys.enabled] ? 'block' : 'none';
+
+    const inner = document.createElement('div');
+    inner.className = 'prop-row';
+    const il = document.createElement('label');
+    il.textContent = keys.lead || 'when';
+
+    const op = document.createElement('select');
+    for (const o of ['>', '>=', '<', '<=', '==', '!=']) {
+      const e = document.createElement('option');
+      e.value = o; e.textContent = o;
+      if (o === obj[keys.op]) e.selected = true;
+      op.appendChild(e);
+    }
+    op.addEventListener('change', () => { obj[keys.op] = op.value; this.renderer.render(); });
+
+    const val = document.createElement('input');
+    val.type = 'number';
+    val.value = obj[keys.val];
+    val.addEventListener('input', () => { obj[keys.val] = parseFloat(val.value) || 0; this.renderer.render(); });
+
+    inner.appendChild(il);
+    inner.appendChild(op);
+    inner.appendChild(val);
+    details.appendChild(inner);
+    panel.appendChild(details);
+    return chk;
   }
 
   _field(panel, label, type, value, onChange, placeholder = '') {

@@ -8,6 +8,9 @@ class SimEngine {
     this.history = [];
     // Callback: (step, firedIds, transfers[{connId, color, amount}])
     this.onStep = null;
+    // Terminal state when a node's end/goal condition is met.
+    this.ended = null;        // { nodeId, label, step, value } | null
+    this.onEnd = null;        // Callback(ended)
   }
 
   saveInitial() {
@@ -21,6 +24,7 @@ class SimEngine {
     this.stop();
     this.step = 0;
     this.history = [];
+    this.ended = null;
     for (const n of this.diagram.nodes.values()) {
       n.resources = n._initialResources ?? (n.type === NodeType.SOURCE ? Infinity : 0);
       n.colorMap = { ...(n._initialColorMap || {}) };
@@ -47,10 +51,14 @@ class SimEngine {
     const { fired, transfers } = this._tick();
     this._record();
     if (this.onStep) this.onStep(this.step, fired, transfers);
+    this._checkEnd();
   }
 
   run() {
     if (this.running) { this.stop(); return; }
+    // Allow running past a previously-reached goal (it will re-trigger if the
+    // condition still holds after the next step).
+    this.ended = null;
     this.running = true;
     if (this.step === 0) {
       this.saveInitial();
@@ -70,11 +78,13 @@ class SimEngine {
     const node = this.diagram.nodes.get(nodeId);
     if (!node || node.activation !== ActivationMode.INTERACTIVE) return;
     const ctx = this._makeCtx();
-    this._fireNode(node, ctx, true);
+    const fired = [];
+    this._runFireQueue([{ node, forced: true }], ctx, fired);
     this._applyCtx(ctx);
     this._updateVariables();
     this._evalRegisters();
-    if (this.onStep) this.onStep(this.step, [nodeId], ctx.transfers);
+    if (this.onStep) this.onStep(this.step, fired, ctx.transfers);
+    this._checkEnd();
   }
 
   // ── Core tick ───────────────────────────────────────────────────────────
@@ -93,16 +103,17 @@ class SimEngine {
     const ctx = this._makeCtx();
     const fired = [];
 
-    // Fire automatic / starting nodes using the committed state. Connection
-    // rate formulas read diagram.variables, which holds the values committed
-    // at the end of the previous step (or from reset()).
+    // Seed the fire queue with automatic / starting nodes, then let triggers
+    // cascade. Connection rate formulas read diagram.variables, which holds the
+    // values committed at the end of the previous step (or from reset()).
+    const initial = [];
     for (const n of d.nodes.values()) {
-      const fire =
+      const auto =
         n.activation === ActivationMode.AUTOMATIC ||
         (n.activation === ActivationMode.STARTING && this.step === 1);
-      if (!fire) continue;
-      if (this._fireNode(n, ctx, false)) fired.push(n.id);
+      if (auto) initial.push({ node: n, forced: false });
     }
+    this._runFireQueue(initial, ctx, fired);
 
     // Advance delay queues (releases respect target capacity).
     this._advanceDelays(ctx);
@@ -115,6 +126,52 @@ class SimEngine {
     this._evalRegisters();
 
     return { fired, transfers: ctx.transfers };
+  }
+
+  // Fire a worklist of nodes; each successful fire enqueues its trigger targets
+  // (state connections marked `trigger`). Loop-guarded against cycles.
+  _runFireQueue(initial, ctx, fired) {
+    const d = this.diagram;
+    const queue = [...initial];
+    let guard = 0;
+    while (queue.length && guard++ < 5000) {
+      const { node, forced } = queue.shift();
+      if (!node || !this._nodeEnabled(node)) continue;
+      if (!this._fireNode(node, ctx, forced)) continue;
+      fired.push(node.id);
+      for (const t of d.outgoing(node.id)) {
+        if (t.type === ConnectionType.STATE && t.trigger) {
+          const tgt = d.nodes.get(t.targetId);
+          if (tgt) queue.push({ node: tgt, forced: true });
+        }
+      }
+    }
+  }
+
+  // A node may fire only while every incoming activator's condition holds.
+  _nodeEnabled(node) {
+    for (const conn of this.diagram.incoming(node.id)) {
+      if (conn.type !== ConnectionType.STATE || !conn.activator) continue;
+      const src = this.diagram.nodes.get(conn.sourceId);
+      const val = this._stateValueOf(src);
+      if (!this._evalCond(val, conn.actOperator, conn.actValue)) return false;
+    }
+    return true;
+  }
+
+  // Halt the simulation if any node's end/goal condition is satisfied.
+  _checkEnd() {
+    if (this.ended) return;
+    for (const n of this.diagram.nodes.values()) {
+      if (!n.endEnabled) continue;
+      const val = n.chartValue;
+      if (this._evalCond(val, n.endOperator, n.endValue)) {
+        this.ended = { nodeId: n.id, label: n.label, step: this.step, value: val };
+        this.stop();
+        if (this.onEnd) this.onEnd(this.ended);
+        return;
+      }
+    }
   }
 
   // ── Variables & registers ─────────────────────────────────────────────────
@@ -241,20 +298,37 @@ class SimEngine {
     return conversions > 0;
   }
 
-  // Gate: redistributes everything it holds across its outputs.
+  // Per-output gate weight (>= 0). Non-numeric falls back to 1.
+  _connWeight(conn) {
+    const w = Number(conn.weight);
+    return isFinite(w) && w >= 0 ? w : 1;
+  }
+
+  // Gate: redistributes everything it holds across its outputs by weight.
+  // `probabilistic` (alias of legacy `random`) routes each unit by weighted
+  // chance; `deterministic` splits the total proportionally to the weights.
   _fireGate(node, outs, ctx) {
     node.reconcile();
     let movedAny = false;
+    const weights = outs.map(c => this._connWeight(c));
+    const mode = node.gateMode === 'random' ? 'probabilistic' : node.gateMode;
 
-    if (node.gateMode === 'random') {
-      // Route each unit to a random output that still has room.
+    if (mode === 'probabilistic') {
+      // Route each unit to a weighted-random output that still has room.
       for (const color of Object.keys(node.colorMap)) {
         while (node.colorMap[color] > 0) {
-          const candidates = outs.filter(c => this._acceptable(c.targetId, 1, ctx) >= 1);
-          if (!candidates.length) break;
-          const pick = candidates[Math.floor(Math.random() * candidates.length)];
-          this._give(pick.targetId, color, 1, pick.id, ctx);
-          this._reserve(pick.targetId, 1, ctx);
+          let pool = 0;
+          const cand = outs.map((c, i) => {
+            const w = this._acceptable(c.targetId, 1, ctx) >= 1 ? weights[i] : 0;
+            pool += w;
+            return { c, w };
+          });
+          if (pool <= 0) break;
+          let r = Math.random() * pool, pick = null;
+          for (const a of cand) { if (a.w <= 0) continue; r -= a.w; if (r <= 0) { pick = a; break; } }
+          if (!pick) pick = cand.filter(a => a.w > 0).pop();
+          this._give(pick.c.targetId, color, 1, pick.c.id, ctx);
+          this._reserve(pick.c.targetId, 1, ctx);
           node.colorMap[color] -= 1;
           node.resources -= 1;
           movedAny = true;
@@ -264,13 +338,12 @@ class SimEngine {
       return movedAny;
     }
 
-    // Deterministic: split proportionally to output rates.
+    // Deterministic: split proportionally to output weights.
     const total = node.resources;
-    const rates = outs.map(c => Math.max(0, this._connRate(c)));
-    const rateSum = rates.reduce((a, b) => a + b, 0) || outs.length;
-    const shares = outs.map((c, i) => Math.floor(total * (rates[i] || 1) / rateSum));
+    const wSum = weights.reduce((a, b) => a + b, 0);
+    const shares = outs.map((c, i) => Math.floor(total * (wSum > 0 ? weights[i] : 1) / (wSum > 0 ? wSum : outs.length)));
     let rem = total - shares.reduce((a, b) => a + b, 0);
-    for (let i = 0; rem > 0; i++, rem--) shares[i % outs.length]++;
+    for (let i = 0; rem > 0 && outs.length; i++, rem--) shares[i % outs.length]++;
 
     outs.forEach((conn, i) => {
       const accept = this._acceptable(conn.targetId, shares[i], ctx);
