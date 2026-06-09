@@ -1,0 +1,11 @@
+{
+  "name": "simulations",
+  "private": true,
+  "scripts": {
+    "test": "node test/run.js",
+    "smoke": "node test/smoke.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}

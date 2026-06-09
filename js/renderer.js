@@ -328,6 +328,25 @@ class Renderer {
     this.svg.appendChild(svgEl('rect', { width: '100%', height: '100%', fill: '#0f1117' }));
     this.svg.appendChild(svgEl('rect', { width: '100%', height: '100%', fill: 'url(#grid)' }));
 
+    // Onboarding hint, shown only while the canvas is completely empty.
+    // Lives outside the pan/zoom root so it stays centred in the viewport.
+    this._emptyHint = svgEl('g', { 'pointer-events': 'none', visibility: 'hidden' });
+    const hintLines = [
+      ['Empty canvas', '16', '600', '#6b7793'],
+      ['Pick a node from the left palette and click here to place it.', '12', '400', '#556070'],
+      ['Connect nodes with the Resource (R) or State (T) tools — or load a template from the Library.', '12', '400', '#556070'],
+    ];
+    hintLines.forEach(([txt, size, weight, fill], i) => {
+      const t = svgEl('text', {
+        x: '50%', y: '50%', transform: `translate(0,${i * 24 - 24})`,
+        'text-anchor': 'middle', 'font-family': 'var(--font)',
+        'font-size': size, 'font-weight': weight, fill,
+      });
+      t.textContent = txt;
+      this._emptyHint.appendChild(t);
+    });
+    this.svg.appendChild(this._emptyHint);
+
     this.root = svgEl('g', { id: 'root' });
     this.groupLayer = svgEl('g');
     this.connLayer = svgEl('g');
@@ -438,6 +457,10 @@ class Renderer {
     this._renderNodes();
     this._renderCharts();
     this._renderNotes();
+
+    const d = this.diagram;
+    const empty = !d.nodes.size && !d.groups.size && !d.notes.size && !d.charts.size;
+    this._emptyHint.setAttribute('visibility', empty ? 'visible' : 'hidden');
   }
 
   // ── Groups ───────────────────────────────────────────────────────────────

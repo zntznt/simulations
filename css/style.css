@@ -133,7 +133,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 
 .prop-row input, .prop-row select {
-  flex: 1; background: var(--bg); border: 1px solid var(--border);
+  flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border);
   border-radius: 4px; color: var(--text); padding: 4px 8px;
   font-size: 12px; font-family: var(--font);
   outline: none; transition: border-color 0.15s;
@@ -239,7 +239,12 @@ input[type="range"] {
 .reg-value.drain-stat { color: var(--red); }
 
 /* ── Node SVG text ── */
+/* Labels get a canvas-colored halo (paint-order trick) so they stay readable
+   when a connection or grid line passes underneath. */
 .n-count { fill: #fff; font-size: 13px; font-weight: 700; font-family: monospace; }
+.n-label, .n-badge, .conn-label, .grp-label {
+  paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round;
+}
 .n-label { fill: var(--text); font-size: 11px; font-family: var(--font); }
 .n-badge { fill: var(--text-dim); font-size: 10px; font-family: var(--font); }
 
@@ -259,7 +264,10 @@ input[type="range"] {
 [title] { position: relative; }
 
 /* ── Analysis controls ── */
-.analysis-controls { display: flex; gap: 6px; margin-left: 8px; align-items: center; }
+.analysis-controls {
+  display: flex; gap: 6px; margin-left: 8px; align-items: center;
+  border-left: 1px solid var(--border); padding-left: 14px;
+}
 
 /* Zoom cluster (− / level / + / Fit) */
 .zoom-cluster { display: flex; gap: 4px; align-items: center; }
@@ -355,6 +363,9 @@ input[type="range"] {
   box-shadow: 0 12px 48px rgba(0,0,0,0.5);
 }
 #lib-list, #lib-templates { padding: 0 16px; }
+/* The save-name input shares .mc-controls styling but should fill the row,
+   not inherit the Monte Carlo modal's tiny 70px number-input width. */
+#lib-name { flex: 1; width: auto; min-width: 0; }
 .lib-section { padding: 4px 0 12px; }
 .lib-section + .lib-section { border-top: 1px solid var(--border); }
 .lib-section-title {
