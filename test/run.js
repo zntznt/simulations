@@ -142,6 +142,56 @@ test('delay holds resources then releases', () => {
   eq(b.resources, 5, 'released after delay');
 });
 
+// ── Fair contention (order-independent allocation) ──────────────────────────
+console.log('\nFair contention');
+
+test('pool allocates max-min fair; greedy output cannot starve small ones', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.setCount(3);
+  const greedy = node(d, NodeType.DRAIN);  // created first, wants 5
+  const a = node(d, NodeType.DRAIN);
+  const b = node(d, NodeType.DRAIN);
+  conn(d, p, greedy).rate = 5;             // would have hogged everything before
+  conn(d, p, a).rate = 1;
+  conn(d, p, b).rate = 1;
+  steps(e, 1);
+  eq(greedy.drained, 1, 'greedy gets only its fair first unit');
+  eq(a.drained, 1, 'small output served');
+  eq(b.drained, 1, 'small output served');
+  eq(p.resources, 0, 'pool emptied');
+});
+
+test('pool fair allocation gives surplus to the high-demand output', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.setCount(6);
+  const big = node(d, NodeType.DRAIN);
+  const a = node(d, NodeType.DRAIN);
+  const b = node(d, NodeType.DRAIN);
+  conn(d, p, big).rate = 5;
+  conn(d, p, a).rate = 1;
+  conn(d, p, b).rate = 1;
+  steps(e, 1);
+  eq(big.drained, 4, 'big output gets the surplus after others satisfied');
+  eq(a.drained, 1, 'small satisfied');
+  eq(b.drained, 1, 'small satisfied');
+});
+
+test('delay splits matured resources across multiple outputs', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const dl = node(d, NodeType.DELAY); dl.delay = 1;
+  const a = node(d, NodeType.DRAIN);
+  const b = node(d, NodeType.DRAIN);
+  conn(d, s, dl).rate = 2;
+  conn(d, dl, a).rate = 1;
+  conn(d, dl, b).rate = 1;
+  e.reset();
+  e.doStep();   // 2 enters delay
+  e.doStep();   // matures, splits across both outputs
+  eq(a.drained, 1, 'output A gets its share');
+  eq(b.drained, 1, 'output B not starved');
+});
+
 // ── Registers, variables, formulas ──────────────────────────────────────────
 console.log('\nRegisters & formulas');
 
@@ -152,6 +202,18 @@ test('register evaluates a formula over a state variable', () => {
   const sc = conn(d, p, r, ConnectionType.STATE); sc.variableName = 'p';
   steps(e, 1);
   eq(r.value, 10, 'register = p*2');
+});
+
+test('register chains resolve in one tick regardless of node order', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.setCount(5);
+  // Create the dependent register FIRST so creation order != dependency order.
+  const rb = node(d, NodeType.REGISTER); rb.label = 'b'; rb.formula = 'a * 2';
+  const ra = node(d, NodeType.REGISTER); ra.label = 'a'; ra.formula = 'x';
+  const sc = conn(d, p, ra, ConnectionType.STATE); sc.variableName = 'x';
+  steps(e, 1);
+  eq(ra.value, 5, 'a = x');
+  eq(rb.value, 10, 'b = a*2 resolved same tick (no lag)');
 });
 
 test('source state value is produced count, never Infinity', () => {

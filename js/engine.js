@@ -199,19 +199,33 @@ class SimEngine {
 
   _evalRegisters() {
     const d = this.diagram;
-    for (const n of d.nodes.values()) {
-      if (n.type !== NodeType.REGISTER) continue;
-      if (n.formula && n.formula.trim()) {
-        n.value = evalFormula(n.formula, d.variables);
-      } else {
-        // No formula: mirror the first incoming state connection's source.
-        const inc = d.incoming(n.id).filter(c => c.type === ConnectionType.STATE);
-        n.value = inc.length ? this._stateValueOf(d.nodes.get(inc[0].sourceId)) : 0;
+    const regs = [...d.nodes.values()].filter(n => n.type === NodeType.REGISTER);
+    if (!regs.length) return;
+    // Re-evaluate to a fixpoint so registers that reference other registers'
+    // labels resolve in one tick regardless of node-creation order. Bounded by
+    // the register count (the longest possible dependency chain).
+    for (let pass = 0; pass < regs.length; pass++) {
+      let changed = false;
+      for (const n of regs) {
+        const prev = n.value;
+        this._evalRegister(n, d);
+        if (n.value !== prev) changed = true;
       }
-      if (!isFinite(n.value)) n.value = 0;
-      // Publish under the register's label so other formulas can chain on it.
-      if (n.label && VALID_IDENT.test(n.label)) d.variables[n.label] = n.value;
+      if (!changed) break;
     }
+  }
+
+  _evalRegister(n, d) {
+    if (n.formula && n.formula.trim()) {
+      n.value = evalFormula(n.formula, d.variables);
+    } else {
+      // No formula: mirror the first incoming state connection's source.
+      const inc = d.incoming(n.id).filter(c => c.type === ConnectionType.STATE);
+      n.value = inc.length ? this._stateValueOf(d.nodes.get(inc[0].sourceId)) : 0;
+    }
+    if (!isFinite(n.value)) n.value = 0;
+    // Publish under the register's label so other formulas can chain on it.
+    if (n.label && VALID_IDENT.test(n.label)) d.variables[n.label] = n.value;
   }
 
   // ── Firing ────────────────────────────────────────────────────────────────
@@ -227,45 +241,102 @@ class SimEngine {
     if (node.type === NodeType.CONVERTER) {
       return this._fireConverter(node, outs, ctx);
     }
-
-    let any = false;
-    for (const conn of outs) {
-      if (!interactive && !this._connFires(conn, node)) continue;
-      if (this._pushConn(node, conn, ctx)) any = true;
+    if (node.type === NodeType.SOURCE) {
+      let any = false;
+      for (const conn of outs) {
+        if (!interactive && !this._connFires(conn, node)) continue;
+        if (this._pushSource(node, conn, ctx)) any = true;
+      }
+      return any;
     }
-    return any;
+    if (node.type === NodeType.POOL) {
+      return this._firePool(node, outs, ctx, interactive);
+    }
+    return false;
   }
 
-  // Push along one resource connection from a Source or Pool.
-  _pushConn(node, conn, ctx) {
+  // Sources are infinite, so each outgoing connection is independent.
+  _pushSource(node, conn, ctx) {
     const rate = Math.max(0, Math.round(this._connRate(conn)));
     if (rate <= 0) return false;
+    const color = node.resourceColor || DEFAULT_COLOR;
+    if (conn.colorFilter && color !== conn.colorFilter) return false;
+    const accept = this._acceptable(conn.targetId, rate, ctx);
+    if (accept <= 0) return false;
+    node.produced += accept;
+    this._give(conn.targetId, color, accept, conn.id, ctx);
+    this._reserve(conn.targetId, accept, ctx);
+    return true;
+  }
 
-    if (node.type === NodeType.SOURCE) {
-      const color = node.resourceColor || DEFAULT_COLOR;
-      if (conn.colorFilter && color !== conn.colorFilter) return false;
-      const accept = this._acceptable(conn.targetId, rate, ctx);
-      if (accept <= 0) return false;
-      node.produced += accept;
-      this._give(conn.targetId, color, accept, conn.id, ctx);
-      this._reserve(conn.targetId, accept, ctx);
-      return true;
+  // A pool's outgoing connections compete for its finite resources. Allocate
+  // max-min fair (each activating connection gets its first unit before any
+  // gets a second), so distribution is order-independent and a greedy
+  // high-rate connection can't starve low-rate / probabilistic ones.
+  _firePool(node, outs, ctx, interactive) {
+    node.reconcile();
+    if (node.resources <= 0) return false;
+
+    const reqs = [];
+    for (const conn of outs) {
+      if (!interactive && !this._connFires(conn, node)) continue;
+      const want = Math.max(0, Math.round(this._connRate(conn)));
+      if (want > 0) reqs.push({ conn, want });
     }
+    if (!reqs.length) return false;
 
-    if (node.type === NodeType.POOL) {
-      if (node.resources <= 0) return false;
-      const accept = this._acceptable(conn.targetId, rate, ctx);
-      if (accept <= 0) return false;
-      const taken = node.takeResources(accept, conn.colorFilter || null);
+    const alloc = this._fairAllocate(node.resources, reqs.map(r => r.want));
+    let moved = false;
+    reqs.forEach((r, i) => {
+      let amt = this._acceptable(r.conn.targetId, alloc[i], ctx);
+      if (amt <= 0) return;
+      const taken = node.takeResources(amt, r.conn.colorFilter || null);
       let total = 0;
       for (const { amount, color } of taken) {
-        if (amount > 0) { this._give(conn.targetId, color, amount, conn.id, ctx); total += amount; }
+        this._give(r.conn.targetId, color, amount, r.conn.id, ctx);
+        total += amount;
       }
-      if (total > 0) this._reserve(conn.targetId, total, ctx);
-      return total > 0;
-    }
+      if (total > 0) { this._reserve(r.conn.targetId, total, ctx); moved = true; }
+    });
+    return moved;
+  }
 
-    return false;
+  // Max-min fair integer allocation of `available` across `wants`.
+  _fairAllocate(available, wants) {
+    const alloc = wants.map(() => 0);
+    let remaining = available;
+    let active = wants.map((w, i) => i).filter(i => wants[i] > 0);
+
+    while (remaining > 0 && active.length) {
+      const share = Math.floor(remaining / active.length);
+      if (share <= 0) break;
+      let used = 0;
+      for (const i of active) {
+        const give = Math.min(share, wants[i] - alloc[i]);
+        alloc[i] += give; used += give;
+      }
+      remaining -= used;
+      active = active.filter(i => alloc[i] < wants[i]);
+      if (used <= 0) break;
+    }
+    // Hand out the sub-unit remainder one at a time, round-robin.
+    for (let k = 0; remaining > 0 && active.length; k++) {
+      const i = active[k % active.length];
+      alloc[i]++; remaining--;
+      active = active.filter(j => alloc[j] < wants[j]);
+    }
+    return alloc;
+  }
+
+  // Split `total` into integer shares proportional to `weights` (remainder
+  // distributed round-robin). Zero total weight falls back to an even split.
+  _proportionalShares(total, weights) {
+    const n = weights.length;
+    const wSum = weights.reduce((a, b) => a + b, 0);
+    const shares = weights.map(w => wSum > 0 ? Math.floor(total * w / wSum) : 0);
+    let rem = total - shares.reduce((a, b) => a + b, 0);
+    for (let i = 0; rem > 0 && n; i++, rem--) shares[i % n]++;
+    return shares;
   }
 
   // Converter: consumes `inputAmount` of held resources per conversion and
@@ -339,11 +410,7 @@ class SimEngine {
     }
 
     // Deterministic: split proportionally to output weights.
-    const total = node.resources;
-    const wSum = weights.reduce((a, b) => a + b, 0);
-    const shares = outs.map((c, i) => Math.floor(total * (wSum > 0 ? weights[i] : 1) / (wSum > 0 ? wSum : outs.length)));
-    let rem = total - shares.reduce((a, b) => a + b, 0);
-    for (let i = 0; rem > 0 && outs.length; i++, rem--) shares[i % outs.length]++;
+    const shares = this._proportionalShares(node.resources, weights);
 
     outs.forEach((conn, i) => {
       const accept = this._acceptable(conn.targetId, shares[i], ctx);
@@ -371,18 +438,22 @@ class SimEngine {
 
         if (!outs.length) { still.push({ ...item, stepsLeft: 1 }); continue; }
 
-        let remaining = item.amount;
-        for (const c of outs) {
-          if (remaining <= 0) break;
-          const accept = this._acceptable(c.targetId, remaining, ctx);
-          if (accept <= 0) continue;
-          this._give(c.targetId, item.color, accept, c.id, ctx);
-          this._reserve(c.targetId, accept, ctx);
-          n.resources = Math.max(0, n.resources - accept);
-          if (n.colorMap[item.color]) n.colorMap[item.color] = Math.max(0, n.colorMap[item.color] - accept);
-          remaining -= accept;
-        }
-        if (remaining > 0) still.push({ amount: remaining, color: item.color, stepsLeft: 1 });
+        // Release the matured amount split across all outputs by their rate
+        // (treated as a weight), so a second output isn't starved by the first.
+        const shares = this._proportionalShares(
+          item.amount, outs.map(c => Math.max(0, this._connRate(c))));
+        let leftover = 0;
+        outs.forEach((c, i) => {
+          const accept = this._acceptable(c.targetId, shares[i], ctx);
+          if (accept > 0) {
+            this._give(c.targetId, item.color, accept, c.id, ctx);
+            this._reserve(c.targetId, accept, ctx);
+            n.resources = Math.max(0, n.resources - accept);
+            if (n.colorMap[item.color]) n.colorMap[item.color] = Math.max(0, n.colorMap[item.color] - accept);
+          }
+          leftover += shares[i] - accept;
+        });
+        if (leftover > 0) still.push({ amount: leftover, color: item.color, stepsLeft: 1 });
       }
       n._queue = still;
       for (const k of Object.keys(n.colorMap)) if (n.colorMap[k] <= 0) delete n.colorMap[k];
