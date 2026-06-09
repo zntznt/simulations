@@ -70,6 +70,59 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   for (let i = 0; i < 5; i++) await page.click('#btn-step');
   ok('stepped via UI button 5×');
 
+  // Input parsing: 0 must be accepted for rate / chance / capacity.
+  const parse = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 400, 200));
+    const c = d.addConnection(new MConnection(s.id, p.id));
+    window.app.renderer.render();
+    const setField = (label, value) => {
+      for (const row of document.querySelectorAll('#props-content .prop-row')) {
+        const lbl = row.querySelector('label');
+        if (lbl && lbl.textContent.trim() === label) {
+          const inp = row.querySelector('input');
+          inp.value = value; inp.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        }
+      }
+      return false;
+    };
+    window.app._onSelect(c.id, 'conn');
+    const r1 = setField('Rate', '0');
+    const r2 = setField('Chance %', '0');
+    window.app._onSelect(p.id, 'node');
+    const r3 = setField('Capacity', '0');
+    return { rate: c.rate, chance: c.chance, cap: p.capacity, found: r1 && r2 && r3 };
+  });
+  if (parse.found && parse.rate === 0 && parse.chance === 0 && parse.cap === 0)
+    ok('property inputs accept 0 for rate / chance / capacity');
+  else fail('input parse: ' + JSON.stringify(parse));
+
+  // Editor: place, drag-connect, and right-click delete via synthetic events.
+  const editor = await page.evaluate(() => {
+    window.app._clearAll();
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const ev = (type, sx, sy, button = 0) => canvas.dispatchEvent(
+      new MouseEvent(type, { clientX: r.left + sx, clientY: r.top + sy, button, bubbles: true }));
+    const place = (tool, sx, sy) => { window.app.editor.setTool(tool); ev('mousedown', sx, sy); ev('mouseup', sx, sy); };
+    place('place-pool', 200, 200);
+    place('place-drain', 420, 200);
+    const placed = window.app.diagram.nodes.size;
+    window.app.editor.setTool('connect-resource');
+    ev('mousedown', 200, 200); ev('mousemove', 300, 200); ev('mouseup', 420, 200);
+    const conns = window.app.diagram.connections.size;
+    window.app.editor.setTool('select');
+    canvas.dispatchEvent(new MouseEvent('contextmenu',
+      { clientX: r.left + 200, clientY: r.top + 200, bubbles: true }));
+    return { placed, conns, after: window.app.diagram.nodes.size };
+  });
+  if (editor.placed === 2 && editor.conns === 1 && editor.after === 1)
+    ok('editor place / drag-connect / right-click-delete work');
+  else fail('editor ops: ' + JSON.stringify(editor));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);

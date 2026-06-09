@@ -381,7 +381,11 @@ class App {
 
     if (node.type === NodeType.POOL || node.type === NodeType.CONVERTER) {
       this._field(panel, 'Capacity', 'text', node.capacity === Infinity ? '' : node.capacity,
-        v => { node.capacity = v === '' || v === '∞' ? Infinity : (parseInt(v) || Infinity); },
+        v => {
+          if (v === '' || v === '∞') { node.capacity = Infinity; }
+          else { const n = parseInt(v, 10); node.capacity = isFinite(n) && n >= 0 ? n : Infinity; }
+          this.renderer.render();
+        },
         '∞ = unlimited');
     }
 
@@ -460,98 +464,73 @@ class App {
     this._field(panel, 'Label', 'text', conn.label, v => { conn.label = v; this.renderer.render(); });
 
     if (isRes) {
-      // Rate mode
-      this._select2(panel, 'Rate mode', Object.values(RateMode), conn.rateMode, v => {
-        conn.rateMode = v;
-        this._renderProps(); // re-render props to show/hide relevant fields
+      const fromGate = src && src.type === NodeType.GATE;
+      const fromConverter = src && src.type === NodeType.CONVERTER;
+      const fromDelay = src && src.type === NodeType.DELAY;
+
+      const rateField = () => this._field(panel, 'Rate', 'number', conn.rate, v => {
+        const n = parseFloat(v); conn.rate = isFinite(n) ? Math.max(0, n) : 0; this.renderer.render();
       });
 
-      if (conn.rateMode === RateMode.FIXED) {
-        this._field(panel, 'Rate', 'number', conn.rate, v => {
-          conn.rate = parseFloat(v) || 1; this.renderer.render();
-        });
-      } else if (conn.rateMode === RateMode.DICE) {
-        this._field(panel, 'Dice', 'text', conn.dice, v => {
-          conn.dice = v; this.renderer.render();
-        }, '1d6, 2d4, 3d10…');
-      } else if (conn.rateMode === RateMode.FORMULA) {
-        this._field(panel, 'Formula', 'text', conn.formula, v => {
-          conn.formula = v; this.renderer.render();
-        }, 'e.g. treasury * 0.1');
-      }
-
-      // Gate output weight (only meaningful when the source is a Gate)
-      if (src && src.type === NodeType.GATE) {
-        this._field(panel, 'Gate weight', 'number', conn.weight, v => {
-          conn.weight = Math.max(0, parseFloat(v) || 0); this.renderer.render();
+      if (fromGate) {
+        // Gates distribute by weight only; rate/timing/filter don't apply.
+        this._field(panel, 'Weight', 'number', conn.weight, v => {
+          const n = parseFloat(v); conn.weight = isFinite(n) ? Math.max(0, n) : 0; this.renderer.render();
         }, 'output share (0 = off)');
+        this._info(panel, 'Share of the gate\'s resources routed down this output (deterministic split or weighted chance).');
+      } else if (fromDelay) {
+        // Delays release matured resources, split across outputs by rate.
+        rateField();
+        this._info(panel, 'When resources mature, each output\'s rate is its share among the delay\'s outputs.');
+      } else {
+        // Source / Pool / Converter: rate (fixed / dice / formula).
+        this._select2(panel, 'Rate mode', Object.values(RateMode), conn.rateMode, v => {
+          conn.rateMode = v;
+          this._renderProps(); // re-render to show the matching rate field
+        });
+
+        if (conn.rateMode === RateMode.FIXED) {
+          rateField();
+        } else if (conn.rateMode === RateMode.DICE) {
+          this._field(panel, 'Dice', 'text', conn.dice, v => {
+            conn.dice = v; this.renderer.render();
+          }, '1d6, 2d4, 3d10…');
+        } else if (conn.rateMode === RateMode.FORMULA) {
+          this._field(panel, 'Formula', 'text', conn.formula, v => {
+            conn.formula = v; this.renderer.render();
+          }, 'e.g. treasury * 0.1');
+        }
+
+        if (fromConverter) {
+          this._info(panel, 'Amount emitted per conversion, in the converter\'s output color.');
+        } else {
+          // Only Source / Pool outputs honor timing, color filter, condition.
+          this._sep(panel);
+
+          this._field(panel, 'Interval', 'number', conn.interval, v => {
+            conn.interval = Math.max(1, parseInt(v) || 1);
+          }, 'fire every N steps');
+
+          this._field(panel, 'Chance %', 'number', conn.chance, v => {
+            const n = parseFloat(v);
+            conn.chance = Math.min(100, Math.max(0, isFinite(n) ? n : 100));
+            this.renderer.render();
+          }, '0–100');
+
+          this._sep(panel);
+
+          this._colorField(panel, 'Color filter', conn.colorFilter || '', v => {
+            conn.colorFilter = v;
+            this.renderer.render();
+          }, true);
+          this._info(panel, 'Only resources of this color pass. Leave empty for any color.');
+
+          this._sep(panel);
+
+          this._conditionRow(panel, 'Condition', conn,
+            { enabled: 'condEnabled', op: 'condOperator', val: 'condValue', lead: 'if source' });
+        }
       }
-
-      this._sep(panel);
-
-      this._field(panel, 'Interval', 'number', conn.interval, v => {
-        conn.interval = Math.max(1, parseInt(v) || 1);
-      }, 'fire every N steps');
-
-      this._field(panel, 'Chance %', 'number', conn.chance, v => {
-        conn.chance = Math.min(100, Math.max(0, parseFloat(v) || 100));
-      }, '0–100');
-
-      this._sep(panel);
-
-      this._colorField(panel, 'Color filter', conn.colorFilter || '', v => {
-        conn.colorFilter = v;
-        this.renderer.render();
-      }, true);
-      this._info(panel, 'Only resources of this color pass. Leave empty for any color.');
-
-      this._sep(panel);
-
-      // Condition
-      const condRow = document.createElement('div');
-      condRow.className = 'prop-row';
-      const condLabel = document.createElement('label');
-      condLabel.textContent = 'Condition';
-      const condCheck = document.createElement('input');
-      condCheck.type = 'checkbox';
-      condCheck.checked = conn.condEnabled;
-      condCheck.style.width = 'auto';
-      condRow.appendChild(condLabel);
-      condRow.appendChild(condCheck);
-      panel.appendChild(condRow);
-
-      const condDetails = document.createElement('div');
-      condDetails.className = 'cond-details';
-      condDetails.style.display = conn.condEnabled ? 'block' : 'none';
-
-      const opSel = document.createElement('select');
-      for (const op of ['>', '>=', '<', '<=', '==', '!=']) {
-        const o = document.createElement('option');
-        o.value = op; o.textContent = op;
-        if (op === conn.condOperator) o.selected = true;
-        opSel.appendChild(o);
-      }
-      opSel.addEventListener('change', () => { conn.condOperator = opSel.value; });
-
-      const valInp = document.createElement('input');
-      valInp.type = 'number';
-      valInp.value = conn.condValue;
-      valInp.addEventListener('input', () => { conn.condValue = parseFloat(valInp.value) || 0; });
-
-      const condInner = document.createElement('div');
-      condInner.className = 'prop-row';
-      const condInnerLbl = document.createElement('label');
-      condInnerLbl.textContent = 'if source';
-      condInner.appendChild(condInnerLbl);
-      condInner.appendChild(opSel);
-      condInner.appendChild(valInp);
-      condDetails.appendChild(condInner);
-      panel.appendChild(condDetails);
-
-      condCheck.addEventListener('change', () => {
-        conn.condEnabled = condCheck.checked;
-        condDetails.style.display = condCheck.checked ? 'block' : 'none';
-      });
 
     } else {
       // State connection: variable / trigger / activator (independent roles)

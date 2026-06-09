@@ -192,6 +192,55 @@ test('delay splits matured resources across multiple outputs', () => {
   eq(b.drained, 1, 'output B not starved');
 });
 
+// ── Capacity & integrity ────────────────────────────────────────────────────
+console.log('\nCapacity & integrity');
+
+test('pool allocation is work-conserving when one target is full', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.POOL); s.setCount(10);
+  const a = node(d, NodeType.POOL); a.capacity = 1; a.setCount(1);  // already full
+  const b = node(d, NodeType.POOL);
+  conn(d, s, a).rate = 5;
+  conn(d, s, b).rate = 10;
+  steps(e, 1);
+  eq(b.resources, 10, 'B uses the resources A could not accept');
+  eq(a.resources, 1, 'A stays full');
+});
+
+test('converter cannot exceed a shared target capacity', () => {
+  const { d, e } = setup();
+  const c = node(d, NodeType.CONVERTER); c.setCount(10); c.inputAmount = 1;
+  const t = node(d, NodeType.POOL); t.capacity = 3;
+  conn(d, c, t).rate = 2;
+  conn(d, c, t).rate = 2;
+  steps(e, 1);
+  eq(t.resources, 3, 'two outputs to one target respect its capacity');
+});
+
+test('resources cannot flow into a register', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const r = node(d, NodeType.REGISTER);
+  conn(d, s, r).rate = 5;
+  steps(e, 5);
+  eq(r.resources, 0, 'register never holds resources');
+});
+
+test('a closed resource cycle conserves total exactly', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(100);
+  const b = node(d, NodeType.POOL);
+  const c = node(d, NodeType.POOL);
+  conn(d, a, b).rate = 7;
+  conn(d, b, c).rate = 3;
+  conn(d, c, a).rate = 5;
+  e.reset();
+  for (let i = 0; i < 500; i++) {
+    e.doStep();
+    eq(a.resources + b.resources + c.resources, 100, 'total conserved at step ' + (i + 1));
+  }
+});
+
 // ── Registers, variables, formulas ──────────────────────────────────────────
 console.log('\nRegisters & formulas');
 

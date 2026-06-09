@@ -280,7 +280,11 @@ class SimEngine {
     const reqs = [];
     for (const conn of outs) {
       if (!interactive && !this._connFires(conn, node)) continue;
-      const want = Math.max(0, Math.round(this._connRate(conn)));
+      let want = Math.max(0, Math.round(this._connRate(conn)));
+      if (want <= 0) continue;
+      // Cap by the target's remaining room so a full target doesn't consume a
+      // fair share that another output could have used (work-conserving).
+      want = this._acceptable(conn.targetId, want, ctx);
       if (want > 0) reqs.push({ conn, want });
     }
     if (!reqs.length) return false;
@@ -288,7 +292,8 @@ class SimEngine {
     const alloc = this._fairAllocate(node.resources, reqs.map(r => r.want));
     let moved = false;
     reqs.forEach((r, i) => {
-      let amt = this._acceptable(r.conn.targetId, alloc[i], ctx);
+      // Re-check room for the rare case of two connections to the same target.
+      const amt = Math.min(alloc[i], this._acceptable(r.conn.targetId, alloc[i], ctx));
       if (amt <= 0) return;
       const taken = node.takeResources(amt, r.conn.colorFilter || null);
       let total = 0;
@@ -346,24 +351,21 @@ class SimEngine {
     let conversions = 0, guard = 0;
 
     while (node.resources >= need && guard++ < 10000) {
-      // Figure out how much each output can take before consuming input.
-      let canPlace = false;
-      const grants = outs.map(c => {
+      // Figure out how much each output can take, reserving as we go so two
+      // connections to the same target can't jointly exceed its capacity.
+      const grants = [];
+      for (const c of outs) {
         const want = Math.max(0, Math.round(this._connRate(c)));
         const amt = this._acceptable(c.targetId, want, ctx);
-        if (amt > 0) canPlace = true;
-        return { c, amt };
-      });
-      if (!canPlace) break; // every output full — stop, keep the input
+        if (amt > 0) { this._reserve(c.targetId, amt, ctx); grants.push({ c, amt }); }
+      }
+      if (!grants.length) break; // every output full — stop, keep the input
 
       node.takeResources(need);
       conversions++;
       const color = node.outputColor || DEFAULT_COLOR;
       for (const g of grants) {
-        if (g.amt > 0) {
-          this._give(g.c.targetId, color, g.amt, g.c.id, ctx);
-          this._reserve(g.c.targetId, g.amt, ctx);
-        }
+        this._give(g.c.targetId, color, g.amt, g.c.id, ctx); // already reserved above
       }
     }
     return conversions > 0;
@@ -466,7 +468,9 @@ class SimEngine {
   _acceptable(targetId, want, ctx) {
     const tgt = this.diagram.nodes.get(targetId);
     if (!tgt || want <= 0) return 0;
-    if (tgt.type === NodeType.SOURCE) return 0; // can't push into a source
+    // Resources can't flow into a source or a register (registers are driven
+    // by state connections / formulas, not by holding resources).
+    if (tgt.type === NodeType.SOURCE || tgt.type === NodeType.REGISTER) return 0;
     if (tgt.capacity === Infinity || tgt.type === NodeType.DRAIN || tgt.type === NodeType.DELAY)
       return want;
     const reserved = ctx.reserved.get(targetId) || 0;

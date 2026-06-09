@@ -145,6 +145,12 @@ class Editor {
         this.renderer.clearTemp();
         this.renderer.render();
         this._select(conn.id, 'conn');
+      } else if (!hit) {
+        // Drag released on empty canvas: cancel the pending connection so no
+        // rubber-band line is left dangling. (Releasing on the source node
+        // keeps it armed for click-to-click connecting.)
+        this._connecting = null;
+        this.renderer.clearTemp();
       }
     }
   }
