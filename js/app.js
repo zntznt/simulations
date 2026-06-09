@@ -159,6 +159,7 @@ class App {
         this.diagram.loadJSON(shared);
         this.engine.reset();
         this.renderer.render();
+        this.renderer.fitView();
         this._resetHistory();
         return;
       } catch { /* fall through to example */ }
@@ -166,6 +167,7 @@ class App {
 
     const saved = localStorage.getItem('sim_autosave');
     this._loadExample();
+    this.renderer.fitView();
     this._resetHistory();
     if (saved) {
       const banner = document.createElement('div');
@@ -189,6 +191,7 @@ class App {
           this._clearSparklines();
           this.editor._select(null, null);
           this.renderer.render();
+          this.renderer.fitView();
           this._resetHistory();
         } catch { alert('Failed to restore autosave.'); }
       });
@@ -202,6 +205,14 @@ class App {
   // ── Library (multiple named diagrams) ──────────────────────────────────────
 
   _initLibrary() {
+    // Starter templates live in the Library now (no separate dropdown). Each
+    // entry builds a sample diagram via its existing loader.
+    this._templates = [
+      { name: 'Basic Economy', desc: 'Source → Treasury → Drain, a gate split, and a register.', load: () => this._loadExample() },
+      { name: 'Loot Farm', desc: 'Dice rolls, chance %, a conditional, and formula registers.', load: () => this._loadLootExample() },
+      { name: 'Factory Line', desc: 'Triggers, activators, weighted gates, and a goal.', load: () => this._loadFactoryExample() },
+    ];
+
     document.getElementById('btn-library').addEventListener('click', () => this._openLibrary());
     document.getElementById('lib-close').addEventListener('click', () =>
       document.getElementById('lib-overlay').classList.add('hidden'));
@@ -213,6 +224,7 @@ class App {
       const lib = this._getLibrary();
       lib.push({ name, date: new Date().toLocaleString(), json: this._snapshot() });
       this._saveLibrary(lib);
+      document.getElementById('lib-name').value = '';
       this._renderLibraryList();
     });
   }
@@ -226,8 +238,37 @@ class App {
   }
 
   _openLibrary() {
+    this._renderTemplates();
     this._renderLibraryList();
     document.getElementById('lib-overlay').classList.remove('hidden');
+  }
+
+  _renderTemplates() {
+    const el = document.getElementById('lib-templates');
+    el.innerHTML = '';
+    for (const t of this._templates) {
+      const row = document.createElement('div');
+      row.className = 'lib-row';
+      const info = document.createElement('div');
+      info.className = 'lib-info';
+      info.innerHTML = `<b>${this._esc(t.name)}</b><span class="lib-desc">${this._esc(t.desc)}</span>`;
+      const loadBtn = document.createElement('button');
+      loadBtn.textContent = 'Load';
+      loadBtn.className = 'btn';
+      loadBtn.addEventListener('click', () => this._loadTemplate(t));
+      row.appendChild(info);
+      row.appendChild(loadBtn);
+      el.appendChild(row);
+    }
+  }
+
+  _loadTemplate(t) {
+    if (!confirm(`Load "${t.name}"? Unsaved work will be lost.`)) return;
+    this._clearAll();
+    t.load();
+    this._resetHistory();
+    this.renderer.fitView();
+    document.getElementById('lib-overlay').classList.add('hidden');
   }
 
   _renderLibraryList() {
@@ -260,6 +301,7 @@ class App {
           this._clearSparklines();
           this.editor._select(null, null);
           this.renderer.render();
+          this.renderer.fitView();
         } catch (err) { alert('Failed to load: ' + err.message); }
         this._resetHistory();
         document.getElementById('lib-overlay').classList.add('hidden');
@@ -640,18 +682,7 @@ class App {
       if (!confirm('Start a new diagram? Unsaved work will be lost.')) return;
       this._clearAll();
       this.renderer.render();
-      this._resetHistory();
-    });
-
-    document.getElementById('btn-examples').addEventListener('change', e => {
-      const val = e.target.value;
-      e.target.value = '';
-      if (!val) return;
-      if (!confirm('Load example? Unsaved work will be lost.')) return;
-      this._clearAll();
-      if (val === 'basic') this._loadExample();
-      else if (val === 'loot') this._loadLootExample();
-      else if (val === 'factory') this._loadFactoryExample();
+      this.renderer.resetView();
       this._resetHistory();
     });
 
@@ -701,6 +732,7 @@ class App {
             this._clearSparklines();
             this.editor._select(null, null);
             this.renderer.render();
+            this.renderer.fitView();
             this._resetHistory();
           } catch (err) { alert('Invalid file: ' + err.message); }
         };
@@ -725,7 +757,16 @@ class App {
     // Undo / redo
     document.getElementById('btn-undo').addEventListener('click', () => this.undo());
     document.getElementById('btn-redo').addEventListener('click', () => this.redo());
-    document.getElementById('btn-fit').addEventListener('click', () => this.renderer.resetView());
+
+    // View: Fit frames all content; zoom cluster steps / resets the zoom and a
+    // live readout reflects the current scale.
+    document.getElementById('btn-fit').addEventListener('click', () => this.renderer.fitView());
+    document.getElementById('btn-zoom-in').addEventListener('click', () => this.renderer.zoomStep(1.2));
+    document.getElementById('btn-zoom-out').addEventListener('click', () => this.renderer.zoomStep(1 / 1.2));
+    const zoomLabel = document.getElementById('btn-zoom-level');
+    zoomLabel.addEventListener('click', () => this.renderer.zoomTo(1));
+    this.renderer.onViewChange = (scale) => { zoomLabel.textContent = `${Math.round(scale * 100)}%`; };
+    this.renderer.onViewChange(this.renderer._scale);
 
     // Commit a property edit as one undo step (fires on blur / enter / toggle).
     document.getElementById('props-content').addEventListener('change', () => this._commit());
@@ -738,7 +779,7 @@ class App {
       if (mod) {
         if (k === 'z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); }
         else if (k === 'y') { e.preventDefault(); this.redo(); }
-        else if (k === '0') { e.preventDefault(); this.renderer.resetView(); }
+        else if (k === '0') { e.preventDefault(); this.renderer.fitView(); }
         else if (k === 'c') { this._copy(); }
         else if (k === 'v') { e.preventDefault(); this._paste(); }
         else if (k === 'd') { e.preventDefault(); this._duplicate(); }

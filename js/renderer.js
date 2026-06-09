@@ -147,15 +147,19 @@ class Renderer {
   _setup() {
     const defs = svgEl('defs');
 
-    // Grid
+    // Grid — kept fixed to the viewport but its patternTransform tracks the
+    // pan/zoom (see _updateTransform), so it visually moves and scales with the
+    // content while always covering the screen.
     const pat = svgEl('pattern', { id: 'grid', width: '40', height: '40', patternUnits: 'userSpaceOnUse' });
     pat.appendChild(svgEl('path', { d: 'M40 0L0 0 0 40', fill: 'none', stroke: '#1a2035', 'stroke-width': '0.6' }));
     defs.appendChild(pat);
+    this._gridPat = pat;
 
     // Dot overlay
     const pat2 = svgEl('pattern', { id: 'dots', width: '40', height: '40', patternUnits: 'userSpaceOnUse' });
     pat2.appendChild(svgEl('circle', { cx: '0', cy: '0', r: '1', fill: '#1e2840' }));
     defs.appendChild(pat2);
+    this._dotPat = pat2;
 
     // Arrow markers
     const mkArrow = (id, color) => {
@@ -198,8 +202,15 @@ class Renderer {
 
   setPan(x, y) { this._panX = x; this._panY = y; this._updateTransform(); }
   _updateTransform() {
-    this.root.setAttribute('transform', `translate(${this._panX},${this._panY}) scale(${this._scale})`);
+    const t = `translate(${this._panX},${this._panY}) scale(${this._scale})`;
+    this.root.setAttribute('transform', t);
+    // Keep the grid in lock-step with the content so panning reads as motion.
+    if (this._gridPat) this._gridPat.setAttribute('patternTransform', t);
+    if (this._dotPat) this._dotPat.setAttribute('patternTransform', t);
+    if (this.onViewChange) this.onViewChange(this._scale);
   }
+
+  _clampScale(s) { return Math.max(0.25, Math.min(3, s)); }
 
   // Zoom by `factor` keeping the point under (clientX, clientY) fixed.
   zoomBy(factor, clientX, clientY) {
@@ -207,13 +218,58 @@ class Renderer {
     const sx = clientX - r.left, sy = clientY - r.top;
     const wx = (sx - this._panX) / this._scale;
     const wy = (sy - this._panY) / this._scale;
-    this._scale = Math.max(0.25, Math.min(3, this._scale * factor));
+    this._scale = this._clampScale(this._scale * factor);
     this._panX = sx - wx * this._scale;
     this._panY = sy - wy * this._scale;
     this._updateTransform();
   }
 
+  // Zoom about the viewport centre (for the +/− buttons).
+  zoomStep(factor) {
+    const r = this.svg.getBoundingClientRect();
+    this.zoomBy(factor, r.left + r.width / 2, r.top + r.height / 2);
+  }
+
+  // Set an absolute zoom level, keeping the viewport centre fixed.
+  zoomTo(scale) {
+    const target = this._clampScale(scale);
+    this.zoomStep(target / this._scale);
+  }
+
   resetView() { this._panX = 0; this._panY = 0; this._scale = 1; this._updateTransform(); }
+
+  // Bounding box (in world coords) of everything on the canvas, or null if empty.
+  _contentBounds() {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false;
+    const ext = (x0, y0, x1, y1) => {
+      any = true;
+      minX = Math.min(minX, x0); minY = Math.min(minY, y0);
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1);
+    };
+    const NR = 40; // node half-extent incl. label padding
+    for (const n of this.diagram.nodes.values()) ext(n.x - NR, n.y - NR, n.x + NR, n.y + NR);
+    for (const g of this.diagram.groups.values()) ext(g.x, g.y, g.x + g.w, g.y + g.h);
+    for (const nt of this.diagram.notes.values()) ext(nt.x, nt.y, nt.x + (nt.w || 160), nt.y + (nt.h || 100));
+    for (const c of this.diagram.charts.values()) ext(c.x, c.y, c.x + (c.w || 280), c.y + (c.h || 180));
+    return any ? { minX, minY, maxX, maxY } : null;
+  }
+
+  // Frame all content in the viewport with padding. Zooms out to fit large
+  // diagrams; never zooms in past 100% (so a tiny diagram is centred, not blown
+  // up). Falls back to a plain reset when the canvas is empty or unsized.
+  fitView(pad = 80) {
+    const box = this._contentBounds();
+    const r = this.svg.getBoundingClientRect();
+    if (!box || r.width < 10 || r.height < 10) { this.resetView(); return; }
+    const cw = Math.max(1, box.maxX - box.minX);
+    const ch = Math.max(1, box.maxY - box.minY);
+    const fit = Math.min((r.width - pad * 2) / cw, (r.height - pad * 2) / ch);
+    this._scale = this._clampScale(Math.min(1, fit));
+    const cx = (box.minX + box.maxX) / 2, cy = (box.minY + box.maxY) / 2;
+    this._panX = r.width / 2 - cx * this._scale;
+    this._panY = r.height / 2 - cy * this._scale;
+    this._updateTransform();
+  }
 
   svgPoint(cx, cy) {
     const r = this.svg.getBoundingClientRect();

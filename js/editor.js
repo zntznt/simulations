@@ -22,11 +22,20 @@ class Editor {
     this._pinch = null;          // last pinch state {dist, cx, cy}
     this._specialDrag = null;    // {type:'note'|'group', id, origX, origY, nodeItems?, startX, startY, moved}
     this._groupPlaceDrag = null; // {x0, y0} while dragging to define a new group
+    this._spaceDown = false;     // hold Space to pan from anywhere (Figma-style)
 
     this._bind();
   }
 
   setSnap(enabled) { this._snapEnabled = !!enabled; }
+
+  // The canvas cursor reflects the current interaction: grabbing while panning,
+  // grab while Space is held (ready to pan), otherwise the tool's own cursor.
+  _restoreCursor() {
+    this.svg.style.cursor = this._panDrag ? 'grabbing'
+      : this._spaceDown ? 'grab'
+      : this.tool === 'select' ? 'default' : 'crosshair';
+  }
 
   _snapPt(x, y) {
     if (!this._snapEnabled) return { x, y };
@@ -54,9 +63,9 @@ class Editor {
 
   setTool(tool) {
     this.tool = tool;
-    this.svg.style.cursor = tool === 'select' ? 'default' : 'crosshair';
     this._connecting = null;
     this.renderer.clearTemp();
+    this._restoreCursor();
   }
 
   _bind() {
@@ -73,15 +82,17 @@ class Editor {
     this.svg.addEventListener('touchend', e => this._onTouchEnd(e), { passive: false });
 
     window.addEventListener('keydown', e => this._onKey(e));
+    window.addEventListener('keyup', e => this._onKeyUp(e));
   }
 
   _onDown(e) {
-    if (e.button === 1 || (e.button === 0 && e.altKey)) {
-      // Pan
+    // Pan with middle-mouse, Alt+drag, or Space+drag (from anywhere).
+    if (e.button === 1 || (e.button === 0 && (e.altKey || this._spaceDown))) {
       this._panDrag = {
         startX: e.clientX, startY: e.clientY,
         panX: this.renderer._panX, panY: this.renderer._panY,
       };
+      this._restoreCursor();
       e.preventDefault();
       return;
     }
@@ -304,7 +315,7 @@ class Editor {
   }
 
   _onUp(e) {
-    if (this._panDrag) { this._panDrag = null; return; }
+    if (this._panDrag) { this._panDrag = null; this._restoreCursor(); return; }
 
     if (this._drag) {
       const moved = this._dragMoved;
@@ -403,7 +414,13 @@ class Editor {
 
   _onWheel(e) {
     e.preventDefault();
-    // Wheel zooms toward the cursor; pan via middle/alt-drag.
+    // Shift+wheel pans horizontally (handy on a vertical-only mouse wheel);
+    // a plain wheel zooms toward the cursor. Pan also via space/middle/alt-drag.
+    if (e.shiftKey) {
+      const amt = e.deltaY || e.deltaX;
+      this.renderer.setPan(this.renderer._panX - amt, this.renderer._panY);
+      return;
+    }
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     this.renderer.zoomBy(factor, e.clientX, e.clientY);
   }
@@ -470,7 +487,14 @@ class Editor {
   }
 
   _onKey(e) {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || e.target.isContentEditable) return;
+    // Hold Space to pan the canvas from anywhere (released in _onKeyUp).
+    if (e.code === 'Space') {
+      if (!this._spaceDown) { this._spaceDown = true; this._restoreCursor(); }
+      e.preventDefault();
+      return;
+    }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (this.selection.size) {
         for (const id of this.selection) this.diagram.removeNode(id);
@@ -494,6 +518,13 @@ class Editor {
       this.renderer.clearTemp();
       this.renderer.clearMarquee();
       this._select(null, null);
+    }
+  }
+
+  _onKeyUp(e) {
+    if (e.code === 'Space') {
+      this._spaceDown = false;
+      if (!this._panDrag) this._restoreCursor();
     }
   }
 

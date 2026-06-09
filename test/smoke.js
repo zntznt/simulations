@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Browser smoke test: loads the real app in headless Chromium, exercises the
-// UI (examples, run/step, goal-stop) and fails on any console/page error.
+// UI (templates, navigation, run/step, goal-stop) and fails on any console/page error.
 //
 // Requires the app to be served (default http://localhost:8080) and Playwright.
 // Run:  NODE_PATH=$(npm root -g) node test/smoke.js
@@ -25,17 +25,33 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   const nodeCount = await page.evaluate(() => window.app.diagram.nodes.size);
   if (nodeCount > 0) ok(`default example loaded (${nodeCount} nodes)`); else fail('no nodes on boot');
 
-  // Each example loads cleanly (bypass confirm()).
+  // Each starter template (now in the Library) loads cleanly (bypass confirm()).
   await page.evaluate(() => { window.confirm = () => true; });
-  for (const ex of ['basic', 'loot', 'factory']) {
-    await page.evaluate((v) => {
-      const sel = document.getElementById('btn-examples');
-      sel.value = v;
-      sel.dispatchEvent(new Event('change'));
-    }, ex);
+  const templateNames = await page.evaluate(() => window.app._templates.map(t => t.name));
+  for (const name of templateNames) {
+    await page.evaluate((nm) => {
+      const t = window.app._templates.find(x => x.name === nm);
+      window.app._loadTemplate(t);
+    }, name);
     const n = await page.evaluate(() => window.app.diagram.nodes.size);
-    if (n > 0) ok(`example "${ex}" loaded (${n} nodes)`); else fail(`example "${ex}" empty`);
+    if (n > 0) ok(`template "${name}" loaded (${n} nodes)`); else fail(`template "${name}" empty`);
   }
+
+  // Navigation: zoom controls step the scale and update the readout; fit-to-content
+  // re-frames without error. (The Factory template stays loaded for the run below.)
+  const nav = await page.evaluate(() => {
+    const r = window.app.renderer;
+    r.zoomTo(1);
+    const before = r._scale;
+    document.getElementById('btn-zoom-in').click();
+    const zoomed = r._scale > before;
+    const label = document.getElementById('btn-zoom-level').textContent;
+    r.fitView();
+    return { zoomed, label, fitScale: r._scale };
+  });
+  if (nav.zoomed) ok(`zoom-in increases scale (readout "${nav.label}")`); else fail('zoom-in did not change scale');
+  if (/^\d+%$/.test(nav.label)) ok('zoom readout shows a percentage'); else fail(`zoom readout malformed: "${nav.label}"`);
+  if (nav.fitScale > 0) ok(`fit-to-content set scale ${Math.round(nav.fitScale * 100)}%`); else fail('fitView produced a non-positive scale');
 
   // Factory example is loaded; run it headlessly to completion (goal stop).
   const ended = await page.evaluate(async () => {

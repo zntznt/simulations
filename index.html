@@ -26,7 +26,12 @@
     <div class="analysis-controls">
       <button class="btn" id="btn-timeline" title="Toggle timeline chart">📈 Chart</button>
       <button class="btn" id="btn-batch" title="Run many simulations (Monte Carlo)">🎲 Batch</button>
-      <button class="btn" id="btn-fit" title="Reset zoom &amp; pan (Ctrl+0)">⤢ Fit</button>
+      <div class="zoom-cluster" role="group" aria-label="Zoom controls">
+        <button class="btn zoom-btn" id="btn-zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+        <button class="btn zoom-level" id="btn-zoom-level" title="Reset to 100%" aria-label="Current zoom — click to reset to 100%">100%</button>
+        <button class="btn zoom-btn" id="btn-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+        <button class="btn" id="btn-fit" title="Fit diagram to view (Ctrl+0)">⤢ Fit</button>
+      </div>
       <button class="btn" id="btn-snap" title="Toggle grid snap (align nodes to grid)" aria-pressed="false">⊞ Snap</button>
       <button class="btn" id="btn-autoselect" title="After placing a node, switch back to Select" aria-pressed="false">↩ Auto</button>
     </div>
@@ -34,13 +39,7 @@
     <div class="file-controls">
       <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
       <button class="btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
-      <select class="btn" id="btn-examples" title="Load a sample diagram">
-        <option value="">Examples…</option>
-        <option value="basic">Basic Economy</option>
-        <option value="loot">Loot Farm</option>
-        <option value="factory">Factory Line</option>
-      </select>
-      <button class="btn" id="btn-library" title="Saved diagrams library">📚 Library</button>
+      <button class="btn" id="btn-library" title="Templates &amp; saved diagrams">📚 Library</button>
       <button class="btn" id="btn-new" title="New diagram">New</button>
       <button class="btn" id="btn-save" title="Save diagram as JSON">⬇ JSON</button>
       <button class="btn" id="btn-export-svg" title="Export diagram as SVG">⬇ SVG</button>
@@ -252,14 +251,23 @@
 <div id="lib-overlay" class="hidden">
   <div id="lib-modal">
     <div class="mc-head">
-      <span>📚 Diagram Library</span>
+      <span>📚 Library</span>
       <button class="btn" id="lib-close">✕</button>
     </div>
-    <div class="mc-controls">
-      <label style="flex:1">Name <input type="text" id="lib-name" placeholder="My diagram"></label>
-      <button class="btn btn-primary" id="lib-save">Save current</button>
+
+    <div class="lib-section">
+      <div class="lib-section-title">Starter templates</div>
+      <div id="lib-templates"></div>
     </div>
-    <div id="lib-list"></div>
+
+    <div class="lib-section">
+      <div class="lib-section-title">Your diagrams</div>
+      <div class="mc-controls">
+        <label style="flex:1">Name <input type="text" id="lib-name" placeholder="My diagram"></label>
+        <button class="btn btn-primary" id="lib-save">Save current</button>
+      </div>
+      <div id="lib-list"></div>
+    </div>
   </div>
 </div>
 
