@@ -35,7 +35,19 @@ class App {
     this._loadExample();
   }
 
-  // ── Example diagram ───────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  _clearAll() {
+    this.diagram.nodes.clear();
+    this.diagram.connections.clear();
+    this.diagram.variables = {};
+    this.engine.reset();
+    this.renderer.balls.clear();
+    this._clearSparklines();
+    this._onSelect(null, null);
+  }
+
+  // ── Example diagrams ──────────────────────────────────────────────────────
 
   _loadExample() {
     const src = this.diagram.addNode(new MNode(NodeType.SOURCE, 200, 300));
@@ -80,6 +92,77 @@ class App {
     this.renderer.render();
   }
 
+  // Loot Farm: showcases dice rolls, chance %, conditional, and formula registers.
+  _loadLootExample() {
+    const d = this.diagram;
+
+    const src = d.addNode(new MNode(NodeType.SOURCE, 150, 270));
+    src.label = 'Enemy Spawn';
+    src.resourceColor = '#ef5350';
+
+    const combat = d.addNode(new MNode(NodeType.POOL, 360, 270));
+    combat.label = 'Combat';
+    combat.capacity = 20;
+
+    const xp = d.addNode(new MNode(NodeType.DRAIN, 360, 110));
+    xp.label = 'XP';
+
+    const gold = d.addNode(new MNode(NodeType.POOL, 570, 180));
+    gold.label = 'Gold';
+
+    const rareLoot = d.addNode(new MNode(NodeType.POOL, 570, 390));
+    rareLoot.label = 'Rare Loot';
+
+    const shop = d.addNode(new MNode(NodeType.DRAIN, 780, 180));
+    shop.label = 'Shop';
+
+    const reg = d.addNode(new MNode(NodeType.REGISTER, 780, 390));
+    reg.label = 'Wealth';
+    reg.formula = 'gold * 10 + rare * 50';
+
+    // Enemy Spawn → Combat: 3 enemies per step
+    const c1 = d.addConnection(new MConnection(src.id, combat.id));
+    c1.rate = 3;
+
+    // Combat → XP: dice 2d4 each step
+    const c2 = d.addConnection(new MConnection(combat.id, xp.id));
+    c2.rateMode = RateMode.DICE;
+    c2.dice = '2d4';
+    c2.label = '2d4';
+
+    // Combat → Gold: rate 1, 65% chance
+    const c3 = d.addConnection(new MConnection(combat.id, gold.id));
+    c3.rate = 1;
+    c3.chance = 65;
+    c3.label = '65%';
+
+    // Combat → Rare Loot: rate 1, 20% chance
+    const c4 = d.addConnection(new MConnection(combat.id, rareLoot.id));
+    c4.rate = 1;
+    c4.chance = 20;
+    c4.label = '20%';
+
+    // Gold → Shop: rate 3, fires only when Gold >= 10
+    const c5 = d.addConnection(new MConnection(gold.id, shop.id));
+    c5.rate = 3;
+    c5.condEnabled = true;
+    c5.condOperator = '>=';
+    c5.condValue = 10;
+    c5.label = '≥10→shop';
+
+    // State: Gold Pool → Register
+    const sc1 = d.addConnection(new MConnection(gold.id, reg.id, ConnectionType.STATE));
+    sc1.variableName = 'gold';
+    sc1.label = 'gold';
+
+    // State: Rare Loot → Register
+    const sc2 = d.addConnection(new MConnection(rareLoot.id, reg.id, ConnectionType.STATE));
+    sc2.variableName = 'rare';
+    sc2.label = 'rare';
+
+    this.renderer.render();
+  }
+
   // ── Controls ──────────────────────────────────────────────────────────────
 
   _bindControls() {
@@ -120,14 +203,18 @@ class App {
 
     document.getElementById('btn-new').addEventListener('click', () => {
       if (!confirm('Start a new diagram? Unsaved work will be lost.')) return;
-      this.diagram.nodes.clear();
-      this.diagram.connections.clear();
-      this.diagram.variables = {};
-      this.engine.reset();
-      this.renderer.balls.clear();
-      this._clearSparklines();
-      this._onSelect(null, null);
+      this._clearAll();
       this.renderer.render();
+    });
+
+    document.getElementById('btn-examples').addEventListener('change', e => {
+      const val = e.target.value;
+      e.target.value = '';
+      if (!val) return;
+      if (!confirm('Load example? Unsaved work will be lost.')) return;
+      this._clearAll();
+      if (val === 'basic') this._loadExample();
+      else if (val === 'loot') this._loadLootExample();
     });
 
     document.getElementById('btn-save').addEventListener('click', () => {
