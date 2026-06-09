@@ -26,7 +26,20 @@ function nodeBoundaryPoint(node, tx, ty) {
   return { x: node.x + nx * r, y: node.y + ny * r };
 }
 
-function connPathD(src, tgt) {
+// Auto quadratic control-point: perpendicular nudge off the midpoint.
+function connAutoCP(p1, p2) {
+  const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  return { x: mx - dy * 0.12, y: my + dx * 0.12 };
+}
+
+// Actual control point for a curve connection (auto + stored offset).
+function connCP(conn, p1, p2) {
+  const a = connAutoCP(p1, p2);
+  return { x: a.x + (conn.cpDx || 0), y: a.y + (conn.cpDy || 0) };
+}
+
+function connPathD(conn, src, tgt) {
   if (src.id === tgt.id) {
     // Self-loop: a small loop above the node (used by self state modifiers).
     const r = NODE_R[src.type] || 32;
@@ -34,24 +47,56 @@ function connPathD(src, tgt) {
     return `M ${x - r * 0.55},${y - r * 0.8} C ${x - r * 1.6},${y - r * 2.6} `
          + `${x + r * 1.6},${y - r * 2.6} ${x + r * 0.55},${y - r * 0.8}`;
   }
+
+  const style = conn.pathStyle || 'curve';
+
+  if (style === 'straight') {
+    const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
+    const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
+    return `M ${p1.x},${p1.y} L ${p2.x},${p2.y}`;
+  }
+
+  if (style === 'ortho') {
+    const bPct = conn.bendPct ?? 0.5;
+    const bx = src.x + (tgt.x - src.x) * bPct;
+    // Source exits horizontally toward the bend x; target is entered horizontally from that side.
+    const p1 = nodeBoundaryPoint(src, bx, src.y);
+    const p2 = nodeBoundaryPoint(tgt, bx, tgt.y);
+    return `M ${p1.x},${p1.y} L ${bx},${p1.y} L ${bx},${p2.y} L ${p2.x},${p2.y}`;
+  }
+
+  // curve (default)
   const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
   const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
-  const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
-  const dx = p2.x - p1.x, dy = p2.y - p1.y;
-  // Slight perpendicular curve
-  const cx = mx - dy * 0.12, cy = my + dx * 0.12;
-  return `M ${p1.x},${p1.y} Q ${cx},${cy} ${p2.x},${p2.y}`;
+  const cp = connCP(conn, p1, p2);
+  return `M ${p1.x},${p1.y} Q ${cp.x},${cp.y} ${p2.x},${p2.y}`;
 }
 
-function connLabelPos(src, tgt) {
+function connLabelPos(conn, src, tgt) {
   if (src.id === tgt.id) {
     const r = NODE_R[src.type] || 32;
     return { x: src.x, y: src.y - r * 2.2 };
   }
+
+  const style = conn.pathStyle || 'curve';
+
+  if (style === 'straight') {
+    const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
+    const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
+    return { x: (p1.x + p2.x) / 2 - 12, y: (p1.y + p2.y) / 2 - 10 };
+  }
+
+  if (style === 'ortho') {
+    const bPct = conn.bendPct ?? 0.5;
+    const bx = src.x + (tgt.x - src.x) * bPct;
+    return { x: bx + 6, y: (src.y + tgt.y) / 2 };
+  }
+
+  // curve
   const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
   const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
-  const dx = p2.x - p1.x, dy = p2.y - p1.y;
-  return { x: (p1.x + p2.x) / 2 - dy * 0.12 - 12, y: (p1.y + p2.y) / 2 + dx * 0.12 - 10 };
+  const cp = connCP(conn, p1, p2);
+  return { x: cp.x - 12, y: cp.y - 10 };
 }
 
 // ── Ball animation system ─────────────────────────────────────────────────
@@ -563,6 +608,11 @@ class Renderer {
     g.appendChild(svgEl('path', { class: 'conn-hitbox', fill: 'none', stroke: 'transparent', 'stroke-width': '14', cursor: 'pointer' }));
     g.appendChild(svgEl('path', { class: 'conn-path', fill: 'none', 'stroke-width': '2' }));
     g.appendChild(svgEl('text', { class: 'conn-label', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '11', 'font-family': 'var(--font)' }));
+    g.appendChild(svgEl('circle', {
+      class: 'conn-cp-handle', r: '6',
+      fill: 'rgba(74,158,255,0.25)', stroke: '#4a9eff', 'stroke-width': '1.5',
+      cursor: 'move', visibility: 'hidden',
+    }));
     return g;
   }
 
@@ -572,8 +622,8 @@ class Renderer {
     const isActivator = !isRes && conn.activator;
     const isModifier = !isRes && conn.modifier;
     const isSel = this.selectedId === conn.id;
-    const d = connPathD(src, tgt);
-    const lp = connLabelPos(src, tgt);
+    const d = connPathD(conn, src, tgt);
+    const lp = connLabelPos(conn, src, tgt);
 
     const baseColor = isTrigger ? '#66bb6a' : (isModifier ? '#ffb74d' : (isRes ? '#ffa726' : '#78909c'));
     const color = isSel ? '#fff' : baseColor;
@@ -628,6 +678,42 @@ class Renderer {
     label.setAttribute('fill', color);
 
     el.setAttribute('class', `conn${isSel ? ' selected' : ''}`);
+
+    // Control-point / bend handle — visible only when selected and not a self-loop.
+    const handle = el.querySelector('.conn-cp-handle');
+    if (handle) {
+      const hp = (isSel && src.id !== tgt.id) ? this.getConnHandlePos(conn.id) : null;
+      if (hp) {
+        handle.setAttribute('cx', hp.x);
+        handle.setAttribute('cy', hp.y);
+        handle.setAttribute('visibility', 'visible');
+      } else {
+        handle.setAttribute('visibility', 'hidden');
+      }
+    }
+  }
+
+  // Return the world-coordinate position of a connection's draggable handle,
+  // or null if the connection has no handle (straight style, self-loop, missing).
+  getConnHandlePos(connId) {
+    const conn = this.diagram.connections.get(connId);
+    if (!conn) return null;
+    const src = this.diagram.nodes.get(conn.sourceId);
+    const tgt = this.diagram.nodes.get(conn.targetId);
+    if (!src || !tgt || src.id === tgt.id) return null;
+    const style = conn.pathStyle || 'curve';
+    if (style === 'straight') return null;
+    if (style === 'ortho') {
+      // Only show the handle when nodes are not nearly vertical (avoid degenerate drag).
+      if (Math.abs(tgt.x - src.x) < 20) return null;
+      const bPct = conn.bendPct ?? 0.5;
+      const bx = src.x + (tgt.x - src.x) * bPct;
+      return { x: bx, y: (src.y + tgt.y) / 2 };
+    }
+    // curve
+    const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
+    const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
+    return connCP(conn, p1, p2);
   }
 
   // ── Nodes ────────────────────────────────────────────────────────────────

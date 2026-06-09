@@ -369,6 +369,12 @@ class MConnection {
     this.distType = 'normal';   // 'normal' | 'uniform' | 'exponential' | 'poisson'
     this.distParam1 = 5;        // mean (normal/exp/poisson) or min (uniform)
     this.distParam2 = 2;        // std dev (normal) or max (uniform)
+
+    // Visual path style: 'curve' (default) | 'straight' | 'ortho'
+    this.pathStyle = 'curve';
+    this.cpDx = 0;      // curve: control-point x offset from the auto-midpoint
+    this.cpDy = 0;      // curve: control-point y offset from the auto-midpoint
+    this.bendPct = 0.5; // ortho: where the vertical segment sits (0=near src, 1=near tgt)
   }
 
   toJSON() {
@@ -390,6 +396,10 @@ class MConnection {
       weight: this.weight,
       modifier: this.modifier || undefined,
       modFactor: this.modFactor,
+      pathStyle: this.pathStyle !== 'curve' ? this.pathStyle : undefined,
+      cpDx: this.cpDx || undefined,
+      cpDy: this.cpDy || undefined,
+      bendPct: this.bendPct !== 0.5 ? this.bendPct : undefined,
     };
   }
 

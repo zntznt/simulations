@@ -23,6 +23,7 @@ class Editor {
     this._specialDrag = null;    // {type:'note'|'group', id, origX, origY, nodeItems?, startX, startY, moved}
     this._groupPlaceDrag = null; // {x0, y0} while dragging to define a new group
     this._spaceDown = false;     // hold Space to pan from anywhere (Figma-style)
+    this._connHandleDrag = null; // {connId, type:'cp'|'bend', startX, startY, origCpDx, origCpDy, origBendPct, srcX, tgtX}
 
     this._bind();
   }
@@ -99,6 +100,39 @@ class Editor {
     if (e.button !== 0) return;
 
     const pt = this.renderer.svgPoint(e.clientX, e.clientY);
+
+    // Check for connection handle drag (CP or ortho bend) before the normal hit test.
+    if (this.tool === 'select') {
+      const selId = this.renderer.selectedId;
+      if (selId && this.diagram.connections.has(selId)) {
+        const hp = this.renderer.getConnHandlePos(selId);
+        if (hp) {
+          const svgRect = this.svg.getBoundingClientRect();
+          const sx = e.clientX - svgRect.left;
+          const sy = e.clientY - svgRect.top;
+          const shx = hp.x * this.renderer._scale + this.renderer._panX;
+          const shy = hp.y * this.renderer._scale + this.renderer._panY;
+          if (Math.hypot(sx - shx, sy - shy) <= 14) {
+            const conn = this.diagram.connections.get(selId);
+            const srcNode = this.diagram.nodes.get(conn.sourceId);
+            const tgtNode = this.diagram.nodes.get(conn.targetId);
+            const style = conn.pathStyle || 'curve';
+            this._connHandleDrag = {
+              connId: selId,
+              type: style === 'ortho' ? 'bend' : 'cp',
+              startX: e.clientX, startY: e.clientY,
+              origCpDx: conn.cpDx || 0, origCpDy: conn.cpDy || 0,
+              origBendPct: conn.bendPct ?? 0.5,
+              srcX: srcNode ? srcNode.x : 0,
+              tgtX: tgtNode ? tgtNode.x : 0,
+            };
+            e.preventDefault();
+            return;
+          }
+        }
+      }
+    }
+
     const hit = this.renderer.hitTest(pt.x, pt.y);
 
     if (this.tool === 'select') {
@@ -237,6 +271,28 @@ class Editor {
       return;
     }
 
+    if (this._connHandleDrag) {
+      const s = this.renderer._scale || 1;
+      const dx = (e.clientX - this._connHandleDrag.startX) / s;
+      const dy = (e.clientY - this._connHandleDrag.startY) / s;
+      const conn = this.diagram.connections.get(this._connHandleDrag.connId);
+      if (conn) {
+        if (this._connHandleDrag.type === 'cp') {
+          conn.cpDx = this._connHandleDrag.origCpDx + dx;
+          conn.cpDy = this._connHandleDrag.origCpDy + dy;
+        } else {
+          const { srcX, tgtX } = this._connHandleDrag;
+          const totalDx = tgtX - srcX;
+          if (Math.abs(totalDx) > 10) {
+            const newBx = srcX + this._connHandleDrag.origBendPct * totalDx + dx;
+            conn.bendPct = Math.max(0.1, Math.min(0.9, (newBx - srcX) / totalDx));
+          }
+        }
+        this.renderer.render();
+      }
+      return;
+    }
+
     if (this._specialDrag) {
       const s = this.renderer._scale || 1;
       const dx = (e.clientX - this._specialDrag.startX) / s;
@@ -317,6 +373,12 @@ class Editor {
   _onUp(e) {
     if (this._panDrag) { this._panDrag = null; this._restoreCursor(); return; }
 
+    if (this._connHandleDrag) {
+      this._connHandleDrag = null;
+      this._changed();
+      return;
+    }
+
     if (this._drag) {
       const moved = this._dragMoved;
       this._drag = null;
@@ -386,13 +448,19 @@ class Editor {
   }
 
   _onDbl(e) {
-    // Double-click: for interactive nodes, fire them
     const pt = this.renderer.svgPoint(e.clientX, e.clientY);
     const hit = this.renderer.hitTest(pt.x, pt.y);
     if (hit && hit.type === 'node') {
       const node = this.diagram.nodes.get(hit.id);
       if (node && node.activation === ActivationMode.INTERACTIVE) {
         this.engine.fireInteractive(hit.id);
+      }
+    } else if (hit && hit.type === 'conn') {
+      // Double-click a connection to reset its shape to default.
+      const conn = this.diagram.connections.get(hit.id);
+      if (conn) {
+        conn.cpDx = 0; conn.cpDy = 0; conn.bendPct = 0.5;
+        this.renderer.render(); this._changed();
       }
     }
   }

@@ -193,6 +193,19 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 /* ── Connection SVG styles ── */
 .conn { cursor: pointer; }
 .conn.selected .conn-path { filter: drop-shadow(0 0 3px rgba(255,255,255,0.6)); }
+.conn-cp-handle { opacity: 0.6; transition: opacity 0.12s; }
+.conn-cp-handle:hover { opacity: 1; }
+
+/* ── Connection style selector (in properties panel) ── */
+.conn-style-group { display: flex; gap: 3px; }
+.conn-style-btn {
+  flex: 1; padding: 4px 0; font-size: 15px; line-height: 1;
+  background: var(--panel2); border: 1px solid var(--border);
+  color: var(--text-dim); cursor: pointer; border-radius: 4px;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.conn-style-btn:hover:not(.active) { background: var(--border); color: var(--text); }
+.conn-style-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 /* ── Speed label ── */
 #speed-label { font-size: 11px; color: var(--text-dim); min-width: 24px; }

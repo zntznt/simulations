@@ -1637,6 +1637,34 @@ class App {
 
     this._info(panel, `${src?.label || '?'} → ${tgt?.label || '?'}`);
 
+    // Path style selector
+    const styleRow = document.createElement('div');
+    styleRow.className = 'prop-row';
+    const styleLbl = document.createElement('label');
+    styleLbl.textContent = 'Style';
+    styleRow.appendChild(styleLbl);
+    const styleGroup = document.createElement('div');
+    styleGroup.className = 'conn-style-group';
+    for (const { key, icon, tip } of [
+      { key: 'straight', icon: '—', tip: 'Straight line' },
+      { key: 'curve',    icon: '⌒', tip: 'Curved — drag handle to reshape' },
+      { key: 'ortho',   icon: '⌐', tip: 'Right-angle turns — drag elbow to reposition' },
+    ]) {
+      const btn = document.createElement('button');
+      btn.className = 'conn-style-btn' + ((conn.pathStyle || 'curve') === key ? ' active' : '');
+      btn.title = tip;
+      btn.textContent = icon;
+      btn.addEventListener('click', () => {
+        conn.pathStyle = key;
+        conn.cpDx = 0; conn.cpDy = 0; conn.bendPct = 0.5;
+        this.renderer.render();
+        this._renderProps();
+      });
+      styleGroup.appendChild(btn);
+    }
+    styleRow.appendChild(styleGroup);
+    panel.appendChild(styleRow);
+
     this._field(panel, 'Label', 'text', conn.label, v => { conn.label = v; this.renderer.render(); });
 
     if (isRes) {
