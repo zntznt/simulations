@@ -111,7 +111,11 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       simulations for up to M steps and reports per-node distributions
       (mean / min / p10 / p50 / p90 / max) plus goal reach-rate and end-step
       stats — non-destructive to the live diagram.
-- [ ] **Chart/graph element placed on the canvas (P2).**
+- [x] **Chart/graph element placed on the canvas (P2).** A "Chart" annotation tool
+      drops a live multi-series line chart directly onto the diagram. Pick which nodes
+      to plot in the properties panel; each series is color-coded with a live end-value
+      readout and the chart redraws every step (distinct from the global timeline panel).
+      Movable, resizable, deletable, and serialized in diagram JSON.
 - [ ] **Named resource types** (not just colors) with per-type readouts (P2).
 - [x] **Diagram-level parameters panel (P2).** Shown in the properties panel
       when nothing is selected; add/edit/delete named numeric constants that seed

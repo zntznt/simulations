@@ -319,9 +319,10 @@ input[type="range"] {
 }
 .note-textarea:focus { border-color: var(--accent); }
 
-/* ── Group / note canvas elements ── */
+/* ── Group / note / chart canvas elements ── */
 .group-container { cursor: pointer; }
 .sticky-note { cursor: pointer; }
+.chart-elem { cursor: pointer; }
 
 /* ── Embed mode (clean, shareable view) ── */
 body.embed #palette,

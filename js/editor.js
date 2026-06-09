@@ -41,7 +41,8 @@ class Editor {
     this.selection = new Set(ids);
     this.renderer.selectedIds = this.selection;
     const single = this.selection.size === 1 ? [...this.selection][0] : null;
-    const nonNodeType = primaryType === 'conn' || primaryType === 'group' || primaryType === 'note';
+    const nonNodeType = primaryType === 'conn' || primaryType === 'group'
+      || primaryType === 'note' || primaryType === 'chart';
     this.renderer.selectedId = nonNodeType ? primaryId : single;
     this.renderer.render();
     if (this.onSelect) {
@@ -116,6 +117,12 @@ class Editor {
           this._setSelection([], hit.id, 'note');
           this._specialDrag = { type: 'note', id: hit.id, origX: note.x, origY: note.y, startX: e.clientX, startY: e.clientY, moved: false };
         }
+      } else if (hit && hit.type === 'chart') {
+        const chart = this.diagram.charts.get(hit.id);
+        if (chart) {
+          this._setSelection([], hit.id, 'chart');
+          this._specialDrag = { type: 'chart', id: hit.id, origX: chart.x, origY: chart.y, startX: e.clientX, startY: e.clientY, moved: false };
+        }
       } else if (hit && hit.type === 'group') {
         const grp = this.diagram.groups.get(hit.id);
         if (grp) {
@@ -141,6 +148,13 @@ class Editor {
       const note = this.diagram.addNote(new MNote(sn.x, sn.y));
       this.renderer.render();
       this._select(note.id, 'note');
+      this._changed();
+      if (this.autoRevert) { this.setTool('select'); if (this.onToolChange) this.onToolChange('select'); }
+    } else if (this.tool === 'place-chart') {
+      const sn = this._snapPt(pt.x, pt.y);
+      const chart = this.diagram.addChart(new MChart(sn.x, sn.y));
+      this.renderer.render();
+      this._select(chart.id, 'chart');
       this._changed();
       if (this.autoRevert) { this.setTool('select'); if (this.onToolChange) this.onToolChange('select'); }
     } else if (this.tool.startsWith('place-')) {
@@ -185,6 +199,7 @@ class Editor {
         else if (hit.type === 'conn') this.diagram.removeConnection(hit.id);
         else if (hit.type === 'group') this.diagram.removeGroup(hit.id);
         else if (hit.type === 'note') this.diagram.removeNote(hit.id);
+        else if (hit.type === 'chart') this.diagram.removeChart(hit.id);
         this._select(null, null);
         this.renderer.render();
         this._changed();
@@ -220,6 +235,12 @@ class Editor {
         if (note) {
           const sn = this._snapPt(this._specialDrag.origX + dx, this._specialDrag.origY + dy);
           note.x = sn.x; note.y = sn.y;
+        }
+      } else if (this._specialDrag.type === 'chart') {
+        const chart = this.diagram.charts.get(this._specialDrag.id);
+        if (chart) {
+          const sn = this._snapPt(this._specialDrag.origX + dx, this._specialDrag.origY + dy);
+          chart.x = sn.x; chart.y = sn.y;
         }
       } else if (this._specialDrag.type === 'group') {
         const grp = this.diagram.groups.get(this._specialDrag.id);
@@ -373,6 +394,7 @@ class Editor {
       else if (hit.type === 'conn') this.diagram.removeConnection(hit.id);
       else if (hit.type === 'group') this.diagram.removeGroup(hit.id);
       else if (hit.type === 'note') this.diagram.removeNote(hit.id);
+      else if (hit.type === 'chart') this.diagram.removeChart(hit.id);
       this._select(null, null);
       this.renderer.render();
       this._changed();
@@ -458,6 +480,7 @@ class Editor {
         if (this.diagram.connections.has(id)) { this.diagram.removeConnection(id); changed = true; }
         else if (this.diagram.groups.has(id)) { this.diagram.removeGroup(id); changed = true; }
         else if (this.diagram.notes.has(id)) { this.diagram.removeNote(id); changed = true; }
+        else if (this.diagram.charts.has(id)) { this.diagram.removeChart(id); changed = true; }
         if (changed) { this._select(null, null); this.renderer.render(); this._changed(); }
       }
     }
@@ -477,6 +500,7 @@ class Editor {
     else if (type === 'conn') this._setSelection([], id, 'conn');
     else if (type === 'group') this._setSelection([], id, 'group');
     else if (type === 'note') this._setSelection([], id, 'note');
+    else if (type === 'chart') this._setSelection([], id, 'chart');
     else this._setSelection([], null, null);
   }
 }

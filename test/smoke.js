@@ -505,6 +505,45 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P2 annotate: groups + sticky notes create, render, show props, serialize');
   else fail('P2 annotate: ' + JSON.stringify(p2annotate));
 
+  // P2: on-canvas chart element tracks a node, plots after a run, serializes.
+  const p2chart = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 150, 150));
+    const p = d.addNode(new MNode(NodeType.POOL, 380, 150)); p.label = 'Bank';
+    d.addConnection(new MConnection(s.id, p.id)).rate = 2;
+
+    const chart = d.addChart(new MChart(150, 300));
+    chart.label = 'Bank over time';
+    chart.nodeIds = [p.id];
+    window.app.renderer.render();
+
+    // Props panel shows the chart editor with the tracked node.
+    window.app._onSelect(chart.id, 'chart');
+    const panelText = document.getElementById('props-content').textContent;
+    const hasChartPanel = panelText.includes('Chart') && panelText.includes('Tracked nodes') && panelText.includes('Bank');
+
+    // Before a run: a hint is shown, no polylines yet.
+    const chartEl = window.app.renderer._chartEls.get(chart.id);
+    const linesBefore = chartEl.querySelectorAll('polyline').length;
+
+    // Run a few steps, then the chart should draw a polyline.
+    window.app.engine.reset();
+    for (let i = 0; i < 6; i++) window.app.engine.doStep();
+    window.app.renderer.render();
+    const linesAfter = chartEl.querySelectorAll('polyline').length;
+
+    // Serialization round-trip.
+    const d2 = new Diagram();
+    d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+    const chartsOk = d2.charts.size === 1 && [...d2.charts.values()][0].nodeIds[0] === p.id;
+
+    return { hasChartPanel, linesBefore, linesAfter, chartsOk };
+  });
+  if (p2chart.hasChartPanel && p2chart.linesBefore === 0 && p2chart.linesAfter === 1 && p2chart.chartsOk)
+    ok('P2 chart: on-canvas chart tracks a node, plots a line after a run, serializes');
+  else fail('P2 chart: ' + JSON.stringify(p2chart));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);

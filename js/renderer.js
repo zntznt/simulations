@@ -124,9 +124,10 @@ class BallSystem {
 // ── Main Renderer ─────────────────────────────────────────────────────────
 
 class Renderer {
-  constructor(svg, diagram) {
+  constructor(svg, diagram, engine = null) {
     this.svg = svg;
     this.diagram = diagram;
+    this.engine = engine;          // for live on-canvas charts (reads history)
     this.selectedId = null;        // primary selection (node or connection)
     this.selectedIds = new Set();  // multi-selected node ids
     this._firing = new Set();
@@ -134,6 +135,7 @@ class Renderer {
     this._connEls = new Map();
     this._groupEls = new Map();
     this._noteEls = new Map();
+    this._chartEls = new Map();
     this._panX = 0;
     this._panY = 0;
     this._scale = 1;
@@ -183,10 +185,12 @@ class Renderer {
     this.groupLayer = svgEl('g');
     this.connLayer = svgEl('g');
     this.nodeLayer = svgEl('g');
+    this.chartLayer = svgEl('g');
     this.noteLayer = svgEl('g');
     this.ballLayer = svgEl('g');
     this.tempLayer = svgEl('g');
-    this.root.append(this.groupLayer, this.connLayer, this.nodeLayer, this.noteLayer, this.ballLayer, this.tempLayer);
+    this.root.append(this.groupLayer, this.connLayer, this.nodeLayer,
+                     this.chartLayer, this.noteLayer, this.ballLayer, this.tempLayer);
     this.svg.appendChild(this.root);
 
     this._updateTransform();
@@ -233,6 +237,7 @@ class Renderer {
     this._renderGroups();
     this._renderConns();
     this._renderNodes();
+    this._renderCharts();
     this._renderNotes();
   }
 
@@ -377,6 +382,108 @@ class Renderer {
         'stroke-width': '1.5', 'stroke-dasharray': '6,4', 'pointer-events': 'none',
       }));
     }
+  }
+
+  // ── On-canvas charts ───────────────────────────────────────────────────────
+
+  _renderCharts() {
+    const d = this.diagram;
+    for (const [id, el] of this._chartEls)
+      if (!d.charts.has(id)) { el.remove(); this._chartEls.delete(id); }
+    for (const chart of d.charts.values()) {
+      let el = this._chartEls.get(chart.id);
+      if (!el) { el = this._makeChartEl(chart); this.chartLayer.appendChild(el); this._chartEls.set(chart.id, el); }
+      this._updateChartEl(el, chart);
+    }
+  }
+
+  _makeChartEl(chart) {
+    const g = svgEl('g', { 'data-id': chart.id, cursor: 'pointer' });
+    g.appendChild(svgEl('rect', { class: 'chart-bg', rx: '6', 'stroke-width': '1.5' }));
+    g.appendChild(svgEl('text', { class: 'chart-title', 'font-size': '11', 'font-family': 'var(--font)', 'font-weight': '600', 'pointer-events': 'none' }));
+    g.appendChild(svgEl('g', { class: 'chart-plot', 'pointer-events': 'none' }));
+    return g;
+  }
+
+  _updateChartEl(el, chart) {
+    const palette = (typeof CHART_PALETTE !== 'undefined') ? CHART_PALETTE
+      : ['#4a9eff', '#4caf50', '#ef5350', '#ffa726', '#ba68c8', '#26c6da', '#ffeb3b', '#7c83ff', '#ff7043', '#9ccc65'];
+    const isSel = this.selectedId === chart.id;
+    el.setAttribute('class', `chart-elem${isSel ? ' selected' : ''}`);
+
+    const bg = el.querySelector('.chart-bg');
+    bg.setAttribute('x', chart.x);
+    bg.setAttribute('y', chart.y);
+    bg.setAttribute('width', chart.w);
+    bg.setAttribute('height', chart.h);
+    bg.setAttribute('fill', '#0f1117');
+    bg.setAttribute('stroke', isSel ? '#fff' : '#2a3550');
+    if (isSel) bg.setAttribute('filter', 'url(#glow)');
+    else bg.removeAttribute('filter');
+
+    const title = el.querySelector('.chart-title');
+    title.setAttribute('x', String(chart.x + 8));
+    title.setAttribute('y', String(chart.y + 14));
+    title.textContent = chart.label || 'Chart';
+    title.setAttribute('fill', '#9aa3b2');
+
+    const plot = el.querySelector('.chart-plot');
+    while (plot.firstChild) plot.removeChild(plot.firstChild);
+
+    const hint = (msg) => {
+      const t = svgEl('text', {
+        x: String(chart.x + chart.w / 2), y: String(chart.y + chart.h / 2 + 6),
+        'text-anchor': 'middle', 'font-size': '10', 'font-family': 'var(--font)', fill: '#556070',
+      });
+      t.textContent = msg;
+      plot.appendChild(t);
+    };
+
+    const ids = (chart.nodeIds || []).filter(id => this.diagram.nodes.has(id));
+    if (!ids.length) { hint('Pick nodes in the panel →'); return; }
+
+    const hist = (this.engine && this.engine.history) ? this.engine.history : [];
+    if (hist.length < 2) { hint('Run the simulation to plot'); return; }
+
+    // Plot geometry (relative to the chart box).
+    const padL = 28, padT = 22, padB = 10, padR = 8;
+    const x0 = chart.x + padL, y0 = chart.y + padT;
+    const plotW = Math.max(10, chart.w - padL - padR);
+    const plotH = Math.max(10, chart.h - padT - padB);
+
+    let max = 1;
+    for (const snap of hist) for (const id of ids) max = Math.max(max, snap.snap[id] ?? 0);
+
+    const n = hist.length;
+    const xAt = i => x0 + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
+    const yAt = v => y0 + plotH - (v / max) * plotH;
+
+    // Axes (left + baseline) with min/max labels.
+    const axis = svgEl('path', {
+      d: `M ${x0},${y0} L ${x0},${y0 + plotH} L ${x0 + plotW},${y0 + plotH}`,
+      fill: 'none', stroke: '#1e2535', 'stroke-width': '1',
+    });
+    plot.appendChild(axis);
+    const maxLbl = svgEl('text', { x: String(chart.x + 3), y: String(y0 + 6), 'font-size': '8', 'font-family': 'monospace', fill: '#556070' });
+    maxLbl.textContent = String(+max.toFixed(max < 10 ? 1 : 0));
+    plot.appendChild(maxLbl);
+    const zeroLbl = svgEl('text', { x: String(chart.x + 3), y: String(y0 + plotH), 'font-size': '8', 'font-family': 'monospace', fill: '#556070' });
+    zeroLbl.textContent = '0';
+    plot.appendChild(zeroLbl);
+
+    // One polyline per tracked node, plus a live end-value label.
+    ids.forEach((id, idx) => {
+      const color = palette[idx % palette.length];
+      const pts = hist.map((snap, i) => `${xAt(i).toFixed(1)},${yAt(snap.snap[id] ?? 0).toFixed(1)}`).join(' ');
+      plot.appendChild(svgEl('polyline', { points: pts, fill: 'none', stroke: color, 'stroke-width': '1.5' }));
+      const last = hist[hist.length - 1].snap[id] ?? 0;
+      const lbl = svgEl('text', {
+        x: String(x0 + plotW), y: String(Math.max(y0 + 7, yAt(last) - 2)),
+        'text-anchor': 'end', 'font-size': '8', 'font-family': 'monospace', fill: color,
+      });
+      lbl.textContent = String(+Number(last).toFixed(max < 10 ? 1 : 0));
+      plot.appendChild(lbl);
+    });
   }
 
   // ── Connections ──────────────────────────────────────────────────────────
@@ -664,6 +771,14 @@ class Renderer {
       if (!note) continue;
       if (x >= note.x && x <= note.x + note.w && y >= note.y && y <= note.y + note.h)
         return { type: 'note', id };
+    }
+
+    // Charts: widget rectangles above connections/groups.
+    for (const [id] of this._chartEls) {
+      const chart = this.diagram.charts.get(id);
+      if (!chart) continue;
+      if (x >= chart.x && x <= chart.x + chart.w && y >= chart.y && y <= chart.y + chart.h)
+        return { type: 'chart', id };
     }
 
     // Sample along each connection's real path so the whole line is clickable.

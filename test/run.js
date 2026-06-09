@@ -17,7 +17,7 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'model.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'engine.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
-    ' MNode, MConnection, MGroup, MNote, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist };';
+    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -25,7 +25,7 @@ function loadEngine() {
 const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
-  MNode, MConnection, MGroup, MNote, Diagram, SimEngine, evalFormula, rollDice, sampleDist,
+  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist,
 } = API;
 
 // ── Tiny test harness ───────────────────────────────────────────────────────
@@ -1085,6 +1085,53 @@ test('removeGroup and removeNote delete entries from the diagram', () => {
   eq(d.groups.size, 1, 'group added'); eq(d.notes.size, 1, 'note added');
   d.removeGroup(g.id); d.removeNote(note.id);
   eq(d.groups.size, 0, 'group removed'); eq(d.notes.size, 0, 'note removed');
+});
+
+// ── P2: on-canvas chart elements ──────────────────────────────────────────────
+console.log('\nOn-canvas charts');
+
+test('MChart serializes and deserializes correctly', () => {
+  const c = new MChart(40, 60);
+  c.label = 'Economy'; c.w = 300; c.h = 200; c.nodeIds = ['n_a', 'n_b'];
+  const json = JSON.parse(JSON.stringify(c.toJSON()));
+  eq(json.x, 40, 'x'); eq(json.label, 'Economy', 'label'); eq(json.w, 300, 'w');
+  eq(json.nodeIds.length, 2, 'nodeIds length');
+  const c2 = new MChart(0, 0); c2.loadJSON(json);
+  eq(c2.label, 'Economy', 'label round-trip');
+  eq(c2.nodeIds[1], 'n_b', 'nodeIds round-trip');
+});
+
+test('chart nodeIds is copied, not aliased, on load', () => {
+  const c = new MChart(0, 0); c.nodeIds = ['x'];
+  const json = c.toJSON();
+  const c2 = new MChart(0, 0); c2.loadJSON(json);
+  c2.nodeIds.push('y');
+  eq(c.nodeIds.length, 1, 'source array unaffected by mutating the loaded copy');
+});
+
+test('Diagram with charts round-trips through JSON', () => {
+  const { d } = setup();
+  const pool = node(d, NodeType.POOL);
+  const ch = d.addChart(new MChart(10, 10));
+  ch.label = 'Pools'; ch.nodeIds = [pool.id];
+  const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  eq(d2.charts.size, 1, 'charts preserved');
+  const ch2 = [...d2.charts.values()][0];
+  eq(ch2.label, 'Pools', 'chart label'); eq(ch2.nodeIds[0], pool.id, 'tracked node id');
+});
+
+test('Diagram without charts omits the field from JSON', () => {
+  const { d } = setup();
+  node(d, NodeType.POOL);
+  assert(d.toJSON().charts === undefined, 'charts omitted when empty');
+});
+
+test('removeChart deletes the chart from the diagram', () => {
+  const { d } = setup();
+  const ch = d.addChart(new MChart(0, 0));
+  eq(d.charts.size, 1, 'chart added');
+  d.removeChart(ch.id);
+  eq(d.charts.size, 0, 'chart removed');
 });
 
 // ── Results ─────────────────────────────────────────────────────────────────

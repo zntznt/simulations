@@ -2,7 +2,7 @@ class App {
   constructor() {
     this.diagram = new Diagram();
     this.engine = new SimEngine(this.diagram);
-    this.renderer = new Renderer(document.getElementById('canvas'), this.diagram);
+    this.renderer = new Renderer(document.getElementById('canvas'), this.diagram, this.engine);
     this.editor = new Editor(
       document.getElementById('canvas'),
       this.diagram, this.renderer, this.engine,
@@ -122,6 +122,7 @@ class App {
     this.diagram.connections.clear();
     this.diagram.groups.clear();
     this.diagram.notes.clear();
+    this.diagram.charts.clear();
     this.diagram.variables = {};
     this.diagram.params = {};
     this.diagram.timeMode = 'sync';
@@ -874,6 +875,9 @@ class App {
     } else if (this._selectedType === 'note') {
       const note = this.diagram.notes.get(this._selectedId);
       if (note) this._noteProps(panel, note);
+    } else if (this._selectedType === 'chart') {
+      const chart = this.diagram.charts.get(this._selectedId);
+      if (chart) this._chartProps(panel, chart);
     }
   }
 
@@ -1110,6 +1114,87 @@ class App {
     delBtn.textContent = 'Delete note'; delBtn.className = 'btn btn-danger'; delBtn.style.flex = '1';
     delBtn.addEventListener('click', () => {
       this.diagram.removeNote(note.id);
+      this.editor._select(null, null);
+      this.renderer.render();
+      this._commit();
+    });
+    delRow.appendChild(delBtn);
+    panel.appendChild(delRow);
+  }
+
+  _chartProps(panel, chart) {
+    const palette = (typeof CHART_PALETTE !== 'undefined') ? CHART_PALETTE
+      : ['#4a9eff', '#4caf50', '#ef5350', '#ffa726', '#ba68c8', '#26c6da', '#ffeb3b', '#7c83ff', '#ff7043', '#9ccc65'];
+
+    this._title(panel, 'Chart');
+    this._info(panel, 'A live line chart drawn on the canvas. Pick nodes below to plot their values over the run.');
+    this._field(panel, 'Title', 'text', chart.label, v => { chart.label = v; this.renderer.render(); });
+    this._field(panel, 'Width', 'number', chart.w, v => { chart.w = Math.max(120, parseInt(v) || 240); this.renderer.render(); });
+    this._field(panel, 'Height', 'number', chart.h, v => { chart.h = Math.max(80, parseInt(v) || 150); this.renderer.render(); });
+
+    this._sep(panel);
+    const stitle = document.createElement('div');
+    stitle.className = 'chart-label';
+    stitle.textContent = 'Tracked nodes';
+    panel.appendChild(stitle);
+
+    // Existing series, each with its plot color and a remove button.
+    chart.nodeIds = (chart.nodeIds || []).filter(id => this.diagram.nodes.has(id));
+    if (!chart.nodeIds.length) this._info(panel, 'No nodes tracked yet. Add one below.');
+    chart.nodeIds.forEach((id, idx) => {
+      const node = this.diagram.nodes.get(id);
+      const row = document.createElement('div');
+      row.className = 'prop-row';
+      const sw = document.createElement('span');
+      sw.style.cssText = `flex:0 0 12px;width:12px;height:12px;border-radius:2px;background:${palette[idx % palette.length]};`;
+      const name = document.createElement('span');
+      name.style.cssText = 'flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      name.textContent = node.label || node.type;
+      const rm = document.createElement('button');
+      rm.textContent = '×'; rm.className = 'btn';
+      rm.style.cssText = 'padding:2px 8px;flex-shrink:0;';
+      rm.addEventListener('click', () => {
+        chart.nodeIds = chart.nodeIds.filter(x => x !== id);
+        this._renderProps(); this.renderer.render(); this._commit();
+      });
+      row.appendChild(sw); row.appendChild(name); row.appendChild(rm);
+      panel.appendChild(row);
+    });
+
+    // Add-series dropdown: chartable nodes (anything except infinite sources)
+    // not already tracked.
+    const available = [...this.diagram.nodes.values()]
+      .filter(n => !(n.type === NodeType.SOURCE && !n.limited))
+      .filter(n => !chart.nodeIds.includes(n.id));
+    const addRow = document.createElement('div');
+    addRow.className = 'prop-row';
+    const sel = document.createElement('select');
+    sel.style.flex = '1';
+    const ph = document.createElement('option');
+    ph.value = ''; ph.textContent = available.length ? 'Add node…' : 'No nodes available';
+    sel.appendChild(ph);
+    for (const n of available) {
+      const o = document.createElement('option');
+      o.value = n.id; o.textContent = n.label || n.type;
+      sel.appendChild(o);
+    }
+    sel.disabled = !available.length;
+    sel.addEventListener('change', () => {
+      if (!sel.value) return;
+      chart.nodeIds.push(sel.value);
+      this._renderProps(); this.renderer.render(); this._commit();
+    });
+    addRow.appendChild(sel);
+    panel.appendChild(addRow);
+
+    this._sep(panel);
+    const delRow = document.createElement('div');
+    delRow.className = 'prop-row';
+    delRow.appendChild(document.createElement('label'));
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Delete chart'; delBtn.className = 'btn btn-danger'; delBtn.style.flex = '1';
+    delBtn.addEventListener('click', () => {
+      this.diagram.removeChart(chart.id);
       this.editor._select(null, null);
       this.renderer.render();
       this._commit();

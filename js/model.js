@@ -420,12 +420,33 @@ class MNote {
   loadJSON(d) { Object.assign(this, d); return this; }
 }
 
+// On-canvas chart widget: a live line chart of one or more tracked nodes'
+// values over the run, drawn directly into the diagram (distinct from the
+// global timeline panel). Series are identified by node id.
+class MChart {
+  constructor(x, y) {
+    this.id = genId('chart');
+    this.x = x; this.y = y;
+    this.w = 240; this.h = 150;
+    this.label = 'Chart';
+    this.nodeIds = [];      // tracked node ids, each plotted as a series
+  }
+  toJSON() {
+    return {
+      id: this.id, x: this.x, y: this.y, w: this.w, h: this.h,
+      label: this.label, nodeIds: [...this.nodeIds],
+    };
+  }
+  loadJSON(d) { Object.assign(this, d); this.nodeIds = [...(d.nodeIds || [])]; return this; }
+}
+
 class Diagram {
   constructor() {
     this.nodes = new Map();
     this.connections = new Map();
     this.groups = new Map();
     this.notes = new Map();
+    this.charts = new Map();
     this.variables = {};  // shared store, refreshed each step from state connections
     this.params = {};     // user-defined constants seeded into variables before each step
     // Time mode: 'sync' (turn-based — every automatic node fires each step) or
@@ -453,6 +474,9 @@ class Diagram {
   addNote(n) { this.notes.set(n.id, n); return n; }
   removeNote(id) { this.notes.delete(id); }
 
+  addChart(c) { this.charts.set(c.id, c); return c; }
+  removeChart(id) { this.charts.delete(id); }
+
   outgoing(nodeId) { return [...this.connections.values()].filter(c => c.sourceId === nodeId); }
   incoming(nodeId) { return [...this.connections.values()].filter(c => c.targetId === nodeId); }
 
@@ -463,6 +487,7 @@ class Diagram {
       connections: [...this.connections.values()].map(c => c.toJSON()),
       groups: this.groups.size ? [...this.groups.values()].map(g => g.toJSON()) : undefined,
       notes: this.notes.size ? [...this.notes.values()].map(n => n.toJSON()) : undefined,
+      charts: this.charts.size ? [...this.charts.values()].map(c => c.toJSON()) : undefined,
       variables: { ...this.variables },
       params: Object.keys(this.params).length ? { ...this.params } : undefined,
       timeMode: this.timeMode !== 'sync' ? this.timeMode : undefined,
@@ -477,6 +502,7 @@ class Diagram {
     this.connections.clear();
     this.groups.clear();
     this.notes.clear();
+    this.charts.clear();
     _idSeq = Math.max(_idSeq, data._idSeq || 0);
     this.variables = { ...(data.variables || {}) };
     this.params = { ...(data.params || {}) };
@@ -503,6 +529,11 @@ class Diagram {
       const note = new MNote(nd.x, nd.y);
       note.loadJSON(nd);
       this.notes.set(note.id, note);
+    }
+    for (const cd of (data.charts || [])) {
+      const chart = new MChart(cd.x, cd.y);
+      chart.loadJSON(cd);
+      this.charts.set(chart.id, chart);
     }
   }
 }
