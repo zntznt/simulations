@@ -344,12 +344,15 @@ input[type="range"] {
 
 /* ── Autosave banner ── */
 #autosave-banner {
-  display: flex; align-items: center; gap: 8px; margin-left: 12px;
-  padding: 3px 10px; background: rgba(74,158,255,0.1);
-  border: 1px solid rgba(74,158,255,0.3); border-radius: 5px;
-  font-size: 12px; color: var(--accent);
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px; background: var(--panel2);
+  border: 1px solid var(--accent); border-radius: 8px;
+  font-size: 13px; color: var(--accent);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.45); z-index: 300;
+  white-space: nowrap;
 }
-#autosave-banner .btn { padding: 2px 8px; font-size: 11px; }
+#autosave-banner .btn { padding: 4px 12px; font-size: 12px; }
 
 /* ── Library modal ── */
 #lib-overlay {

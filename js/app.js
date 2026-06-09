@@ -183,7 +183,7 @@ class App {
       dismissBtn.className = 'btn';
       banner.appendChild(restoreBtn);
       banner.appendChild(dismissBtn);
-      document.getElementById('topbar').appendChild(banner);
+      document.body.appendChild(banner);
       restoreBtn.addEventListener('click', () => {
         banner.remove();
         try {
