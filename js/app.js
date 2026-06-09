@@ -370,6 +370,24 @@ class App {
       this._colorField(panel, 'Resource Color', node.resourceColor || '#ffa726', v => {
         node.resourceColor = v; this.renderer.render();
       });
+      this._checkRow(panel, 'Limited stock', node.limited, v => {
+        node.limited = v;
+        if (v) {
+          const stock = isFinite(node.resources) ? node.resources : 10;
+          node.setCount(stock, node.resourceColor || DEFAULT_COLOR);
+        } else {
+          node.resources = Infinity; node.colorMap = {};
+          node._initialResources = Infinity; node._initialColorMap = {};
+        }
+        this._renderProps(); this.renderer.render();
+      });
+      if (node.limited) {
+        this._field(panel, 'Stock', 'number', isFinite(node.resources) ? node.resources : 0, v => {
+          node.setCount(Math.max(0, parseInt(v) || 0), node.resourceColor || DEFAULT_COLOR);
+          this.renderer.render();
+        });
+        this._info(panel, 'Finite starting stock — the source runs dry when depleted.');
+      }
     }
 
     if (node.type !== NodeType.SOURCE && node.type !== NodeType.REGISTER && node.type !== NodeType.DRAIN) {
@@ -408,6 +426,12 @@ class App {
 
     if (node.type === NodeType.DELAY) {
       this._field(panel, 'Delay steps', 'number', node.delay, v => { node.delay = Math.max(1, parseInt(v) || 1); });
+    }
+
+    if (node.type === NodeType.QUEUE) {
+      this._field(panel, 'Process time', 'number', node.processTime,
+        v => { node.processTime = Math.max(1, parseInt(v) || 1); });
+      this._info(panel, 'Steps to process one unit. Units are served one at a time (FIFO) — a throughput bottleneck of one per process-time, with per-item latency.');
     }
 
     if (node.type === NodeType.GATE) {
@@ -551,6 +575,18 @@ class App {
       this._conditionRow(panel, 'Activator (⊢)', conn,
         { enabled: 'activator', op: 'actOperator', val: 'actValue', lead: 'enable target when source' });
       this._info(panel, 'The target node may only fire while the source value satisfies this condition.');
+
+      this._sep(panel);
+
+      this._checkRow(panel, 'Modifier (Δ)', conn.modifier, v => {
+        conn.modifier = v; this._renderProps(); this.renderer.render();
+      });
+      if (conn.modifier) {
+        this._field(panel, 'Factor', 'number', conn.modFactor, v => {
+          const n = parseFloat(v); conn.modFactor = isFinite(n) ? n : 0; this.renderer.render();
+        }, 'Δ = factor × source / step');
+      }
+      this._info(panel, 'Each step, add factor × source value to the target pool/converter (negative = decay). Self-connections are allowed for interest/decay.');
     }
   }
 

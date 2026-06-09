@@ -15,7 +15,8 @@ class SimEngine {
 
   saveInitial() {
     for (const n of this.diagram.nodes.values()) {
-      n._initialResources = n.type === NodeType.SOURCE ? Infinity : n.resources;
+      const infiniteSource = n.type === NodeType.SOURCE && !n.limited;
+      n._initialResources = infiniteSource ? Infinity : n.resources;
       n._initialColorMap = { ...n.colorMap };
     }
   }
@@ -26,9 +27,15 @@ class SimEngine {
     this.history = [];
     this.ended = null;
     for (const n of this.diagram.nodes.values()) {
-      n.resources = n._initialResources ?? (n.type === NodeType.SOURCE ? Infinity : 0);
+      const infiniteSource = n.type === NodeType.SOURCE && !n.limited;
+      n.resources = n._initialResources ?? (infiniteSource ? Infinity : 0);
       n.colorMap = { ...(n._initialColorMap || {}) };
       if (n.type === NodeType.DELAY) n._queue = [];
+      if (n.type === NodeType.QUEUE) {
+        n._proc = null;
+        // Rebuild the FIFO from any pre-loaded starting resources.
+        n._fifo = Object.entries(n.colorMap).filter(([, a]) => a > 0).map(([color, amount]) => ({ amount, color }));
+      }
       if (n.type === NodeType.SOURCE) n.produced = 0;
       if (n.type === NodeType.DRAIN) n.drained = 0;
       if (n.type === NodeType.REGISTER) n.value = 0;
@@ -115,13 +122,16 @@ class SimEngine {
     }
     this._runFireQueue(initial, ctx, fired);
 
-    // Advance delay queues (releases respect target capacity).
+    // Advance delay queues and queue nodes (releases respect target capacity).
     this._advanceDelays(ctx);
+    this._advanceQueues(ctx);
 
     // Commit all flows atomically.
     this._applyCtx(ctx);
 
-    // Refresh shared variables + registers to reflect the new committed state.
+    // Apply state-connection modifiers (in-place growth / decay) on the
+    // committed state, then refresh shared variables + registers.
+    this._applyModifiers();
     this._updateVariables();
     this._evalRegisters();
 
@@ -242,6 +252,9 @@ class SimEngine {
       return this._fireConverter(node, outs, ctx);
     }
     if (node.type === NodeType.SOURCE) {
+      // A limited source holds a finite stock and behaves like a pool (but
+      // still tracks `produced`). An unlimited source emits independently.
+      if (node.limited) return this._firePool(node, outs, ctx, interactive, true);
       let any = false;
       for (const conn of outs) {
         if (!interactive && !this._connFires(conn, node)) continue;
@@ -273,7 +286,7 @@ class SimEngine {
   // max-min fair (each activating connection gets its first unit before any
   // gets a second), so distribution is order-independent and a greedy
   // high-rate connection can't starve low-rate / probabilistic ones.
-  _firePool(node, outs, ctx, interactive) {
+  _firePool(node, outs, ctx, interactive, trackProduced = false) {
     node.reconcile();
     if (node.resources <= 0) return false;
 
@@ -301,7 +314,11 @@ class SimEngine {
         this._give(r.conn.targetId, color, amount, r.conn.id, ctx);
         total += amount;
       }
-      if (total > 0) { this._reserve(r.conn.targetId, total, ctx); moved = true; }
+      if (total > 0) {
+        this._reserve(r.conn.targetId, total, ctx);
+        if (trackProduced) node.produced += total;
+        moved = true;
+      }
     });
     return moved;
   }
@@ -462,6 +479,92 @@ class SimEngine {
     }
   }
 
+  // Queue: a single-server FIFO. One unit is "in service" at a time and takes
+  // `processTime` steps; finished units are released to an output with room.
+  // This serializes throughput (1 unit / processTime) and adds per-item latency
+  // — distinct from a Delay (which releases a whole batch together).
+  _advanceQueues(ctx) {
+    const d = this.diagram;
+    for (const n of d.nodes.values()) {
+      if (n.type !== NodeType.QUEUE) continue;
+      const pt = Math.max(1, Math.round(n.processTime || 1));
+      const outs = d.outgoing(n.id).filter(c => c.type === ConnectionType.RESOURCE);
+
+      // Progress the unit currently in service; release it when finished.
+      if (n._proc) {
+        if (n._proc.stepsLeft > 0) n._proc.stepsLeft--;
+        if (n._proc.stepsLeft <= 0) {
+          const color = n._proc.color;
+          let released = false;
+          for (const c of outs) {
+            if (this._acceptable(c.targetId, 1, ctx) >= 1) {
+              this._give(c.targetId, color, 1, c.id, ctx);
+              this._reserve(c.targetId, 1, ctx);
+              n.resources = Math.max(0, n.resources - 1);
+              if (n.colorMap[color]) n.colorMap[color] = Math.max(0, n.colorMap[color] - 1);
+              released = true;
+              break;
+            }
+          }
+          if (released) n._proc = null; // else hold (output full); retry next step
+        }
+      }
+
+      // Start the next waiting unit if the server is idle.
+      if (!n._proc) {
+        const color = this._dequeueUnit(n);
+        if (color != null) n._proc = { color, stepsLeft: pt };
+      }
+
+      for (const k of Object.keys(n.colorMap)) if (n.colorMap[k] <= 0) delete n.colorMap[k];
+    }
+  }
+
+  // Remove one unit from the front of a queue's FIFO buffer (keeps it counted
+  // in node.resources until it is actually released).
+  _dequeueUnit(n) {
+    while (n._fifo && n._fifo.length) {
+      const head = n._fifo[0];
+      if (head.amount <= 0) { n._fifo.shift(); continue; }
+      head.amount -= 1;
+      if (head.amount <= 0) n._fifo.shift();
+      return head.color;
+    }
+    return null;
+  }
+
+  // State-connection modifiers: each step, add `modFactor * sourceValue` to the
+  // target node's resources (negative factors decay it). Targets pools and
+  // converters (accumulators); reads the committed post-flow state.
+  _applyModifiers() {
+    const d = this.diagram;
+    for (const conn of d.connections.values()) {
+      if (conn.type !== ConnectionType.STATE || !conn.modifier) continue;
+      const src = d.nodes.get(conn.sourceId);
+      const tgt = d.nodes.get(conn.targetId);
+      if (!src || !tgt || !this._canModify(tgt)) continue;
+      const factor = Number(conn.modFactor);
+      if (!isFinite(factor) || factor === 0) continue;
+      const delta = Math.round(factor * this._stateValueOf(src));
+      if (!isFinite(delta) || delta === 0) continue;
+      if (delta > 0) {
+        const room = tgt.capacity === Infinity ? delta : Math.max(0, tgt.capacity - tgt.resources);
+        const add = Math.min(delta, room);
+        if (add > 0) {
+          const color = dominantColor(tgt.colorMap)
+            || (src.type === NodeType.SOURCE ? src.resourceColor : null) || DEFAULT_COLOR;
+          tgt.addResources(add, color);
+        }
+      } else {
+        tgt.takeResources(-delta);
+      }
+    }
+  }
+
+  _canModify(tgt) {
+    return tgt.type === NodeType.POOL || tgt.type === NodeType.CONVERTER;
+  }
+
   // ── Flow plumbing ─────────────────────────────────────────────────────────
 
   // How much a target can still accept this step (capacity-aware).
@@ -508,7 +611,11 @@ class SimEngine {
         for (const amt of Object.values(colorAmounts)) n.drained = (n.drained || 0) + amt;
         continue;
       }
-      for (const [color, amount] of Object.entries(colorAmounts)) n.addResources(amount, color);
+      for (const [color, amount] of Object.entries(colorAmounts)) {
+        n.addResources(amount, color);
+        // Queues line incoming resources up in arrival order (FIFO buffer).
+        if (n.type === NodeType.QUEUE) { n._fifo = n._fifo || []; n._fifo.push({ amount, color }); }
+      }
     }
 
     for (const [id, items] of delayIn) {

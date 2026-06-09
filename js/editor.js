@@ -78,7 +78,10 @@ class Editor {
           this._connecting = { sourceId: hit.id, type: connType };
         }
       } else {
-        if (hit && hit.type === 'node' && hit.id !== this._connecting.sourceId) {
+        // State connections may target their own source (e.g. a pool applying
+        // interest/decay to itself via a modifier); resource self-loops are not.
+        const allowSelf = this._connecting.type === ConnectionType.STATE;
+        if (hit && hit.type === 'node' && (hit.id !== this._connecting.sourceId || allowSelf)) {
           const conn = this.diagram.addConnection(
             new MConnection(this._connecting.sourceId, hit.id, this._connecting.type)
           );

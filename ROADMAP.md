@@ -44,14 +44,16 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       along its incoming connections); we are push-only. Add per-node
       push/pull plus the any/all variants (pull-any, pull-all, push-any,
       push-all), which change how partial availability is resolved.
-- [ ] **Finite / limited Source (P1).** Sources are infinite only. Add a source
-      with a starting stock that can run dry.
-- [ ] **Queue node (P1).** We have Delay (pure time-shift). Add Queue
-      (throttled release, one batch at a time) as a distinct element.
-- [ ] **State-connection modifiers (P1).** Let a state connection directly
-      modify a *target connection's rate* or a *node property* by `±k·value`
-      (Machinations' `+1` / `-2` label modifiers), including connections that
-      target other connections.
+- [x] **Finite / limited Source (P1).** Source can hold a finite starting stock
+      ("Limited stock" toggle) and run dry.
+- [x] **Queue node (P1).** Single-server FIFO: one unit in service at a time for
+      `processTime` steps — serialized throughput + per-item latency, distinct
+      from Delay's batch release.
+- [x] **State-connection modifiers (P1).** A state connection can add
+      `factor × sourceValue` to a target pool/converter each step (negative =
+      decay); self-connections enable interest/decay in place. _(Connection-rate
+      modifiers are already covered by formula rates; edge-targeting a
+      connection is still future.)_
 - [ ] **Reverse triggers / interrupts (P2).** Fire (or block) a target when the
       source *fails* to act, not just when it succeeds.
 - [ ] **Conditions referencing arbitrary nodes (P2).** Connection conditions

@@ -5,7 +5,7 @@ function svgEl(tag, attrs = {}) {
   return el;
 }
 
-const NODE_R = { pool: 32, source: 32, drain: 32, gate: 34, converter: 36, register: 32, delay: 32 };
+const NODE_R = { pool: 32, source: 32, drain: 32, gate: 34, converter: 36, register: 32, delay: 32, queue: 32 };
 
 function nodeBoundaryPoint(node, tx, ty) {
   const dx = tx - node.x, dy = ty - node.y;
@@ -27,6 +27,13 @@ function nodeBoundaryPoint(node, tx, ty) {
 }
 
 function connPathD(src, tgt) {
+  if (src.id === tgt.id) {
+    // Self-loop: a small loop above the node (used by self state modifiers).
+    const r = NODE_R[src.type] || 32;
+    const x = src.x, y = src.y;
+    return `M ${x - r * 0.55},${y - r * 0.8} C ${x - r * 1.6},${y - r * 2.6} `
+         + `${x + r * 1.6},${y - r * 2.6} ${x + r * 0.55},${y - r * 0.8}`;
+  }
   const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
   const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
   const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
@@ -37,6 +44,10 @@ function connPathD(src, tgt) {
 }
 
 function connLabelPos(src, tgt) {
+  if (src.id === tgt.id) {
+    const r = NODE_R[src.type] || 32;
+    return { x: src.x, y: src.y - r * 2.2 };
+  }
   const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
   const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
   const dx = p2.x - p1.x, dy = p2.y - p1.y;
@@ -226,11 +237,12 @@ class Renderer {
     const isRes = conn.type === ConnectionType.RESOURCE;
     const isTrigger = !isRes && conn.trigger;
     const isActivator = !isRes && conn.activator;
+    const isModifier = !isRes && conn.modifier;
     const isSel = this.selectedId === conn.id;
     const d = connPathD(src, tgt);
     const lp = connLabelPos(src, tgt);
 
-    const baseColor = isTrigger ? '#66bb6a' : (isRes ? '#ffa726' : '#78909c');
+    const baseColor = isTrigger ? '#66bb6a' : (isModifier ? '#ffb74d' : (isRes ? '#ffa726' : '#78909c'));
     const color = isSel ? '#fff' : baseColor;
 
     el.querySelector('.conn-hitbox').setAttribute('d', d);
@@ -256,6 +268,8 @@ class Renderer {
       if (src.type === NodeType.GATE && Number(conn.weight) !== 1) txt += (txt ? ' ' : '') + `⚖${conn.weight}`;
     } else if (isTrigger) {
       txt = conn.label ? `✷ ${conn.label}` : '✷';
+    } else if (isModifier) {
+      txt = `Δ ${conn.modFactor > 0 ? '+' : ''}${conn.modFactor}×`;
     } else if (isActivator) {
       txt = `⊢ ${conn.actOperator}${conn.actValue}`;
     } else {
@@ -304,6 +318,11 @@ class Renderer {
     } else if (node.type === NodeType.DELAY) {
       g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
       g.appendChild(svgEl('circle', { class: 'delay-ring', r: '24', fill: 'none', 'stroke-dasharray': '5,3', 'stroke-width': '1.5' }));
+    } else if (node.type === NodeType.QUEUE) {
+      g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
+      // FIFO motif: three units lined up near the bottom.
+      for (const x of [-8, 0, 8])
+        g.appendChild(svgEl('circle', { class: 'q-dot', cx: x, cy: '16', r: '2.2', fill: NODE_STROKE.queue }));
     }
 
     g.appendChild(svgEl('text', { class: 'n-count', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'pointer-events': 'none' }));

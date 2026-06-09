@@ -6,6 +6,7 @@ const NodeType = {
   CONVERTER: 'converter',
   REGISTER: 'register',
   DELAY: 'delay',
+  QUEUE: 'queue',
 };
 
 const ConnectionType = {
@@ -33,11 +34,13 @@ const DEFAULT_COLOR = '#9e9e9e';
 const NODE_FILL = {
   pool: '#1a3a6b', source: '#1a4a2a', drain: '#4a1a1a',
   gate: '#3a1a5a', converter: '#4a2a00', register: '#1a2a38', delay: '#004a4a',
+  queue: '#2a2a4a',
 };
 
 const NODE_STROKE = {
   pool: '#4a9eff', source: '#4caf50', drain: '#ef5350',
   gate: '#ba68c8', converter: '#ffa726', register: '#78909c', delay: '#26c6da',
+  queue: '#7c83ff',
 };
 
 const VALID_IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -110,6 +113,7 @@ class MNode {
       this._initialResources = Infinity;
       this.resourceColor = '#ffa726';
       this.produced = 0;        // total emitted this run (for state connections)
+      this.limited = false;     // when true, holds a finite starting stock
     } else if (type === NodeType.DRAIN) {
       this.drained = 0;         // total consumed this run
     } else if (type === NodeType.REGISTER) {
@@ -121,13 +125,17 @@ class MNode {
     } else if (type === NodeType.DELAY) {
       this.delay = 2;
       this._queue = [];         // [{amount, color, stepsLeft}]
+    } else if (type === NodeType.QUEUE) {
+      this.processTime = 2;     // steps to process one unit (single-server FIFO)
+      this._fifo = [];          // [{amount, color}] waiting, in arrival order
+      this._proc = null;        // {color, stepsLeft} unit currently in service
     } else if (type === NodeType.GATE) {
       this.gateMode = 'deterministic';
     }
   }
 
   get displayCount() {
-    if (this.type === NodeType.SOURCE) return '∞';
+    if (this.type === NodeType.SOURCE) return this.limited ? this.resources : '∞';
     if (this.type === NodeType.DRAIN) return this.drained || 0;
     if (this.type === NodeType.REGISTER) {
       if (!isFinite(this.value)) return '∞';
@@ -140,7 +148,7 @@ class MNode {
   get chartValue() {
     if (this.type === NodeType.DRAIN) return this.drained || 0;
     if (this.type === NodeType.REGISTER) return isFinite(this.value) ? this.value : 0;
-    if (this.type === NodeType.SOURCE) return 0;
+    if (this.type === NodeType.SOURCE) return this.limited ? this.resources : 0;
     return this.resources;
   }
 
@@ -218,18 +226,19 @@ class MNode {
     const d = {
       id: this.id, type: this.type, x: this.x, y: this.y,
       label: this.label, activation: this.activation,
-      resources: this.type === NodeType.SOURCE ? 0 : this.resources,
+      resources: (this.type === NodeType.SOURCE && !this.limited) ? 0 : this.resources,
       capacity: this.capacity === Infinity ? null : this.capacity,
       colorMap: Object.keys(this.colorMap).length ? { ...this.colorMap } : undefined,
       endEnabled: this.endEnabled || undefined,
       endOperator: this.endOperator,
       endValue: this.endValue,
     };
-    if (this.type === NodeType.SOURCE) d.resourceColor = this.resourceColor;
+    if (this.type === NodeType.SOURCE) { d.resourceColor = this.resourceColor; d.limited = this.limited || undefined; }
     if (this.type === NodeType.GATE) d.gateMode = this.gateMode;
     if (this.type === NodeType.REGISTER) { d.value = this.value; d.formula = this.formula; }
     if (this.type === NodeType.CONVERTER) { d.inputAmount = this.inputAmount; d.outputColor = this.outputColor; }
     if (this.type === NodeType.DELAY) d.delay = this.delay;
+    if (this.type === NodeType.QUEUE) d.processTime = this.processTime;
     return d;
   }
 
@@ -237,11 +246,14 @@ class MNode {
     Object.assign(this, d);
     this.capacity = d.capacity == null ? Infinity : d.capacity;
     this.colorMap = { ...(d.colorMap || {}) };
-    this._initialResources = this.type === NodeType.SOURCE ? Infinity : this.resources;
+    const infiniteSource = this.type === NodeType.SOURCE && !this.limited;
+    this._initialResources = infiniteSource ? Infinity : this.resources;
     this._initialColorMap = { ...this.colorMap };
-    if (this.type === NodeType.SOURCE) { this.resources = Infinity; this.produced = 0; }
+    if (infiniteSource) { this.resources = Infinity; }
+    if (this.type === NodeType.SOURCE) this.produced = 0;
     if (this.type === NodeType.DRAIN) this.drained = 0;
     if (this.type === NodeType.DELAY) this._queue = [];
+    if (this.type === NodeType.QUEUE) { this._fifo = []; this._proc = null; }
     return this;
   }
 }
@@ -287,6 +299,12 @@ class MConnection {
     // Gate output weight (resource connection out of a Gate): relative share
     // for deterministic splits / weighted chance for probabilistic routing.
     this.weight = 1;
+
+    // Modifier (state connection): each step add `modFactor * sourceValue` to
+    // the target node's resources (negative = decay). Enables growth / decay /
+    // interest in place, without a resource flow.
+    this.modifier = false;
+    this.modFactor = 1;
   }
 
   toJSON() {
@@ -302,6 +320,8 @@ class MConnection {
       activator: this.activator || undefined,
       actOperator: this.actOperator, actValue: this.actValue,
       weight: this.weight,
+      modifier: this.modifier || undefined,
+      modFactor: this.modFactor,
     };
   }
 

@@ -512,6 +512,111 @@ test('toJSON/loadJSON preserves new fields', () => {
   eq(av.actValue, 9, 'actValue preserved');
 });
 
+// ── P1: finite source / queue / modifiers ──────────────────────────────────
+console.log('\nFinite source');
+
+test('a limited source emits its stock then runs dry', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.limited = true; s.setCount(10, s.resourceColor);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 3;
+  steps(e, 10);
+  eq(p.resources, 10, 'pool received exactly the stock');
+  eq(s.resources, 0, 'source ran dry');
+  eq(s.produced, 10, 'produced equals the emitted stock');
+});
+
+test('an unlimited source is unaffected (regression)', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 4;
+  steps(e, 5);
+  eq(p.resources, 20, 'unlimited source keeps emitting');
+});
+
+console.log('\nQueue (single-server FIFO)');
+
+test('queue serializes throughput to ~1 per process-time', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE); q.processTime = 3;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, s, q).rate = 1;     // 1 unit in per step
+  conn(d, q, dr).rate = 1;
+  steps(e, 30);
+  assert(dr.drained >= 8 && dr.drained <= 10, `~30/3 released (got ${dr.drained})`);
+  assert(dr.drained < 30, 'far below the 30 that arrived (bottleneck)');
+  assert(q.resources > 15, 'queue backs up behind the bottleneck');
+});
+
+test('queue adds per-item latency before the first release', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE); q.processTime = 3;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, s, q).rate = 1;
+  conn(d, q, dr).rate = 1;
+  e.reset();
+  for (let i = 0; i < 4; i++) e.doStep();
+  eq(dr.drained, 0, 'nothing released yet during the processing latency');
+  e.doStep();
+  eq(dr.drained, 1, 'first unit released after latency');
+});
+
+console.log('\nState modifiers');
+
+test('self modifier grows a pool (interest)', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.setCount(100);
+  const c = conn(d, p, p, ConnectionType.STATE); c.modifier = true; c.modFactor = 0.1;
+  e.reset();
+  e.doStep(); eq(p.resources, 110, '+10% after one step');
+  e.doStep(); eq(p.resources, 121, 'compounds');
+});
+
+test('self modifier with negative factor decays a pool', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.setCount(100);
+  const c = conn(d, p, p, ConnectionType.STATE); c.modifier = true; c.modFactor = -0.2;
+  steps(e, 1);
+  eq(p.resources, 80, '-20% after one step');
+});
+
+test('modifier from another node adds source value each step', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(5);   // no outflow, stays 5
+  const b = node(d, NodeType.POOL);
+  const c = conn(d, a, b, ConnectionType.STATE); c.modifier = true; c.modFactor = 1;
+  steps(e, 2);
+  eq(b.resources, 10, 'B grew by A (5) each step');
+  eq(a.resources, 5, 'A unchanged');
+});
+
+test('modifier respects target capacity', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(100);
+  const b = node(d, NodeType.POOL); b.capacity = 8;
+  const c = conn(d, a, b, ConnectionType.STATE); c.modifier = true; c.modFactor = 1;
+  steps(e, 1);
+  eq(b.resources, 8, 'capped at capacity');
+});
+
+test('toJSON/loadJSON preserves limited source, queue, and modifier', () => {
+  const { d } = setup();
+  const s = node(d, NodeType.SOURCE); s.limited = true; s.setCount(7, s.resourceColor);
+  const q = node(d, NodeType.QUEUE); q.processTime = 4;
+  const m = conn(d, s, q, ConnectionType.STATE); m.modifier = true; m.modFactor = -0.5;
+  const json = JSON.parse(JSON.stringify(d.toJSON()));
+  const d2 = new Diagram(); d2.loadJSON(json);
+  const s2 = [...d2.nodes.values()].find(n => n.type === NodeType.SOURCE);
+  const q2 = [...d2.nodes.values()].find(n => n.type === NodeType.QUEUE);
+  const m2 = [...d2.connections.values()].find(c => c.modifier);
+  assert(s2 && s2.limited === true && s2.resources === 7, 'limited stock preserved');
+  assert(q2 && q2.processTime === 4, 'queue process time preserved');
+  assert(m2 && m2.modFactor === -0.5, 'modifier factor preserved');
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed) {

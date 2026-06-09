@@ -123,6 +123,48 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('editor place / drag-connect / right-click-delete work');
   else fail('editor ops: ' + JSON.stringify(editor));
 
+  // P1 panels: queue node + process time, source limited stock, state modifier.
+  const p1 = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const hasLabel = (t) => [...document.querySelectorAll('#props-content .prop-row label')]
+      .some(l => l.textContent.trim() === t);
+    const toggle = (t) => {
+      for (const row of document.querySelectorAll('#props-content .prop-row')) {
+        const lbl = row.querySelector('label');
+        if (lbl && lbl.textContent.trim() === t) {
+          const c = row.querySelector('input[type=checkbox]');
+          c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        }
+      }
+      return false;
+    };
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const ev = (t, sx, sy) => canvas.dispatchEvent(
+      new MouseEvent(t, { clientX: r.left + sx, clientY: r.top + sy, button: 0, bubbles: true }));
+    window.app.editor.setTool('place-queue'); ev('mousedown', 250, 250); ev('mouseup', 250, 250);
+    const q = [...d.nodes.values()].find(n => n.type === NodeType.QUEUE);
+    window.app._onSelect(q.id, 'node');
+    const hasPT = hasLabel('Process time');
+
+    const s = d.addNode(new MNode(NodeType.SOURCE, 450, 250));
+    window.app._onSelect(s.id, 'node');
+    const limitedToggled = toggle('Limited stock');
+    const hasStock = hasLabel('Stock');
+
+    const a = d.addNode(new MNode(NodeType.POOL, 600, 400));
+    const sc = d.addConnection(new MConnection(a.id, a.id, ConnectionType.STATE));
+    window.app._onSelect(sc.id, 'conn');
+    const modToggled = toggle('Modifier (Δ)');
+
+    return { hasQueue: !!q, hasPT, limited: s.limited, hasStock, modToggled, modifier: sc.modifier };
+  });
+  if (p1.hasQueue && p1.hasPT && p1.limited && p1.hasStock && p1.modToggled && p1.modifier)
+    ok('P1 panels: queue+process-time, source limited+stock, state modifier');
+  else fail('P1 panels: ' + JSON.stringify(p1));
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);
