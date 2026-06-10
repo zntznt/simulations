@@ -111,12 +111,13 @@ charts** as annotations (groups, notes, and charts are **drag‑resizable** by t
 corner handles).
 
 ### Diagram settings rail
-A far‑right icon rail holds the **diagram‑wide** settings, each opening its own
-panel so they're never crammed together: **time mode**, **parameters**,
-**custom variables**, **resource types**, the **artificial player**, and a live
-**variable watch** that ticks with the simulation. The left palette stays for
-tools/nodes, the properties panel for the current selection, and the top bar for
-run/zoom/file controls.
+A far‑right icon rail holds the **diagram‑wide** settings, each opening in the
+properties panel so they're never crammed together: **time mode**,
+**parameters**, **custom variables**, **resource types**, the **artificial
+player**, and a live **variable watch** that ticks with the simulation. Clicking
+a rail icon shows that editor in the panel; selecting a node or connection hands
+the panel back to the selection. The left palette stays for tools/nodes and the
+top bar for run/zoom/file controls.
 
 ### Analysis & data
 - **Global timeline chart** — every tracked node's value over time, with a legend.

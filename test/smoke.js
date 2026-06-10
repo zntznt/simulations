@@ -342,35 +342,35 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P2 engine UI: gate all-mode, reverse trigger, distribution rate');
   else fail('P2 engine UI: ' + JSON.stringify(p2eng));
 
-  // Diagram rail: each feature button opens a flyout with that editor; the
-  // active button highlights and the close button dismisses it.
+  // Diagram rail: each feature button renders its editor into the props panel;
+  // the active button highlights, clicking it again returns to the default view.
   const rail = await page.evaluate(() => {
     window.app._clearAll();
     window.app.editor._select(null, null);
     const open = (f) => document.querySelector(`#diagram-rail .rail-btn[data-feature="${f}"]`).click();
-    const fly = document.getElementById('diagram-flyout');
-    const title = () => document.getElementById('flyout-title').textContent;
+    const content = () => document.getElementById('props-content').textContent;
     open('params');
-    const paramsShown = !fly.classList.contains('hidden') && title() === 'Parameters'
-      && document.getElementById('flyout-content').textContent.includes('constants');
+    const paramsShown = window.app._activeFeature === 'params'
+      && content().includes('Parameters') && content().includes('constants');
     const active = document.querySelector('#diagram-rail .rail-btn[data-feature="params"]').classList.contains('active');
     open('vars'); // switch features
-    const switched = title() === 'Custom Variables';
-    document.getElementById('flyout-close').click();
-    const closed = fly.classList.contains('hidden') && window.app._activeFeature === null;
+    const switched = window.app._activeFeature === 'vars' && content().includes('Custom Variables');
+    open('vars'); // toggle off
+    const closed = window.app._activeFeature === null
+      && !document.querySelector('#diagram-rail .rail-btn.active');
     return { paramsShown, active, switched, closed };
   });
   if (rail.paramsShown && rail.active && rail.switched && rail.closed)
-    ok('diagram rail: feature flyouts open / switch / highlight / close');
+    ok('diagram rail: feature panels open / switch / highlight / toggle off');
   else fail('diagram rail: ' + JSON.stringify(rail));
 
-  // Custom variables: add one via the flyout, check the array input validates,
+  // Custom variables: add one via the panel, check the array input validates,
   // and verify a step-updated var feeds a formula during a run.
   const rvars = await page.evaluate(() => {
     window.app._clearAll();
     window.app._closeFeature();
     document.querySelector('#diagram-rail .rail-btn[data-feature="vars"]').click();
-    const panel = document.getElementById('flyout-content');
+    const panel = document.getElementById('props-content');
     const addBtn = [...panel.querySelectorAll('button')].find(b => b.textContent.includes('Add Variable'));
     if (!addBtn) return { error: 'no add button' };
     addBtn.click();
@@ -378,7 +378,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     if (!rv) return { error: 'no var created' };
     // Switch to array kind and exercise validation through the real input.
     rv.kind = 'array';
-    window.app._renderFlyout();
+    window.app._renderProps();
     const card = panel.querySelector('.randvar-card');
     const arrInput = card.querySelector('input[placeholder*="1, 2"]');
     const type = (v) => { arrInput.value = v; arrInput.dispatchEvent(new Event('input', { bubbles: true })); };
@@ -398,7 +398,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     return { invalidFlagged, notCommitted, validAccepted, pooled: p.resources };
   });
   if (rvars.invalidFlagged && rvars.notCommitted && rvars.validAccepted && rvars.pooled === 10)
-    ok('custom vars: flyout add + array validation + formula-driven flow');
+    ok('custom vars: panel add + array validation + formula-driven flow');
   else fail('custom vars: ' + JSON.stringify(rvars));
 
   // Math-kind custom variable: math.js loaded, formula input validates, and a
@@ -408,11 +408,11 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     window.app._clearAll();
     window.app._closeFeature();
     document.querySelector('#diagram-rail .rail-btn[data-feature="vars"]').click();
-    const panel = document.getElementById('flyout-content');
+    const panel = document.getElementById('props-content');
     [...panel.querySelectorAll('button')].find(b => b.textContent.includes('Add Variable')).click();
     const rv = window.app.diagram.customVars[0];
     rv.kind = 'math';
-    window.app._renderFlyout();
+    window.app._renderProps();
     const card = panel.querySelector('.randvar-card');
     const fInput = card.querySelector('input[placeholder*="round"]');
     if (!fInput) return { error: 'no formula input' };
@@ -470,8 +470,8 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   const p3time = await page.evaluate(() => {
     window.app._clearAll();
     window.app._closeFeature();
-    document.querySelector('#diagram-rail .rail-btn[data-feature="time"]').click();  // time flyout
-    const diagText = document.getElementById('flyout-content').textContent;
+    document.querySelector('#diagram-rail .rail-btn[data-feature="time"]').click();  // time panel
+    const diagText = document.getElementById('props-content').textContent;
     const hasTimeMode = diagText.includes('Time mode');
 
     window.app.diagram.timeMode = 'async';
@@ -486,19 +486,19 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P3 time modes: diagram time-mode selector + per-node async fields');
   else fail('P3 time modes: ' + JSON.stringify(p3time));
 
-  // P3: artificial-player flyout present and accepts a rule.
+  // P3: artificial-player panel present and accepts a rule.
   const p3ai = await page.evaluate(() => {
     window.app._clearAll();
     window.app._closeFeature();
     const p = window.app.diagram.addNode(new MNode(NodeType.POOL, 200, 200));
     p.activation = ActivationMode.INTERACTIVE;
     document.querySelector('#diagram-rail .rail-btn[data-feature="player"]').click();
-    const hasAI = document.getElementById('flyout-title').textContent.includes('Artificial Player');
+    const hasAI = document.getElementById('props-content').textContent.includes('Artificial Player');
     const ai = window.app.diagram.aiPlayer;
     ai.rules.push({ nodeId: p.id, mode: 'interval', every: 3 });
     ai.enabled = true;
-    window.app._renderFlyout();                            // re-render with the rule
-    const ruleBoxes = document.querySelectorAll('#flyout-content .ai-rule').length;
+    window.app._renderProps();                            // re-render with the rule
+    const ruleBoxes = document.querySelectorAll('#props-content .ai-rule').length;
     return { hasAI, ruleBoxes };
   });
   if (p3ai.hasAI && p3ai.ruleBoxes === 1)
@@ -682,17 +682,16 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const d = window.app.diagram;
     d.resourceTypes = [{ name: 'Gold', color: '#ffd700' }, { name: 'Wood', color: '#8d6e63' }];
 
-    // The resources flyout shows the Resource Types editor with the type names.
+    // The resources panel shows the Resource Types editor with the type names.
     document.querySelector('#diagram-rail .rail-btn[data-feature="resources"]').click();
-    const diagText = document.getElementById('flyout-content').textContent
-      + ' ' + document.getElementById('flyout-title').textContent;
+    const diagText = document.getElementById('props-content').textContent;
     const hasTypesEditor = diagText.includes('Resource Types') && diagText.includes('Gold')
       && diagText.includes('Totals held');
 
     // A pool holding gold shows the type NAME (not the hex) in its readout.
     const p = d.addNode(new MNode(NodeType.POOL, 200, 200));
     p.setCount(5, '#ffd700');
-    window.app._onSelect(p.id, 'node');
+    window.app._onSelect(p.id, 'node');     // selecting clears the resources panel
     const holdings = document.getElementById('node-holdings');
     const holdingsText = holdings ? holdings.textContent : '';
     const showsGold = holdingsText.includes('Gold') && holdingsText.includes('5');
@@ -703,8 +702,8 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const hasTypeDropdown = [...document.querySelectorAll('#props-content .prop-row label')]
       .some(l => l.textContent.trim() === 'Type');
 
-    // Live totals refresh: diagram panel + a step recomputes the per-type total.
-    window.app.editor._select(null, null);
+    // Live totals refresh: reopen the resources panel + a step recomputes the total.
+    document.querySelector('#diagram-rail .rail-btn[data-feature="resources"]').click();
     window.app._refreshTypeReadouts();
     const totalsText = document.getElementById('diagram-totals').textContent;
     const totalsOk = totalsText.includes('Gold') && totalsText.includes('5') && totalsText.includes('Wood');

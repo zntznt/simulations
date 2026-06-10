@@ -25,7 +25,7 @@ class App {
     this.timeline = new TimelineChart(document.getElementById('timeline-canvas'), document.getElementById('tl-legend'), this.diagram, this.engine);
     this._timelineVisible = false;
 
-    this._activeFeature = null; // which diagram-rail feature flyout is open
+    this._activeFeature = null; // which diagram-rail feature occupies the props panel
 
     this._bindControls();
     this._initLibrary();
@@ -50,8 +50,8 @@ class App {
       if (this._timelineVisible) this.timeline.update();
       this._refreshResourceCount();
       this._refreshTypeReadouts();
-      // Keep the live "Watch" flyout ticking with the run.
-      if (this._activeFeature === 'monitor') this._renderFlyout();
+      // Keep the live "Watch" panel ticking with the run.
+      if (this._activeFeature === 'monitor') this._renderProps();
     };
 
     this.engine.onEnd = (ended) => {
@@ -970,19 +970,29 @@ class App {
     this._selectedId = id;
     this._selectedType = type;
     this._selCount = count;
+    // Selecting something hands the panel back to the selection view (clicking
+    // empty canvas keeps whatever diagram feature is open).
+    if (id && this._activeFeature) { this._activeFeature = null; this._syncRailButtons(); }
     this._renderProps();
   }
 
   // ── Properties panel ──────────────────────────────────────────────────────
 
   _renderProps() {
-    // Keep the diagram-settings flyout in sync on every panel refresh (selection
-    // change, edit, undo/redo, load) — its data is diagram-level and may move.
-    this._renderFlyout();
-
     const panel = document.getElementById('props-content');
     panel.innerHTML = '';
     this._clearSparklines();
+
+    // A diagram-rail feature takes over the panel when active, replacing the
+    // selection view until it's toggled off (or a node/connection is selected).
+    if (this._activeFeature) {
+      const meta = this._featureMeta()[this._activeFeature];
+      if (meta) {
+        this._title(panel, meta.title);
+        meta.render(panel);
+        return;
+      }
+    }
 
     if (this._selCount > 1) {
       panel.innerHTML = `<p class="props-empty"><b>${this._selCount} nodes selected.</b><br>`
@@ -1014,7 +1024,7 @@ class App {
   }
 
   // Default panel (nothing selected): a short hint pointing at the diagram rail.
-  // Diagram-level settings now live in the right-hand rail's flyouts, so the
+  // Diagram-level settings now live in the right-hand rail, so the
   // properties panel is dedicated to the selected node / connection.
   _diagramProps(panel) {
     this._title(panel, 'Diagram');
@@ -1028,9 +1038,9 @@ class App {
     panel.appendChild(p);
   }
 
-  // ── Diagram rail + settings flyout ────────────────────────────────────────
+  // ── Diagram rail + settings panel ────────────────────────────────────────
   // Metadata for each rail feature: a title and the editor that renders it into
-  // a container. Editors are reused as-is; the flyout supplies the framing.
+  // a container. Editors are reused as-is; the rail supplies the title.
   _featureMeta() {
     return {
       time:      { title: 'Time Mode',        render: c => this._timeModeEditor(c) },
@@ -1049,38 +1059,25 @@ class App {
         btn.addEventListener('click', () => this._toggleFeature(btn.dataset.feature));
       });
     }
-    const close = document.getElementById('flyout-close');
-    if (close) close.addEventListener('click', () => this._closeFeature());
   }
 
+  // Toggle a diagram feature into the properties panel (clicking the active
+  // one again returns to the selection / hint view).
   _toggleFeature(name) {
-    if (this._activeFeature === name) { this._closeFeature(); return; }
-    this._activeFeature = name;
-    document.querySelectorAll('#diagram-rail .rail-btn').forEach(b =>
-      b.classList.toggle('active', b.dataset.feature === name));
-    const fly = document.getElementById('diagram-flyout');
-    fly.classList.remove('hidden');
-    fly.setAttribute('aria-hidden', 'false');
-    this._renderFlyout();
+    this._activeFeature = (this._activeFeature === name) ? null : name;
+    this._syncRailButtons();
+    this._renderProps();
   }
 
   _closeFeature() {
     this._activeFeature = null;
-    document.querySelectorAll('#diagram-rail .rail-btn').forEach(b => b.classList.remove('active'));
-    const fly = document.getElementById('diagram-flyout');
-    if (fly) { fly.classList.add('hidden'); fly.setAttribute('aria-hidden', 'true'); }
+    this._syncRailButtons();
+    this._renderProps();
   }
 
-  // Re-render the open flyout's content (no-op when nothing is open).
-  _renderFlyout() {
-    if (!this._activeFeature) return;
-    const meta = this._featureMeta()[this._activeFeature];
-    const content = document.getElementById('flyout-content');
-    const titleEl = document.getElementById('flyout-title');
-    if (!meta || !content) return;
-    if (titleEl) titleEl.textContent = meta.title;
-    content.innerHTML = '';
-    meta.render(content);
+  _syncRailButtons() {
+    document.querySelectorAll('#diagram-rail .rail-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.feature === this._activeFeature));
   }
 
   // Time mode (synchronous turn-based vs asynchronous per-node rhythm).
