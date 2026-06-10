@@ -210,6 +210,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .conn-cp-handle { opacity: 0.6; transition: opacity 0.12s; }
 .conn-cp-handle:hover { opacity: 1; }
 
+/* Corner resize handles on selected groups / notes / charts. */
+.resize-handle { opacity: 0.85; transition: opacity 0.12s; }
+.resize-handle:hover { opacity: 1; }
+
 /* ── Connection style selector (in properties panel) ── */
 .conn-style-group { display: flex; gap: 3px; }
 .conn-style-btn {

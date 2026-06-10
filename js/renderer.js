@@ -514,6 +514,7 @@ class Renderer {
     lbl.setAttribute('y', String(group.y + 16));
     lbl.textContent = group.label || '';
     lbl.setAttribute('fill', color);
+    this._updateResizeHandles(el, group, isSel);
   }
 
   // ── Notes ─────────────────────────────────────────────────────────────────
@@ -564,6 +565,7 @@ class Renderer {
       textEl.appendChild(ts);
     });
     textEl.setAttribute('fill', '#1a1a1a');
+    this._updateResizeHandles(el, note, isSel);
   }
 
   _wrapNoteText(text, maxChars) {
@@ -660,6 +662,8 @@ class Renderer {
     title.setAttribute('y', String(chart.y + 14));
     title.textContent = chart.label || 'Chart';
     title.setAttribute('fill', '#9aa3b2');
+
+    this._updateResizeHandles(el, chart, isSel);
 
     const plot = el.querySelector('.chart-plot');
     while (plot.firstChild) plot.removeChild(plot.firstChild);
@@ -869,6 +873,44 @@ class Renderer {
       handles.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, kind: 'ortho', segIndex: i });
     }
     return handles;
+  }
+
+  // The four corner resize handles of a rect-like item (group/note/chart), in
+  // world coords. Each carries a `corner` ('nw'|'ne'|'sw'|'se') so the editor
+  // knows which edges to move. Returns [] for unknown ids.
+  getResizeHandles(id) {
+    const item = this.diagram.groups.get(id) || this.diagram.charts.get(id) || this.diagram.notes.get(id);
+    if (!item) return [];
+    const { x, y, w, h } = item;
+    return [
+      { x, y, corner: 'nw' },
+      { x: x + w, y, corner: 'ne' },
+      { x, y: y + h, corner: 'sw' },
+      { x: x + w, y: y + h, corner: 'se' },
+    ];
+  }
+
+  // Draw (or remove) the corner resize handles inside a selected item's group.
+  // Kept as the last children so they paint above the item's own content.
+  _updateResizeHandles(el, item, isSel) {
+    let hg = el.querySelector('.resize-handles');
+    if (!isSel) { if (hg) hg.remove(); return; }
+    if (!hg) { hg = svgEl('g', { class: 'resize-handles' }); el.appendChild(hg); }
+    else { while (hg.firstChild) hg.removeChild(hg.firstChild); el.appendChild(hg); }
+    const corners = [
+      { x: item.x, y: item.y, corner: 'nw' },
+      { x: item.x + item.w, y: item.y, corner: 'ne' },
+      { x: item.x, y: item.y + item.h, corner: 'sw' },
+      { x: item.x + item.w, y: item.y + item.h, corner: 'se' },
+    ];
+    for (const c of corners) {
+      const cursor = (c.corner === 'nw' || c.corner === 'se') ? 'nwse-resize' : 'nesw-resize';
+      hg.appendChild(svgEl('rect', {
+        class: 'resize-handle', 'data-corner': c.corner,
+        x: c.x - 5, y: c.y - 5, width: '10', height: '10', rx: '2',
+        fill: 'rgba(74,158,255,0.9)', stroke: '#fff', 'stroke-width': '1.5', cursor,
+      }));
+    }
   }
 
   // ── Nodes ────────────────────────────────────────────────────────────────

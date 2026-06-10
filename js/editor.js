@@ -21,6 +21,7 @@ class Editor {
     this._touchMode = null;      // 'single' | 'pinch'
     this._pinch = null;          // last pinch state {dist, cx, cy}
     this._specialDrag = null;    // {type:'note'|'group', id, origX, origY, nodeItems?, startX, startY, moved}
+    this._resizeDrag = null;     // {type, id, corner, origX, origY, origW, origH, startX, startY, moved}
     this._groupPlaceDrag = null; // {x0, y0} while dragging to define a new group
     this._spaceDown = false;     // hold Space to pan from anywhere (Figma-style)
     this._connHandleDrag = null; // {connId, kind:'cp'|'ortho', segIndex, startX, startY, origCpDx, origCpDy, base}
@@ -43,6 +44,35 @@ class Editor {
     if (!this._snapEnabled) return { x, y };
     const s = this._snapSize;
     return { x: Math.round(x / s) * s, y: Math.round(y / s) * s };
+  }
+
+  _snapVal(v) {
+    if (!this._snapEnabled) return v;
+    return Math.round(v / this._snapSize) * this._snapSize;
+  }
+
+  // Resize a group/note/chart by moving the dragged corner's edges. The opposite
+  // edges stay fixed; the moving corner snaps; min sizes are enforced per type.
+  _applyResize(rd, dx, dy) {
+    const item = this.diagram.groups.get(rd.id) || this.diagram.charts.get(rd.id) || this.diagram.notes.get(rd.id);
+    if (!item) return;
+    const MIN = { group: { w: 40, h: 30 }, chart: { w: 120, h: 80 }, note: { w: 80, h: 50 } };
+    const min = MIN[rd.type] || { w: 40, h: 30 };
+    const c = rd.corner;
+    let left = rd.origX, top = rd.origY;
+    let right = rd.origX + rd.origW, bottom = rd.origY + rd.origH;
+    if (c.includes('w')) left = this._snapVal(rd.origX + dx);
+    if (c.includes('e')) right = this._snapVal(right + dx);
+    if (c.includes('n')) top = this._snapVal(rd.origY + dy);
+    if (c.includes('s')) bottom = this._snapVal(bottom + dy);
+    // Enforce min size, holding the non-dragged edge fixed.
+    if (right - left < min.w) {
+      if (c.includes('w')) left = right - min.w; else right = left + min.w;
+    }
+    if (bottom - top < min.h) {
+      if (c.includes('n')) top = bottom - min.h; else bottom = top + min.h;
+    }
+    item.x = left; item.y = top; item.w = right - left; item.h = bottom - top;
   }
 
   // Project world point (mx, my) onto a connection path and return t ∈ [0.05, 0.95].
@@ -194,6 +224,35 @@ class Editor {
             e.preventDefault();
             return;
           }
+        }
+      }
+    }
+
+    // Check for a resize-handle drag on the selected group / note / chart.
+    if (this.tool === 'select') {
+      const selId = this.renderer.selectedId;
+      const type = this.diagram.groups.has(selId) ? 'group'
+        : this.diagram.charts.has(selId) ? 'chart'
+        : this.diagram.notes.has(selId) ? 'note' : null;
+      if (type) {
+        const item = this.diagram.groups.get(selId) || this.diagram.charts.get(selId) || this.diagram.notes.get(selId);
+        const handles = this.renderer.getResizeHandles(selId);
+        const r = this.svg.getBoundingClientRect();
+        const sx = e.clientX - r.left, sy = e.clientY - r.top;
+        const sc = this.renderer._scale, px = this.renderer._panX, py = this.renderer._panY;
+        let best = null, bestD = 14;
+        for (const h of handles) {
+          const d = Math.hypot(sx - (h.x * sc + px), sy - (h.y * sc + py));
+          if (d <= bestD) { bestD = d; best = h; }
+        }
+        if (best) {
+          this._resizeDrag = {
+            type, id: selId, corner: best.corner,
+            origX: item.x, origY: item.y, origW: item.w, origH: item.h,
+            startX: e.clientX, startY: e.clientY, moved: false,
+          };
+          e.preventDefault();
+          return;
         }
       }
     }
@@ -367,6 +426,16 @@ class Editor {
       return;
     }
 
+    if (this._resizeDrag) {
+      const s = this.renderer._scale || 1;
+      const dx = (e.clientX - this._resizeDrag.startX) / s;
+      const dy = (e.clientY - this._resizeDrag.startY) / s;
+      this._applyResize(this._resizeDrag, dx, dy);
+      this._resizeDrag.moved = true;
+      this.renderer.render();
+      return;
+    }
+
     if (this._specialDrag) {
       const s = this.renderer._scale || 1;
       const dx = (e.clientX - this._specialDrag.startX) / s;
@@ -464,6 +533,13 @@ class Editor {
       this._drag = null;
       this._dragMoved = false;
       if (moved) this._changed();  // commit the move as one undo step
+      return;
+    }
+
+    if (this._resizeDrag) {
+      const moved = this._resizeDrag.moved;
+      this._resizeDrag = null;
+      if (moved) this._changed();
       return;
     }
 
@@ -604,7 +680,7 @@ class Editor {
       this._touchMode = 'pinch';
       this._drag = null; this._dragMoved = false;
       this._marquee = null; this._connecting = null;
-      this._specialDrag = null; this._groupPlaceDrag = null;
+      this._specialDrag = null; this._groupPlaceDrag = null; this._resizeDrag = null;
       this.renderer.clearTemp(); this.renderer.clearMarquee();
       this._pinch = this._pinchState(e);
     }
