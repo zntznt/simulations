@@ -134,7 +134,7 @@ class App {
     this.diagram.resourceTypes = [];
     this.diagram.variables = {};
     this.diagram.params = {};
-    this.diagram.randomVars = [];
+    this.diagram.customVars = [];
     this.diagram.timeMode = 'sync';
     this.diagram.aiPlayer = { enabled: false, rules: [] };
     this.engine.reset();
@@ -1076,7 +1076,7 @@ class App {
     panel.appendChild(addRow);
 
     // Custom random variables (interval / array / dice).
-    this._randomVarsEditor(panel);
+    this._customVarsEditor(panel);
 
     // Named resource types + live per-type totals.
     this._resourceTypesEditor(panel);
@@ -1201,21 +1201,22 @@ class App {
     addRow.appendChild(add); panel.appendChild(addRow);
   }
 
-  // Custom random variables editor (diagram panel). Three kinds:
-  //   interval — any number between min and max
-  //   array    — one of a comma-separated list of numbers
-  //   dice     — XdY notation
-  // Each picks a distribution (uniform / gaussian) and an update rhythm
-  // ('step' = fresh value every step, 'play' = fresh value per Run press).
-  _randomVarsEditor(panel) {
+  // Custom variables editor (diagram panel). Four kinds:
+  //   interval — any number between min and max (random)
+  //   array    — one of a comma-separated list of numbers (random)
+  //   dice     — XdY notation (random)
+  //   math     — a math.js formula over the shared variables
+  // The random kinds pick a distribution (uniform / gaussian); all pick an
+  // update rhythm ('step' = fresh value every step, 'play' = per Run press).
+  _customVarsEditor(panel) {
     this._sep(panel);
     const h = document.createElement('h3');
     h.className = 'props-title';
-    h.textContent = 'Random Variables';
+    h.textContent = 'Custom Variables';
     panel.appendChild(h);
-    this._info(panel, 'Named random values usable in any formula. Resampled every step, or once each time Run is pressed.');
+    this._info(panel, 'Named values usable in any formula — random (interval, array, dice) or computed (math). Re-evaluated every step, or once each time Run is pressed.');
 
-    const vars = this.diagram.randomVars;
+    const vars = this.diagram.customVars;
 
     const mkSelect = (options, value, onChange) => {
       const s = document.createElement('select');
@@ -1243,9 +1244,9 @@ class App {
         if (!nk || !VALID_IDENT.test(nk)) { name.value = rv.name; return; }
         rv.name = nk;
       });
-      const kind = mkSelect([['interval', 'interval'], ['array', 'array'], ['dice', 'dice']], rv.kind, v => {
+      const kind = mkSelect([['interval', 'interval'], ['array', 'array'], ['dice', 'dice'], ['math', 'math']], rv.kind, v => {
         rv.kind = v;
-        rv.value = sampleRandomVar(rv);
+        rv.value = sampleCustomVar(rv, this.diagram.variables);
         this._renderProps(); this._commit();
       });
       const del = document.createElement('button');
@@ -1258,8 +1259,19 @@ class App {
       // Row 2: the kind's own fields.
       const r2 = document.createElement('div');
       r2.className = 'prop-row';
-      const resample = () => { rv.value = sampleRandomVar(rv); valOut.textContent = `= ${rv.value}`; };
-      if (rv.kind === 'array') {
+      const resample = () => { rv.value = sampleCustomVar(rv, this.diagram.variables); valOut.textContent = `= ${rv.value}`; };
+      if (rv.kind === 'math') {
+        const f = document.createElement('input');
+        f.type = 'text'; f.style.flex = '1';
+        f.value = rv.formula || '';
+        f.placeholder = 'e.g. round(gold * 0.1) + max(2, level)';
+        f.addEventListener('input', () => {
+          const valid = validateFormula(f.value);
+          f.classList.toggle('invalid', !valid);
+          if (valid) { rv.formula = f.value.trim(); resample(); }
+        });
+        r2.appendChild(f);
+      } else if (rv.kind === 'array') {
         const arr = document.createElement('input');
         arr.type = 'text'; arr.style.flex = '1';
         arr.value = (rv.values || []).join(', ');
@@ -1304,19 +1316,22 @@ class App {
       }
       card.appendChild(r2);
 
-      // Row 3: distribution, update rhythm, current value.
+      // Row 3: distribution (random kinds only), update rhythm, current value.
       const r3 = document.createElement('div');
       r3.className = 'prop-row';
-      const dist = mkSelect([['uniform', 'uniform'], ['gaussian', 'gaussian']], rv.dist || 'uniform', v => {
-        rv.dist = v; resample();
-      });
+      if (rv.kind !== 'math') {
+        const dist = mkSelect([['uniform', 'uniform'], ['gaussian', 'gaussian']], rv.dist || 'uniform', v => {
+          rv.dist = v; resample();
+        });
+        r3.appendChild(dist);
+      }
       const update = mkSelect([['step', 'every step'], ['play', 'on play']], rv.update || 'step', v => {
         rv.update = v;
       });
       const valOut = document.createElement('span');
       valOut.className = 'randvar-value';
       valOut.textContent = `= ${isFinite(rv.value) ? rv.value : '?'}`;
-      r3.appendChild(dist); r3.appendChild(update); r3.appendChild(valOut);
+      r3.appendChild(update); r3.appendChild(valOut);
       card.appendChild(r3);
 
       panel.appendChild(card);
@@ -1326,14 +1341,14 @@ class App {
     addRow.className = 'prop-row';
     addRow.appendChild(document.createElement('label'));
     const addBtn = document.createElement('button');
-    addBtn.textContent = '+ Add Random Variable';
+    addBtn.textContent = '+ Add Variable';
     addBtn.className = 'btn';
     addBtn.style.flex = '1';
     addBtn.addEventListener('click', () => {
-      let k = 'rand' + (vars.length + 1);
+      let k = 'var' + (vars.length + 1);
       while (vars.some(v => v.name === k)) k += '_';
-      const rv = { name: k, kind: 'interval', min: 0, max: 10, values: [1, 2, 3], dice: '2d6', dist: 'uniform', update: 'step', value: 0 };
-      rv.value = sampleRandomVar(rv);
+      const rv = { name: k, kind: 'interval', min: 0, max: 10, values: [1, 2, 3], dice: '2d6', formula: '', dist: 'uniform', update: 'step', value: 0 };
+      rv.value = sampleCustomVar(rv, this.diagram.variables);
       vars.push(rv);
       this._renderProps();
       this._commit();

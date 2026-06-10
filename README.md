@@ -6,8 +6,9 @@ step. Draw nodes and connections on a canvas, press Run, and watch resources flo
 accumulate, convert, and drain — with charts, batch (Monte Carlo) analysis, and
 shareable diagrams.
 
-Pure vanilla JavaScript. **No build step, no dependencies, no framework** — just
-static files and an SVG canvas.
+Pure vanilla JavaScript. **No build step, no framework** — just static files and
+an SVG canvas. The only dependency is a vendored copy of
+[math.js](https://mathjs.org/) powering the formula language.
 
 > **Status — docs in progress.** A major UI/UX overhaul is underway. This README
 > documents the parts that are stable regardless of how the interface looks: the
@@ -91,7 +92,8 @@ thousands of Monte‑Carlo trials, and share the whole diagram in a URL.
 - **Pull mode** — pools/drains can draw along incoming connections from pool/source providers (`any` = partial, `all` = atomic). Each connection is driven by exactly one endpoint, so there's no double flow.
 - **Coloured resources** tracked end‑to‑end, with optional **named resource types** layered over the colours (with per‑type readouts).
 - **Shared variable store** + register formulas (chaining, fixpoint evaluation).
-- **Custom random variables** — named random values usable in any formula: **interval** (any number between min and max), **array** (one of a validated number list), or **dice** (`XdY`); each with a **uniform or gaussian** distribution, resampled **every step** or **once per Run press**.
+- **math.js formula language** — every formula (rates, registers, math variables) is evaluated with [math.js](https://mathjs.org/): `^` power, ternaries, comparisons, `round`/`floor`/`ceil`/`abs`/`min`/`max`/`sqrt`/`log`/`exp`/`mod`, trig, constants (`pi`, `e`), `random()`, `randomInt(a,b)`, `pickRandom([…])`, and more. Legacy JavaScript-style expressions (e.g. `Math.round(x)`) still work via a fallback evaluator.
+- **Custom variables** — named values usable in any formula. Random kinds: **interval** (any number between min and max), **array** (one of a validated number list), or **dice** (`XdY`), each with a **uniform or gaussian** distribution. Computed kind: **math**, a formula over the other variables. All re-evaluate **every step** or **once per Run press**.
 - **Goals / end conditions** on any node halt the run when met.
 
 ### Time & agents
@@ -172,6 +174,7 @@ no bundler.
 | `js/charts.js` | `Sparkline` and `TimelineChart` (canvas 2D). |
 | `js/app.js` | `App` — wires everything together: toolbar, properties panel, persistence, examples, import/export. |
 | `css/style.css` | All styling. |
+| `vendor/math.min.js` | Vendored [math.js](https://mathjs.org/) bundle — the formula evaluator. |
 | `index.html` | Markup + script includes. |
 
 **Data flow.** `App` owns a `Diagram`, a `SimEngine`, a `Renderer`, and an `Editor`.
@@ -192,6 +195,7 @@ differ from defaults, keeping saved files small and forward‑compatible.
 **Headless unit tests** (no browser; loads `model.js` + `engine.js` into a sandbox):
 
 ```bash
+npm install   # once — pulls mathjs for the formula tests
 node test/run.js
 ```
 

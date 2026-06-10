@@ -6,6 +6,7 @@
     "smoke": "node test/smoke.js"
   },
   "devDependencies": {
-    "playwright": "^1.60.0"
+    "playwright": "^1.60.0",
+    "mathjs": "^15.2.0"
   }
 }

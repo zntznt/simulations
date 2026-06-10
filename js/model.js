@@ -48,10 +48,45 @@ const NODE_STROKE = {
 const VALID_IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 // Safely evaluate a math expression against a set of variables.
-// Only variables with valid identifier names and finite numeric values are
-// exposed, so one bad variable name can't break every formula.
+//
+// Formulas are evaluated with math.js when its bundle is loaded (the normal
+// case in the browser, via vendor/math.min.js), which provides a rich, safe
+// expression language: `^` power, ternaries (`a > 5 ? 10 : 0`), comparisons,
+// round/floor/ceil/abs/min/max/sqrt/log/exp/mod, trig, constants (pi, e),
+// random() / randomInt(a,b) / pickRandom([…]), and more.
+//
+// Expressions that math.js cannot parse or evaluate (e.g. legacy JS syntax
+// like `Math.round(x)`) fall back to the original Function-based evaluator,
+// so existing diagrams keep working unchanged.
+const _mathCompileCache = new Map();   // expr → compiled math.js code (or null if unparseable)
+
+function _evalMathJS(expr, vars) {
+  if (typeof math === 'undefined' || !math.compile) return undefined;
+  let code = _mathCompileCache.get(expr);
+  if (code === undefined) {
+    try { code = math.compile(expr); } catch { code = null; }
+    if (_mathCompileCache.size > 500) _mathCompileCache.clear();
+    _mathCompileCache.set(expr, code);
+  }
+  if (!code) return undefined;
+  const scope = {};
+  for (const [k, v] of Object.entries(vars || {})) {
+    if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)) scope[k] = v;
+  }
+  try {
+    let r = code.evaluate(scope);
+    if (r && typeof r === 'object' && typeof r.toNumber === 'function') r = r.toNumber();
+    if (typeof r === 'boolean') r = r ? 1 : 0;
+    r = Number(r);
+    return isFinite(r) ? r : 0;
+  } catch { return undefined; }
+}
+
 function evalFormula(expr, vars = {}) {
   if (!expr || typeof expr !== 'string' || !expr.trim()) return 0;
+  const viaMath = _evalMathJS(expr.trim(), vars);
+  if (viaMath !== undefined) return viaMath;
+  // Legacy fallback: plain JS expression over the same variables.
   const keys = [], vals = [];
   for (const [k, v] of Object.entries(vars || {})) {
     if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)) {
@@ -64,6 +99,20 @@ function evalFormula(expr, vars = {}) {
     const r = Number(fn(...vals));
     return isFinite(r) ? r : 0;
   } catch { return 0; }
+}
+
+// True if the expression parses in at least one of the two evaluators
+// (math.js syntax, or legacy JS syntax). Used for live input validation.
+function validateFormula(expr) {
+  if (!expr || typeof expr !== 'string' || !expr.trim()) return false;
+  if (typeof math !== 'undefined' && math.parse) {
+    try { math.parse(expr.trim()); return true; } catch { /* try legacy */ }
+  }
+  try {
+    // eslint-disable-next-line no-new-func
+    new Function(`"use strict"; return (${expr.trim()});`);
+    return true;
+  } catch { return false; }
 }
 
 // Sample from a named statistical distribution. Returns a non-negative integer.
@@ -114,15 +163,17 @@ function rollDice(expr) {
   return sum;
 }
 
-// ── Custom random variables ───────────────────────────────────────────────
-// A random variable produces a value from one of three domains:
-//   interval — any number between min and max (continuous)
-//   array    — one element of a user-supplied number list
-//   dice     — XdY notation (existing convention)
-// The chosen distribution shapes WHERE in the domain values land:
+// ── Custom variables ──────────────────────────────────────────────────────
+// A custom variable produces a value from one of four kinds:
+//   interval — any number between min and max (continuous, random)
+//   array    — one element of a user-supplied number list (random)
+//   dice     — XdY notation (random, existing convention)
+//   math     — a formula evaluated over the shared variable store
+// For the random kinds, the chosen distribution shapes WHERE in the domain
+// values land:
 //   uniform  — everywhere equally (for dice: a true roll, each die uniform)
 //   gaussian — clustered around the middle of the domain
-// `update` ('step' | 'play') controls when the engine resamples it.
+// `update` ('step' | 'play') controls when the engine re-evaluates it.
 
 // A 0..1 sample from a clamped bell curve (mean 0.5, sd 1/6 → ±3σ spans 0..1).
 function _gauss01() {
@@ -131,11 +182,13 @@ function _gauss01() {
   return Math.min(1, Math.max(0, 0.5 + z / 6));
 }
 
-function sampleRandomVar(rv) {
+function sampleCustomVar(rv, vars = {}) {
   if (!rv) return 0;
   const gaussian = rv.dist === 'gaussian';
   const u = gaussian ? _gauss01() : Math.random();
   switch (rv.kind) {
+    case 'math':
+      return evalFormula(rv.formula, vars);
     case 'array': {
       const vals = (rv.values || []).filter(v => isFinite(v));
       if (!vals.length) return 0;
@@ -527,11 +580,12 @@ class Diagram {
     this.resourceTypes = [];
     this.variables = {};  // shared store, refreshed each step from state connections
     this.params = {};     // user-defined constants seeded into variables before each step
-    // Custom random variables: [{name, kind:'interval'|'array'|'dice',
-    //   min, max, values:[…], dice:'XdY', dist:'uniform'|'gaussian',
-    //   update:'step'|'play', value}]. Sampled by the engine (see update),
-    // then seeded into `variables` for formulas — state connections override.
-    this.randomVars = [];
+    // Custom variables: [{name, kind:'interval'|'array'|'dice'|'math',
+    //   min, max, values:[…], dice:'XdY', formula:'…',
+    //   dist:'uniform'|'gaussian', update:'step'|'play', value}].
+    // Evaluated by the engine (see update), then seeded into `variables`
+    // for formulas — state connections override.
+    this.customVars = [];
     // Time mode: 'sync' (turn-based — every automatic node fires each step) or
     // 'async' (real-time — each automatic node fires on its own fireEvery rhythm).
     this.timeMode = 'sync';
@@ -583,8 +637,8 @@ class Diagram {
         ? this.resourceTypes.map(t => ({ name: t.name, color: t.color })) : undefined,
       variables: { ...this.variables },
       params: Object.keys(this.params).length ? { ...this.params } : undefined,
-      randomVars: this.randomVars.length
-        ? this.randomVars.map(r => ({ ...r, values: Array.isArray(r.values) ? [...r.values] : undefined }))
+      customVars: this.customVars.length
+        ? this.customVars.map(r => ({ ...r, values: Array.isArray(r.values) ? [...r.values] : undefined }))
         : undefined,
       timeMode: this.timeMode !== 'sync' ? this.timeMode : undefined,
       aiPlayer: (this.aiPlayer && this.aiPlayer.rules && this.aiPlayer.rules.length)
@@ -603,7 +657,8 @@ class Diagram {
     this.resourceTypes = (data.resourceTypes || []).map(t => ({ name: t.name, color: t.color }));
     this.variables = { ...(data.variables || {}) };
     this.params = { ...(data.params || {}) };
-    this.randomVars = (data.randomVars || []).map(r => ({ ...r, values: Array.isArray(r.values) ? [...r.values] : [] }));
+    // `randomVars` is the pre-rename key for what is now `customVars`.
+    this.customVars = (data.customVars || data.randomVars || []).map(r => ({ ...r, values: Array.isArray(r.values) ? [...r.values] : [] }));
     this.timeMode = data.timeMode || 'sync';
     this.aiPlayer = data.aiPlayer
       ? { enabled: !!data.aiPlayer.enabled, rules: (data.aiPlayer.rules || []).map(r => ({ ...r })) }

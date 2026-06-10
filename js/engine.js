@@ -44,7 +44,7 @@ class SimEngine {
     this.diagram.variables = {};
     // Compute initial variable/register values so the display is correct
     // before the first step runs.
-    this._sampleRandomVars('all');
+    this._sampleCustomVars('all');
     this._updateVariables();
     this._evalRegisters();
     if (this.onStep) this.onStep(0, [], []);
@@ -58,7 +58,7 @@ class SimEngine {
     }
     // Per-step random variables get a fresh value visible to this step's
     // rate formulas; per-play ones keep the value sampled when Run started.
-    this._sampleRandomVars('step');
+    this._sampleCustomVars('step');
     this.step++;
     const { fired, transfers } = this._tick();
     this._record();
@@ -73,7 +73,7 @@ class SimEngine {
     this.ended = null;
     this.running = true;
     // Pressing Play resamples 'play'-updated random variables once.
-    this._sampleRandomVars('play');
+    this._sampleCustomVars('play');
     if (this.step === 0) {
       this.saveInitial();
       this._updateVariables();
@@ -253,13 +253,19 @@ class SimEngine {
     return node.resources;
   }
 
-  // Resample custom random variables and publish them into the variable store.
+  // Re-evaluate custom variables and publish them into the variable store.
   // which: 'all' (reset), 'step' (each step), 'play' (each Run press).
-  _sampleRandomVars(which) {
+  // Math-kind variables read the store itself, so params are seeded first and
+  // each variable sees the ones evaluated before it (list order matters).
+  _sampleCustomVars(which) {
     const d = this.diagram;
-    for (const rv of d.randomVars || []) {
+    if (!(d.customVars || []).length) return;
+    for (const [k, v] of Object.entries(d.params || {})) {
+      if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v) && !(k in d.variables)) d.variables[k] = v;
+    }
+    for (const rv of d.customVars || []) {
       if (which !== 'all' && (rv.update || 'step') !== which) continue;
-      rv.value = sampleRandomVar(rv);
+      rv.value = sampleCustomVar(rv, d.variables);
       if (rv.name && VALID_IDENT.test(rv.name)) d.variables[rv.name] = rv.value;
     }
   }
@@ -271,7 +277,7 @@ class SimEngine {
     for (const [k, v] of Object.entries(d.params || {})) {
       if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)) d.variables[k] = v;
     }
-    for (const rv of d.randomVars || []) {
+    for (const rv of d.customVars || []) {
       if (rv.name && VALID_IDENT.test(rv.name) && isFinite(rv.value)) d.variables[rv.name] = rv.value;
     }
     for (const conn of d.connections.values()) {

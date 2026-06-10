@@ -352,15 +352,15 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (p2params.hasParams) ok('P2 params: diagram params panel visible when nothing selected');
   else fail('P2 params: ' + JSON.stringify(p2params));
 
-  // Random variables: add one via the panel, check the array input validates,
+  // Custom variables: add one via the panel, check the array input validates,
   // and verify a step-updated var feeds a formula during a run.
   const rvars = await page.evaluate(() => {
     window.app.editor._select(null, null);
     const panel = document.getElementById('props-content');
-    const addBtn = [...panel.querySelectorAll('button')].find(b => b.textContent.includes('Add Random Variable'));
+    const addBtn = [...panel.querySelectorAll('button')].find(b => b.textContent.includes('Add Variable'));
     if (!addBtn) return { error: 'no add button' };
     addBtn.click();
-    const rv = window.app.diagram.randomVars[0];
+    const rv = window.app.diagram.customVars[0];
     if (!rv) return { error: 'no var created' };
     // Switch to array kind and exercise validation through the real input.
     rv.kind = 'array';
@@ -384,8 +384,41 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     return { invalidFlagged, notCommitted, validAccepted, pooled: p.resources };
   });
   if (rvars.invalidFlagged && rvars.notCommitted && rvars.validAccepted && rvars.pooled === 10)
-    ok('random vars: panel add + array validation + formula-driven flow');
-  else fail('random vars: ' + JSON.stringify(rvars));
+    ok('custom vars: panel add + array validation + formula-driven flow');
+  else fail('custom vars: ' + JSON.stringify(rvars));
+
+  // Math-kind custom variable: math.js loaded, formula input validates, and a
+  // computed var (math.js syntax) drives a flow each step.
+  const mvars = await page.evaluate(() => {
+    const hasMathjs = typeof math !== 'undefined' && !!math.compile;
+    window.app._clearAll();
+    window.app.editor._select(null, null);
+    const panel = document.getElementById('props-content');
+    [...panel.querySelectorAll('button')].find(b => b.textContent.includes('Add Variable')).click();
+    const rv = window.app.diagram.customVars[0];
+    rv.kind = 'math';
+    window.app._renderProps();
+    const card = panel.querySelector('.randvar-card');
+    const fInput = card.querySelector('input[placeholder*="round"]');
+    if (!fInput) return { error: 'no formula input' };
+    const type = (v) => { fInput.value = v; fInput.dispatchEvent(new Event('input', { bubbles: true })); };
+    type('2 +* )');
+    const invalidFlagged = fInput.classList.contains('invalid');
+    type('min(2 ^ 3, 100)');
+    const validAccepted = !fInput.classList.contains('invalid');
+    const distHidden = card.querySelectorAll('select').length === 2; // kind + update only
+    const { app } = window;
+    const s = app.diagram.addNode(new MNode(NodeType.SOURCE, 100, 100));
+    const p = app.diagram.addNode(new MNode(NodeType.POOL, 300, 100));
+    const c = app.diagram.addConnection(new MConnection(s.id, p.id));
+    c.rateMode = RateMode.FORMULA; c.formula = rv.name;
+    app.engine.reset();
+    app.engine.doStep();
+    return { hasMathjs, invalidFlagged, validAccepted, distHidden, pooled: p.resources };
+  });
+  if (mvars.hasMathjs && mvars.invalidFlagged && mvars.validAccepted && mvars.distHidden && mvars.pooled === 8)
+    ok('math vars: math.js loaded + formula validation + computed flow (2^3 = 8/step)');
+  else fail('math vars: ' + JSON.stringify(mvars));
 
   // P2: keyboard tool shortcuts activate tools.
   const p2keys = await page.evaluate(() => {

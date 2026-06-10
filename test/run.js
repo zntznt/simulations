@@ -11,13 +11,18 @@
 const fs = require('fs');
 const path = require('path');
 
+// The browser loads math.js from vendor/math.min.js; headlessly we expose the
+// npm package as the same `math` global so formulas take the math.js path.
+// Tests still pass without it (formulas fall back to the legacy JS evaluator).
+try { global.math = require('mathjs'); } catch { /* optional */ }
+
 function loadEngine() {
   const base = path.join(__dirname, '..', 'js');
   const src =
     fs.readFileSync(path.join(base, 'model.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'engine.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
-    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleRandomVar };';
+    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -25,7 +30,7 @@ function loadEngine() {
 const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
-  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleRandomVar,
+  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula,
 } = API;
 
 // ── Tiny test harness ───────────────────────────────────────────────────────
@@ -1503,16 +1508,16 @@ test('trader conservation: total resources unchanged by any number of trades', (
   assert(t.trades > 0, 'trades happened');
 });
 
-// ── Custom random variables ──────────────────────────────────────────────────
-console.log('\nRandom variables');
+// ── Custom variables ─────────────────────────────────────────────────────────
+console.log('\nCustom variables');
 
 test('interval uniform sample stays in [min, max]', () => {
   const rv = { name: 'r', kind: 'interval', min: 2, max: 5, dist: 'uniform', update: 'step' };
   for (let i = 0; i < 200; i++) {
-    const v = sampleRandomVar(rv);
+    const v = sampleCustomVar(rv);
     assert(v >= 2 && v <= 5, `sample ${v} out of range`);
   }
-  withRandom(0, () => eq(sampleRandomVar(rv), 2, 'u=0 → min'));
+  withRandom(0, () => eq(sampleCustomVar(rv), 2, 'u=0 → min'));
 });
 
 test('interval gaussian sample stays in [min, max] and centres', () => {
@@ -1520,7 +1525,7 @@ test('interval gaussian sample stays in [min, max] and centres', () => {
   let sum = 0;
   const N = 2000;
   for (let i = 0; i < N; i++) {
-    const v = sampleRandomVar(rv);
+    const v = sampleCustomVar(rv);
     assert(v >= 0 && v <= 10, `sample ${v} out of range`);
     sum += v;
   }
@@ -1531,27 +1536,27 @@ test('interval gaussian sample stays in [min, max] and centres', () => {
 test('array picks only listed values; gaussian favours the middle', () => {
   const rv = { name: 'r', kind: 'array', values: [1, 7, 42], dist: 'uniform', update: 'step' };
   for (let i = 0; i < 100; i++)
-    assert([1, 7, 42].includes(sampleRandomVar(rv)), 'picked a listed value');
+    assert([1, 7, 42].includes(sampleCustomVar(rv)), 'picked a listed value');
   rv.dist = 'gaussian';
   const counts = { 1: 0, 7: 0, 42: 0 };
-  for (let i = 0; i < 2000; i++) counts[sampleRandomVar(rv)]++;
+  for (let i = 0; i < 2000; i++) counts[sampleCustomVar(rv)]++;
   assert(counts[7] > counts[1] && counts[7] > counts[42], `middle element most likely: ${JSON.stringify(counts)}`);
 });
 
 test('dice uniform follows roll convention; gaussian stays in [X, X*Y]', () => {
   const rv = { name: 'r', kind: 'dice', dice: '2d6', dist: 'uniform', update: 'step' };
-  withRandom(0, () => eq(sampleRandomVar(rv), 2, 'all-ones roll'));
-  withRandom(0.999, () => eq(sampleRandomVar(rv), 12, 'all-sixes roll'));
+  withRandom(0, () => eq(sampleCustomVar(rv), 2, 'all-ones roll'));
+  withRandom(0.999, () => eq(sampleCustomVar(rv), 12, 'all-sixes roll'));
   rv.dist = 'gaussian';
   for (let i = 0; i < 200; i++) {
-    const v = sampleRandomVar(rv);
+    const v = sampleCustomVar(rv);
     assert(v >= 2 && v <= 12 && v === Math.round(v), `gaussian dice ${v} valid`);
   }
 });
 
 test('step-updated random var resamples each step and feeds formulas', () => {
   const { d, e } = setup();
-  d.randomVars = [{ name: 'flow', kind: 'array', values: [3], dist: 'uniform', update: 'step', value: 0 }];
+  d.customVars = [{ name: 'flow', kind: 'array', values: [3], dist: 'uniform', update: 'step', value: 0 }];
   const s = node(d, NodeType.SOURCE);
   const p = node(d, NodeType.POOL);
   const c = conn(d, s, p);
@@ -1564,7 +1569,7 @@ test('step-updated random var resamples each step and feeds formulas', () => {
 
 test('play-updated random var holds its value across steps', () => {
   const { d, e } = setup();
-  d.randomVars = [{ name: 'k', kind: 'interval', min: 0, max: 100, dist: 'uniform', update: 'play', value: 0 }];
+  d.customVars = [{ name: 'k', kind: 'interval', min: 0, max: 100, dist: 'uniform', update: 'play', value: 0 }];
   e.reset();
   const first = d.variables.k;
   e.doStep(); e.doStep(); e.doStep();
@@ -1573,17 +1578,83 @@ test('play-updated random var holds its value across steps', () => {
 
 test('random variables survive JSON round-trip', () => {
   const { d } = setup();
-  d.randomVars = [
+  d.customVars = [
     { name: 'a', kind: 'interval', min: 1, max: 9, dist: 'gaussian', update: 'play', value: 4 },
     { name: 'b', kind: 'array', values: [2, 4, 8], dist: 'uniform', update: 'step', value: 4 },
     { name: 'c', kind: 'dice', dice: '3d4', dist: 'uniform', update: 'step', value: 7 },
   ];
   const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
-  eq(d2.randomVars.length, 3, 'all vars restored');
-  eq(d2.randomVars[0].dist, 'gaussian', 'dist preserved');
-  eq(d2.randomVars[0].update, 'play', 'update preserved');
-  assert(Array.isArray(d2.randomVars[1].values) && d2.randomVars[1].values.join() === '2,4,8', 'array values preserved');
-  eq(d2.randomVars[2].dice, '3d4', 'dice preserved');
+  eq(d2.customVars.length, 3, 'all vars restored');
+  eq(d2.customVars[0].dist, 'gaussian', 'dist preserved');
+  eq(d2.customVars[0].update, 'play', 'update preserved');
+  assert(Array.isArray(d2.customVars[1].values) && d2.customVars[1].values.join() === '2,4,8', 'array values preserved');
+  eq(d2.customVars[2].dice, '3d4', 'dice preserved');
+});
+
+// ── Math-kind custom variables + math.js formulas ───────────────────────────
+console.log('\nMath variables & math.js formulas');
+
+test('math.js syntax works in formulas (power, ternary, functions)', () => {
+  assert(typeof math !== 'undefined', 'mathjs should be loaded for these tests (npm install)');
+  eq(evalFormula('2 ^ 10'), 1024, 'caret is power, not XOR');
+  eq(evalFormula('a > 5 ? 10 : 0', { a: 9 }), 10, 'ternary');
+  eq(evalFormula('round(2.6) + max(1, b, 3)', { b: 99 }), 102, 'round/max');
+  eq(evalFormula('log(e)'), 1, 'constants');
+});
+
+test('legacy JS-syntax formulas still evaluate (fallback path)', () => {
+  eq(evalFormula('Math.round(2.6)'), 3, 'Math.round falls back to JS eval');
+  eq(evalFormula('Math.min(a, 5)', { a: 3 }), 3, 'Math.min with vars');
+});
+
+test('validateFormula accepts both syntaxes, rejects garbage', () => {
+  assert(validateFormula('round(x * 2)'), 'math.js syntax valid');
+  assert(validateFormula('Math.round(x * 2)'), 'JS syntax valid');
+  assert(!validateFormula('2 +* )'), 'garbage rejected');
+  assert(!validateFormula(''), 'empty rejected');
+});
+
+test('math var computes from params and other custom vars each step', () => {
+  const { d, e } = setup();
+  d.params = { base: 4 };
+  d.customVars = [
+    { name: 'roll', kind: 'array', values: [2], dist: 'uniform', update: 'step', value: 0 },
+    { name: 'dmg', kind: 'math', formula: 'base + roll * 3', update: 'step', value: 0 },
+  ];
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p);
+  c.rateMode = RateMode.FORMULA; c.formula = 'dmg';
+  e.reset();
+  eq(d.variables.dmg, 10, 'math var = base + roll*3 at reset');
+  e.doStep(); e.doStep();
+  eq(p.resources, 20, 'flow driven by computed var each step');
+});
+
+test('play-updated math var freezes its value across steps', () => {
+  const { d, e } = setup();
+  d.customVars = [
+    { name: 'seed', kind: 'interval', min: 0, max: 1000, dist: 'uniform', update: 'step', value: 0 },
+    { name: 'snap', kind: 'math', formula: 'seed', update: 'play', value: 0 },
+  ];
+  e.reset();
+  const first = d.variables.snap;
+  e.doStep(); e.doStep(); e.doStep();
+  eq(d.variables.snap, first, 'play math var holds while seed keeps changing');
+});
+
+test('math var formula survives JSON round-trip (and old randomVars key loads)', () => {
+  const { d } = setup();
+  d.customVars = [{ name: 'm', kind: 'math', formula: 'round(x/2)', update: 'play', value: 0 }];
+  const json = JSON.parse(JSON.stringify(d.toJSON()));
+  assert(json.customVars && !json.randomVars, 'serialised under customVars');
+  const d2 = new Diagram(); d2.loadJSON(json);
+  eq(d2.customVars[0].formula, 'round(x/2)', 'formula preserved');
+  // Pre-rename saves used the `randomVars` key.
+  const d3 = new Diagram();
+  d3.loadJSON({ nodes: [], connections: [], randomVars: [{ name: 'old', kind: 'dice', dice: '1d6', dist: 'uniform', update: 'step', value: 3 }] });
+  eq(d3.customVars.length, 1, 'legacy randomVars key still loads');
+  eq(d3.customVars[0].name, 'old', 'legacy var restored');
 });
 
 // ── Results ─────────────────────────────────────────────────────────────────
