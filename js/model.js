@@ -114,6 +114,54 @@ function rollDice(expr) {
   return sum;
 }
 
+// ── Custom random variables ───────────────────────────────────────────────
+// A random variable produces a value from one of three domains:
+//   interval — any number between min and max (continuous)
+//   array    — one element of a user-supplied number list
+//   dice     — XdY notation (existing convention)
+// The chosen distribution shapes WHERE in the domain values land:
+//   uniform  — everywhere equally (for dice: a true roll, each die uniform)
+//   gaussian — clustered around the middle of the domain
+// `update` ('step' | 'play') controls when the engine resamples it.
+
+// A 0..1 sample from a clamped bell curve (mean 0.5, sd 1/6 → ±3σ spans 0..1).
+function _gauss01() {
+  const u1 = Math.max(1e-10, Math.random()), u2 = Math.random();
+  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return Math.min(1, Math.max(0, 0.5 + z / 6));
+}
+
+function sampleRandomVar(rv) {
+  if (!rv) return 0;
+  const gaussian = rv.dist === 'gaussian';
+  const u = gaussian ? _gauss01() : Math.random();
+  switch (rv.kind) {
+    case 'array': {
+      const vals = (rv.values || []).filter(v => isFinite(v));
+      if (!vals.length) return 0;
+      // u → index; gaussian clusters picks around the middle of the list.
+      return vals[Math.min(vals.length - 1, Math.floor(u * vals.length))];
+    }
+    case 'dice': {
+      const m = String(rv.dice || '').trim().toLowerCase().match(/^(\d+)\s*d\s*(\d+)$/);
+      if (!m) return 0;
+      if (!gaussian) return rollDice(rv.dice);
+      // Gaussian over the dice's range [X, X·Y], rounded.
+      const count = parseInt(m[1]), sides = parseInt(m[2]);
+      const lo = count, hi = count * Math.max(1, sides);
+      return Math.round(lo + u * (hi - lo));
+    }
+    case 'interval':
+    default: {
+      const lo = isFinite(rv.min) ? rv.min : 0;
+      const hi = isFinite(rv.max) ? rv.max : lo;
+      const span = Math.max(0, hi - lo);
+      // Continuous; rounded to 4 decimals so readouts stay tidy.
+      return Math.round((lo + u * span) * 10000) / 10000;
+    }
+  }
+}
+
 // Dominant (most common) color in a {color: count} map.
 function dominantColor(colorMap, fallback = null) {
   let max = 0, best = fallback;
@@ -479,6 +527,11 @@ class Diagram {
     this.resourceTypes = [];
     this.variables = {};  // shared store, refreshed each step from state connections
     this.params = {};     // user-defined constants seeded into variables before each step
+    // Custom random variables: [{name, kind:'interval'|'array'|'dice',
+    //   min, max, values:[…], dice:'XdY', dist:'uniform'|'gaussian',
+    //   update:'step'|'play', value}]. Sampled by the engine (see update),
+    // then seeded into `variables` for formulas — state connections override.
+    this.randomVars = [];
     // Time mode: 'sync' (turn-based — every automatic node fires each step) or
     // 'async' (real-time — each automatic node fires on its own fireEvery rhythm).
     this.timeMode = 'sync';
@@ -530,6 +583,9 @@ class Diagram {
         ? this.resourceTypes.map(t => ({ name: t.name, color: t.color })) : undefined,
       variables: { ...this.variables },
       params: Object.keys(this.params).length ? { ...this.params } : undefined,
+      randomVars: this.randomVars.length
+        ? this.randomVars.map(r => ({ ...r, values: Array.isArray(r.values) ? [...r.values] : undefined }))
+        : undefined,
       timeMode: this.timeMode !== 'sync' ? this.timeMode : undefined,
       aiPlayer: (this.aiPlayer && this.aiPlayer.rules && this.aiPlayer.rules.length)
         ? { enabled: !!this.aiPlayer.enabled, rules: this.aiPlayer.rules.map(r => ({ ...r })) }
@@ -547,6 +603,7 @@ class Diagram {
     this.resourceTypes = (data.resourceTypes || []).map(t => ({ name: t.name, color: t.color }));
     this.variables = { ...(data.variables || {}) };
     this.params = { ...(data.params || {}) };
+    this.randomVars = (data.randomVars || []).map(r => ({ ...r, values: Array.isArray(r.values) ? [...r.values] : [] }));
     this.timeMode = data.timeMode || 'sync';
     this.aiPlayer = data.aiPlayer
       ? { enabled: !!data.aiPlayer.enabled, rules: (data.aiPlayer.rules || []).map(r => ({ ...r })) }

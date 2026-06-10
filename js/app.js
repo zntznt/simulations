@@ -134,6 +134,7 @@ class App {
     this.diagram.resourceTypes = [];
     this.diagram.variables = {};
     this.diagram.params = {};
+    this.diagram.randomVars = [];
     this.diagram.timeMode = 'sync';
     this.diagram.aiPlayer = { enabled: false, rules: [] };
     this.engine.reset();
@@ -1074,6 +1075,9 @@ class App {
     addRow.appendChild(addBtn);
     panel.appendChild(addRow);
 
+    // Custom random variables (interval / array / dice).
+    this._randomVarsEditor(panel);
+
     // Named resource types + live per-type totals.
     this._resourceTypesEditor(panel);
 
@@ -1195,6 +1199,147 @@ class App {
       this._renderProps(); this._commit();
     });
     addRow.appendChild(add); panel.appendChild(addRow);
+  }
+
+  // Custom random variables editor (diagram panel). Three kinds:
+  //   interval — any number between min and max
+  //   array    — one of a comma-separated list of numbers
+  //   dice     — XdY notation
+  // Each picks a distribution (uniform / gaussian) and an update rhythm
+  // ('step' = fresh value every step, 'play' = fresh value per Run press).
+  _randomVarsEditor(panel) {
+    this._sep(panel);
+    const h = document.createElement('h3');
+    h.className = 'props-title';
+    h.textContent = 'Random Variables';
+    panel.appendChild(h);
+    this._info(panel, 'Named random values usable in any formula. Resampled every step, or once each time Run is pressed.');
+
+    const vars = this.diagram.randomVars;
+
+    const mkSelect = (options, value, onChange) => {
+      const s = document.createElement('select');
+      for (const [v, label] of options) {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = label;
+        if (v === value) o.selected = true;
+        s.appendChild(o);
+      }
+      s.addEventListener('change', () => onChange(s.value));
+      return s;
+    };
+
+    vars.forEach((rv, i) => {
+      const card = document.createElement('div');
+      card.className = 'randvar-card';
+
+      // Row 1: name, kind, delete.
+      const r1 = document.createElement('div');
+      r1.className = 'prop-row';
+      const name = document.createElement('input');
+      name.type = 'text'; name.value = rv.name; name.placeholder = 'name'; name.style.flex = '1';
+      name.addEventListener('blur', () => {
+        const nk = name.value.trim();
+        if (!nk || !VALID_IDENT.test(nk)) { name.value = rv.name; return; }
+        rv.name = nk;
+      });
+      const kind = mkSelect([['interval', 'interval'], ['array', 'array'], ['dice', 'dice']], rv.kind, v => {
+        rv.kind = v;
+        rv.value = sampleRandomVar(rv);
+        this._renderProps(); this._commit();
+      });
+      const del = document.createElement('button');
+      del.textContent = '×'; del.className = 'btn';
+      del.style.cssText = 'padding:2px 8px;flex-shrink:0';
+      del.addEventListener('click', () => { vars.splice(i, 1); this._renderProps(); this._commit(); });
+      r1.appendChild(name); r1.appendChild(kind); r1.appendChild(del);
+      card.appendChild(r1);
+
+      // Row 2: the kind's own fields.
+      const r2 = document.createElement('div');
+      r2.className = 'prop-row';
+      const resample = () => { rv.value = sampleRandomVar(rv); valOut.textContent = `= ${rv.value}`; };
+      if (rv.kind === 'array') {
+        const arr = document.createElement('input');
+        arr.type = 'text'; arr.style.flex = '1';
+        arr.value = (rv.values || []).join(', ');
+        arr.placeholder = 'e.g. 1, 2, 5, 10';
+        // Live-validate: every comma-separated token must be a finite number.
+        arr.addEventListener('input', () => {
+          const tokens = arr.value.split(',').map(t => t.trim());
+          const nums = tokens.map(parseFloat);
+          const valid = tokens.length > 0 && tokens.every(t => t !== '') && nums.every(isFinite);
+          arr.classList.toggle('invalid', !valid);
+          if (valid) { rv.values = nums; resample(); }
+        });
+        r2.appendChild(arr);
+      } else if (rv.kind === 'dice') {
+        const dice = document.createElement('input');
+        dice.type = 'text'; dice.style.flex = '1';
+        dice.value = rv.dice || '2d6';
+        dice.placeholder = 'e.g. 2d6';
+        dice.addEventListener('input', () => {
+          const valid = /^\d+\s*d\s*\d+$/i.test(dice.value.trim());
+          dice.classList.toggle('invalid', !valid);
+          if (valid) { rv.dice = dice.value.trim(); resample(); }
+        });
+        r2.appendChild(dice);
+      } else {
+        const min = document.createElement('input');
+        min.type = 'number'; min.value = rv.min ?? 0; min.style.flex = '1';
+        const max = document.createElement('input');
+        max.type = 'number'; max.value = rv.max ?? 10; max.style.flex = '1';
+        const upd = () => {
+          const lo = parseFloat(min.value), hi = parseFloat(max.value);
+          const valid = isFinite(lo) && isFinite(hi) && hi >= lo;
+          min.classList.toggle('invalid', !valid);
+          max.classList.toggle('invalid', !valid);
+          if (valid) { rv.min = lo; rv.max = hi; resample(); }
+        };
+        min.addEventListener('input', upd);
+        max.addEventListener('input', upd);
+        const to = document.createElement('span');
+        to.textContent = 'to'; to.style.cssText = 'color:var(--text-dim);font-size:11px;flex-shrink:0';
+        r2.appendChild(min); r2.appendChild(to); r2.appendChild(max);
+      }
+      card.appendChild(r2);
+
+      // Row 3: distribution, update rhythm, current value.
+      const r3 = document.createElement('div');
+      r3.className = 'prop-row';
+      const dist = mkSelect([['uniform', 'uniform'], ['gaussian', 'gaussian']], rv.dist || 'uniform', v => {
+        rv.dist = v; resample();
+      });
+      const update = mkSelect([['step', 'every step'], ['play', 'on play']], rv.update || 'step', v => {
+        rv.update = v;
+      });
+      const valOut = document.createElement('span');
+      valOut.className = 'randvar-value';
+      valOut.textContent = `= ${isFinite(rv.value) ? rv.value : '?'}`;
+      r3.appendChild(dist); r3.appendChild(update); r3.appendChild(valOut);
+      card.appendChild(r3);
+
+      panel.appendChild(card);
+    });
+
+    const addRow = document.createElement('div');
+    addRow.className = 'prop-row';
+    addRow.appendChild(document.createElement('label'));
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ Add Random Variable';
+    addBtn.className = 'btn';
+    addBtn.style.flex = '1';
+    addBtn.addEventListener('click', () => {
+      let k = 'rand' + (vars.length + 1);
+      while (vars.some(v => v.name === k)) k += '_';
+      const rv = { name: k, kind: 'interval', min: 0, max: 10, values: [1, 2, 3], dice: '2d6', dist: 'uniform', update: 'step', value: 0 };
+      rv.value = sampleRandomVar(rv);
+      vars.push(rv);
+      this._renderProps();
+      this._commit();
+    });
+    addRow.appendChild(addBtn);
+    panel.appendChild(addRow);
   }
 
   // Named resource types editor + live per-type totals (diagram panel).

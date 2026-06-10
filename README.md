@@ -91,6 +91,7 @@ thousands of Monte‑Carlo trials, and share the whole diagram in a URL.
 - **Pull mode** — pools/drains can draw along incoming connections from pool/source providers (`any` = partial, `all` = atomic). Each connection is driven by exactly one endpoint, so there's no double flow.
 - **Coloured resources** tracked end‑to‑end, with optional **named resource types** layered over the colours (with per‑type readouts).
 - **Shared variable store** + register formulas (chaining, fixpoint evaluation).
+- **Custom random variables** — named random values usable in any formula: **interval** (any number between min and max), **array** (one of a validated number list), or **dice** (`XdY`); each with a **uniform or gaussian** distribution, resampled **every step** or **once per Run press**.
 - **Goals / end conditions** on any node halt the run when met.
 
 ### Time & agents

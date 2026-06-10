@@ -17,7 +17,7 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'model.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'engine.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
-    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist };';
+    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleRandomVar };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -25,7 +25,7 @@ function loadEngine() {
 const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
-  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist,
+  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleRandomVar,
 } = API;
 
 // ── Tiny test harness ───────────────────────────────────────────────────────
@@ -1501,6 +1501,89 @@ test('trader conservation: total resources unchanged by any number of trades', (
   steps(e, 10);
   eq(a.resources + b.resources, 35, 'total conserved');
   assert(t.trades > 0, 'trades happened');
+});
+
+// ── Custom random variables ──────────────────────────────────────────────────
+console.log('\nRandom variables');
+
+test('interval uniform sample stays in [min, max]', () => {
+  const rv = { name: 'r', kind: 'interval', min: 2, max: 5, dist: 'uniform', update: 'step' };
+  for (let i = 0; i < 200; i++) {
+    const v = sampleRandomVar(rv);
+    assert(v >= 2 && v <= 5, `sample ${v} out of range`);
+  }
+  withRandom(0, () => eq(sampleRandomVar(rv), 2, 'u=0 → min'));
+});
+
+test('interval gaussian sample stays in [min, max] and centres', () => {
+  const rv = { name: 'r', kind: 'interval', min: 0, max: 10, dist: 'gaussian', update: 'step' };
+  let sum = 0;
+  const N = 2000;
+  for (let i = 0; i < N; i++) {
+    const v = sampleRandomVar(rv);
+    assert(v >= 0 && v <= 10, `sample ${v} out of range`);
+    sum += v;
+  }
+  const mean = sum / N;
+  assert(mean > 4 && mean < 6, `gaussian mean ${mean} should be near 5`);
+});
+
+test('array picks only listed values; gaussian favours the middle', () => {
+  const rv = { name: 'r', kind: 'array', values: [1, 7, 42], dist: 'uniform', update: 'step' };
+  for (let i = 0; i < 100; i++)
+    assert([1, 7, 42].includes(sampleRandomVar(rv)), 'picked a listed value');
+  rv.dist = 'gaussian';
+  const counts = { 1: 0, 7: 0, 42: 0 };
+  for (let i = 0; i < 2000; i++) counts[sampleRandomVar(rv)]++;
+  assert(counts[7] > counts[1] && counts[7] > counts[42], `middle element most likely: ${JSON.stringify(counts)}`);
+});
+
+test('dice uniform follows roll convention; gaussian stays in [X, X*Y]', () => {
+  const rv = { name: 'r', kind: 'dice', dice: '2d6', dist: 'uniform', update: 'step' };
+  withRandom(0, () => eq(sampleRandomVar(rv), 2, 'all-ones roll'));
+  withRandom(0.999, () => eq(sampleRandomVar(rv), 12, 'all-sixes roll'));
+  rv.dist = 'gaussian';
+  for (let i = 0; i < 200; i++) {
+    const v = sampleRandomVar(rv);
+    assert(v >= 2 && v <= 12 && v === Math.round(v), `gaussian dice ${v} valid`);
+  }
+});
+
+test('step-updated random var resamples each step and feeds formulas', () => {
+  const { d, e } = setup();
+  d.randomVars = [{ name: 'flow', kind: 'array', values: [3], dist: 'uniform', update: 'step', value: 0 }];
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p);
+  c.rateMode = RateMode.FORMULA; c.formula = 'flow';
+  e.reset();
+  eq(d.variables.flow, 3, 'sampled at reset');
+  e.doStep(); e.doStep();
+  eq(p.resources, 6, 'formula read the random var each step');
+});
+
+test('play-updated random var holds its value across steps', () => {
+  const { d, e } = setup();
+  d.randomVars = [{ name: 'k', kind: 'interval', min: 0, max: 100, dist: 'uniform', update: 'play', value: 0 }];
+  e.reset();
+  const first = d.variables.k;
+  e.doStep(); e.doStep(); e.doStep();
+  eq(d.variables.k, first, 'value unchanged by steps');
+});
+
+test('random variables survive JSON round-trip', () => {
+  const { d } = setup();
+  d.randomVars = [
+    { name: 'a', kind: 'interval', min: 1, max: 9, dist: 'gaussian', update: 'play', value: 4 },
+    { name: 'b', kind: 'array', values: [2, 4, 8], dist: 'uniform', update: 'step', value: 4 },
+    { name: 'c', kind: 'dice', dice: '3d4', dist: 'uniform', update: 'step', value: 7 },
+  ];
+  const d2 = new Diagram(); d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  eq(d2.randomVars.length, 3, 'all vars restored');
+  eq(d2.randomVars[0].dist, 'gaussian', 'dist preserved');
+  eq(d2.randomVars[0].update, 'play', 'update preserved');
+  assert(Array.isArray(d2.randomVars[1].values) && d2.randomVars[1].values.join() === '2,4,8', 'array values preserved');
+  eq(d2.randomVars[2].dice, '3d4', 'dice preserved');
 });
 
 // ── Results ─────────────────────────────────────────────────────────────────

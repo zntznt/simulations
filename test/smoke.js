@@ -352,6 +352,41 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (p2params.hasParams) ok('P2 params: diagram params panel visible when nothing selected');
   else fail('P2 params: ' + JSON.stringify(p2params));
 
+  // Random variables: add one via the panel, check the array input validates,
+  // and verify a step-updated var feeds a formula during a run.
+  const rvars = await page.evaluate(() => {
+    window.app.editor._select(null, null);
+    const panel = document.getElementById('props-content');
+    const addBtn = [...panel.querySelectorAll('button')].find(b => b.textContent.includes('Add Random Variable'));
+    if (!addBtn) return { error: 'no add button' };
+    addBtn.click();
+    const rv = window.app.diagram.randomVars[0];
+    if (!rv) return { error: 'no var created' };
+    // Switch to array kind and exercise validation through the real input.
+    rv.kind = 'array';
+    window.app._renderProps();
+    const card = panel.querySelector('.randvar-card');
+    const arrInput = card.querySelector('input[placeholder*="1, 2"]');
+    const type = (v) => { arrInput.value = v; arrInput.dispatchEvent(new Event('input', { bubbles: true })); };
+    type('1, 2, banana');
+    const invalidFlagged = arrInput.classList.contains('invalid');
+    const notCommitted = rv.values.join() !== '1,2,NaN';
+    type('5, 5, 5');
+    const validAccepted = !arrInput.classList.contains('invalid') && rv.values.join() === '5,5,5';
+    // Engine: the var should drive a formula rate.
+    const { app } = window;
+    const s = app.diagram.addNode(new MNode(NodeType.SOURCE, 100, 100));
+    const p = app.diagram.addNode(new MNode(NodeType.POOL, 300, 100));
+    const c = app.diagram.addConnection(new MConnection(s.id, p.id));
+    c.rateMode = RateMode.FORMULA; c.formula = rv.name;
+    app.engine.reset();
+    app.engine.doStep(); app.engine.doStep();
+    return { invalidFlagged, notCommitted, validAccepted, pooled: p.resources };
+  });
+  if (rvars.invalidFlagged && rvars.notCommitted && rvars.validAccepted && rvars.pooled === 10)
+    ok('random vars: panel add + array validation + formula-driven flow');
+  else fail('random vars: ' + JSON.stringify(rvars));
+
   // P2: keyboard tool shortcuts activate tools.
   const p2keys = await page.evaluate(() => {
     window.app.editor.setTool('select');

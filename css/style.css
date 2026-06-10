@@ -145,6 +145,20 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 .prop-row select option { background: var(--panel2); }
 
+/* Invalid input (e.g. malformed number array / dice notation): red border,
+   value is not committed until it parses. */
+.prop-row input.invalid, .prop-row input.invalid:focus { border-color: #ef5350; }
+
+/* Random-variable cards in the diagram panel */
+.randvar-card {
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 8px 2px; margin-bottom: 10px; background: rgba(255,255,255,0.02);
+}
+.randvar-value {
+  flex: 0 0 auto; font-size: 11px; font-family: monospace;
+  color: var(--accent); white-space: nowrap;
+}
+
 .chart-section { margin-top: 16px; }
 .chart-label { font-size: 11px; color: var(--text-dim); margin-bottom: 6px; }
 .sparkline { border-radius: 4px; display: block; width: 100%; }
