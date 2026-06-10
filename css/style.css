@@ -242,7 +242,7 @@ input[type="range"] {
 /* Labels get a canvas-colored halo (paint-order trick) so they stay readable
    when a connection or grid line passes underneath. */
 .n-count { fill: #fff; font-size: 13px; font-weight: 700; font-family: monospace; }
-.n-label, .n-badge, .conn-label, .grp-label {
+.n-label, .n-badge, .grp-label {
   paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round;
 }
 .n-label { fill: var(--text); font-size: 11px; font-family: var(--font); }
@@ -257,8 +257,11 @@ input[type="range"] {
   100% { opacity: 1; }
 }
 
-/* ── Connection extras ── */
-.conn-label { fill: #aaa; }
+/* ── Connection label pills ── */
+.conn-label { fill: #ccc; }
+.conn-label-g { transition: opacity 0.1s; }
+.conn-label-g:hover .conn-label-bg { filter: brightness(1.25); }
+.conn-label-bg { cursor: grab; }
 
 /* Tooltip */
 [title] { position: relative; }

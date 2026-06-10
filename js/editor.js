@@ -24,6 +24,7 @@ class Editor {
     this._groupPlaceDrag = null; // {x0, y0} while dragging to define a new group
     this._spaceDown = false;     // hold Space to pan from anywhere (Figma-style)
     this._connHandleDrag = null; // {connId, kind:'cp'|'ortho', segIndex, startX, startY, origCpDx, origCpDy, base}
+    this._labelDrag = null;     // {connId} — dragging a label pill along its path
 
     this._bind();
   }
@@ -42,6 +43,53 @@ class Editor {
     if (!this._snapEnabled) return { x, y };
     const s = this._snapSize;
     return { x: Math.round(x / s) * s, y: Math.round(y / s) * s };
+  }
+
+  // Project world point (mx, my) onto a connection path and return t ∈ [0.05, 0.95].
+  _projLabelT(conn, src, tgt, mx, my) {
+    const style = conn.pathStyle || 'curve';
+    if (style === 'straight') {
+      const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
+      const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
+      const dx = p2.x - p1.x, dy = p2.y - p1.y;
+      const len2 = dx*dx + dy*dy;
+      if (len2 < 1) return 0.5;
+      return Math.max(0.05, Math.min(0.95, ((mx - p1.x)*dx + (my - p1.y)*dy) / len2));
+    }
+    if (style === 'ortho') {
+      const O = orthoClippedPoints(conn, src, tgt);
+      if (O.length < 2) return 0.5;
+      let totalLen = 0;
+      for (let i = 0; i < O.length - 1; i++)
+        totalLen += Math.hypot(O[i+1].x - O[i].x, O[i+1].y - O[i].y);
+      if (totalLen < 1) return 0.5;
+      let best = 0.5, bestD = Infinity, walked = 0;
+      for (let i = 0; i < O.length - 1; i++) {
+        const ax = O[i].x, ay = O[i].y, bx = O[i+1].x, by = O[i+1].y;
+        const sdx = bx - ax, sdy = by - ay, segLen = Math.hypot(sdx, sdy);
+        if (segLen > 0) {
+          const u = Math.max(0, Math.min(1, ((mx - ax)*sdx + (my - ay)*sdy) / (segLen*segLen)));
+          const cx = ax + u*sdx, cy = ay + u*sdy;
+          const d = Math.hypot(mx - cx, my - cy);
+          if (d < bestD) { bestD = d; best = (walked + u*segLen) / totalLen; }
+        }
+        walked += segLen;
+      }
+      return Math.max(0.05, Math.min(0.95, best));
+    }
+    // curve: sample quadratic bezier at 20 points, find closest t
+    const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
+    const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
+    const cp = connCP(conn, p1, p2);
+    let best = 0.5, bestD = Infinity;
+    for (let i = 0; i <= 20; i++) {
+      const t = i / 20, mt = 1 - t;
+      const bx = mt*mt*p1.x + 2*mt*t*cp.x + t*t*p2.x;
+      const by = mt*mt*p1.y + 2*mt*t*cp.y + t*t*p2.y;
+      const d = Math.hypot(mx - bx, my - by);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    return Math.max(0.05, Math.min(0.95, best));
   }
 
   _changed() { if (this.onChange) this.onChange(); }
@@ -100,6 +148,24 @@ class Editor {
     if (e.button !== 0) return;
 
     const pt = this.renderer.svgPoint(e.clientX, e.clientY);
+
+    // Check for a label-pill drag (walk up from target looking for conn-label-g).
+    if (this.tool === 'select') {
+      let el = e.target;
+      while (el && el !== this.svg) {
+        if (el.classList && el.classList.contains('conn-label-g')) {
+          const connId = el.dataset.connId;
+          const conn = this.diagram.connections.get(connId);
+          if (conn) {
+            this._labelDrag = { connId };
+            this._setSelection([], connId, 'conn');
+            e.preventDefault();
+            return;
+          }
+        }
+        el = el.parentElement;
+      }
+    }
 
     // Check for a connection reshape-handle drag before the normal hit test.
     if (this.tool === 'select') {
@@ -270,6 +336,20 @@ class Editor {
       return;
     }
 
+    if (this._labelDrag) {
+      const conn = this.diagram.connections.get(this._labelDrag.connId);
+      if (conn) {
+        const src = this.diagram.nodes.get(conn.sourceId);
+        const tgt = this.diagram.nodes.get(conn.targetId);
+        if (src && tgt && src.id !== tgt.id) {
+          const pt = this.renderer.svgPoint(e.clientX, e.clientY);
+          conn.labelT = this._projLabelT(conn, src, tgt, pt.x, pt.y);
+          this.renderer.render();
+        }
+      }
+      return;
+    }
+
     if (this._connHandleDrag) {
       const s = this.renderer._scale || 1;
       const dx = (e.clientX - this._connHandleDrag.startX) / s;
@@ -366,6 +446,12 @@ class Editor {
 
   _onUp(e) {
     if (this._panDrag) { this._panDrag = null; this._restoreCursor(); return; }
+
+    if (this._labelDrag) {
+      this._labelDrag = null;
+      this._changed();
+      return;
+    }
 
     if (this._connHandleDrag) {
       this._connHandleDrag = null;

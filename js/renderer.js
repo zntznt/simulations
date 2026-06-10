@@ -174,27 +174,39 @@ function connLabelPos(conn, src, tgt) {
     return { x: src.x, y: src.y - r * 2.2 };
   }
 
+  const t = (conn.labelT != null) ? conn.labelT : 0.5;
   const style = conn.pathStyle || 'curve';
 
   if (style === 'straight') {
     const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
     const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
-    return { x: (p1.x + p2.x) / 2 - 12, y: (p1.y + p2.y) / 2 - 10 };
+    return { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) };
   }
 
   if (style === 'ortho') {
     const O = orthoClippedPoints(conn, src, tgt);
     if (O.length < 2) return { x: (src.x + tgt.x) / 2, y: (src.y + tgt.y) / 2 };
-    const mid = Math.floor((O.length - 1) / 2);
-    const a = O[mid], b = O[mid + 1] || O[mid];
-    return { x: (a.x + b.x) / 2 + 6, y: (a.y + b.y) / 2 - 8 };
+    let totalLen = 0;
+    for (let i = 0; i < O.length - 1; i++)
+      totalLen += Math.hypot(O[i+1].x - O[i].x, O[i+1].y - O[i].y);
+    let target = t * totalLen, walked = 0;
+    for (let i = 0; i < O.length - 1; i++) {
+      const segLen = Math.hypot(O[i+1].x - O[i].x, O[i+1].y - O[i].y);
+      if (walked + segLen >= target || i === O.length - 2) {
+        const u = segLen > 0 ? (target - walked) / segLen : 0;
+        return { x: O[i].x + u * (O[i+1].x - O[i].x), y: O[i].y + u * (O[i+1].y - O[i].y) };
+      }
+      walked += segLen;
+    }
+    return { x: O[0].x, y: O[0].y };
   }
 
-  // curve
+  // curve (quadratic bezier): evaluate at t
   const p1 = nodeBoundaryPoint(src, tgt.x, tgt.y);
   const p2 = nodeBoundaryPoint(tgt, src.x, src.y);
   const cp = connCP(conn, p1, p2);
-  return { x: cp.x - 12, y: cp.y - 10 };
+  const mt = 1 - t;
+  return { x: mt*mt*p1.x + 2*mt*t*cp.x + t*t*p2.x, y: mt*mt*p1.y + 2*mt*t*cp.y + t*t*p2.y };
 }
 
 // ── Ball animation system ─────────────────────────────────────────────────
@@ -728,7 +740,10 @@ class Renderer {
     const g = svgEl('g', { 'data-id': conn.id });
     g.appendChild(svgEl('path', { class: 'conn-hitbox', fill: 'none', stroke: 'transparent', 'stroke-width': '14', cursor: 'pointer' }));
     g.appendChild(svgEl('path', { class: 'conn-path', fill: 'none', 'stroke-width': '2' }));
-    g.appendChild(svgEl('text', { class: 'conn-label', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '11', 'font-family': 'var(--font)' }));
+    const lg = svgEl('g', { class: 'conn-label-g', 'data-conn-id': conn.id, cursor: 'grab' });
+    lg.appendChild(svgEl('rect', { class: 'conn-label-bg', rx: '7', ry: '7', 'pointer-events': 'all' }));
+    lg.appendChild(svgEl('text', { class: 'conn-label', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '11', 'font-family': 'var(--font)', 'pointer-events': 'none' }));
+    g.appendChild(lg);
     g.appendChild(svgEl('g', { class: 'conn-handles' }));
     return g;
   }
@@ -756,7 +771,9 @@ class Renderer {
     const marker = isSel ? 'arrow-sel' : (isTrigger ? 'arrow-trigger' : (isRes ? 'arrow-resource' : 'arrow-state'));
     path.setAttribute('marker-end', `url(#${marker})`);
 
-    const label = el.querySelector('.conn-label');
+    const labelG = el.querySelector('.conn-label-g');
+    const label = labelG.querySelector('.conn-label');
+    const labelBg = labelG.querySelector('.conn-label-bg');
     let txt = conn.label || '';
     if (isRes) {
       if (conn.rateMode === RateMode.DICE) txt = txt || conn.dice;
@@ -789,10 +806,27 @@ class Renderer {
     } else {
       txt = conn.variableName || conn.label || '';
     }
-    label.textContent = txt;
-    label.setAttribute('x', lp.x);
-    label.setAttribute('y', lp.y);
-    label.setAttribute('fill', color);
+    if (txt) {
+      labelG.style.display = '';
+      label.textContent = txt;
+      label.setAttribute('x', lp.x);
+      label.setAttribute('y', lp.y);
+      label.setAttribute('fill', color);
+      try {
+        const bb = label.getBBox();
+        const px = 6, py = 3;
+        labelBg.setAttribute('x', bb.x - px);
+        labelBg.setAttribute('y', bb.y - py);
+        labelBg.setAttribute('width', bb.width + px * 2);
+        labelBg.setAttribute('height', bb.height + py * 2);
+        labelBg.setAttribute('fill', isSel ? 'rgba(255,255,255,0.14)' : 'rgba(18,18,18,0.85)');
+        labelBg.setAttribute('stroke', color);
+        labelBg.setAttribute('stroke-width', '1');
+      } catch (_) {}
+    } else {
+      label.textContent = '';
+      labelG.style.display = 'none';
+    }
 
     el.setAttribute('class', `conn${isSel ? ' selected' : ''}`);
 

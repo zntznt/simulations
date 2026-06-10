@@ -382,6 +382,9 @@ class MConnection {
     this.cpDy = 0;      // curve: control-point y offset from the auto-midpoint
     this.bendPct = 0.5; // ortho: default vertical-segment position when no waypoints
     this.waypoints = []; // ortho: explicit interior corner points [{x,y}, …] once hand-edited
+
+    // Label pill position along the path (0 = source end, 1 = target end).
+    this.labelT = 0.5;
   }
 
   toJSON() {
@@ -407,6 +410,7 @@ class MConnection {
       cpDx: this.cpDx || undefined,
       cpDy: this.cpDy || undefined,
       bendPct: this.bendPct !== 0.5 ? this.bendPct : undefined,
+      labelT: this.labelT !== 0.5 ? this.labelT : undefined,
       waypoints: (this.waypoints && this.waypoints.length) ? this.waypoints : undefined,
     };
   }
