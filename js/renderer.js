@@ -826,10 +826,13 @@ class Renderer {
       const mode = conn.modMode || 'rate';
       if (conn.modFormula) {
         const f = conn.modFormula.length > 16 ? conn.modFormula.slice(0, 15) + '…' : conn.modFormula;
-        txt = mode === 'pulse' ? `${f} ✷` : (mode === 'delta' ? `${f}×Δ` : `Δ ${f}×`);
+        txt = mode === 'pulse' ? `${f} ✷`
+          : mode === 'step' ? `+${f}`
+          : mode === 'delta' ? `${f}×Δ` : `Δ ${f}×`;
       } else {
         const sign = conn.modFactor > 0 ? '+' : '';
         if (mode === 'pulse') txt = `${sign}${conn.modFactor} ✷`;
+        else if (mode === 'step') txt = `${sign}${conn.modFactor}`;
         else if (mode === 'delta') txt = `${sign}${conn.modFactor}×Δ`;
         else txt = `Δ ${sign}${conn.modFactor}×`;
       }

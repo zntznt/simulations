@@ -247,6 +247,10 @@ select.wide-input option { background: var(--panel2); }
   background: rgba(74,158,255,0.15); border-color: var(--accent); color: var(--accent);
 }
 
+/* State-connection role picker (properties panel) */
+.role-chips { flex-wrap: wrap; margin-bottom: 12px; }
+.role-chips .var-chip { flex: 1 1 45%; padding: 5px 8px; }
+
 .var-value-display {
   margin-left: auto; font-family: monospace; font-size: 15px;
   font-weight: 700; color: var(--accent); white-space: nowrap;

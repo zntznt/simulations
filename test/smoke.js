@@ -78,15 +78,25 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   });
   if (status.includes('🏁')) ok(`status banner shows goal: "${status}"`); else fail('no goal banner');
 
-  // Selecting a connection renders the new property controls without error.
+  // Selecting a state connection shows the role picker; choosing "Modifies
+  // target" reveals the When/Amount controls and defaults to the simple
+  // flat-amount-per-step mode.
   const propOk = await page.evaluate(() => {
     const conn = [...window.app.diagram.connections.values()]
       .find(c => c.type === ConnectionType.STATE);
     if (!conn) return 'no state conn';
+    conn.modifier = false; conn.trigger = false; conn.reverseTrigger = false; conn.activator = false;
     window.app._onSelect(conn.id, 'conn');
-    return document.getElementById('props-content').textContent.includes('Trigger') ? 'ok' : 'missing trigger UI';
+    const panel = document.getElementById('props-content');
+    if (!panel.textContent.includes('Triggers target')) return 'missing role chips';
+    const modChip = [...panel.querySelectorAll('.var-chip')].find(c => c.textContent === 'Modifies target');
+    if (!modChip) return 'no modify chip';
+    modChip.click();
+    if (!conn.modifier || conn.modMode !== 'step') return `bad default mode: ${conn.modMode}`;
+    if (!panel.textContent.includes('Amount')) return 'no amount field';
+    return 'ok';
   });
-  if (propOk === 'ok') ok('state-connection props show Trigger/Activator controls');
+  if (propOk === 'ok') ok('state-connection props: role picker + flat-amount modifier default');
   else fail(`connection props: ${propOk}`);
 
   // Step the UI a few times via the Step button to exercise rendering/anim path.
@@ -181,7 +191,10 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const a = d.addNode(new MNode(NodeType.POOL, 600, 400));
     const sc = d.addConnection(new MConnection(a.id, a.id, ConnectionType.STATE));
     window.app._onSelect(sc.id, 'conn');
-    const modToggled = toggle('Modifier (Δ)');
+    const modChip = [...document.querySelectorAll('#props-content .var-chip')]
+      .find(c => c.textContent === 'Modifies target');
+    const modToggled = !!modChip;
+    if (modChip) modChip.click();
 
     return { hasQueue: !!q, hasPT, limited: s.limited, hasStock, modToggled, modifier: sc.modifier };
   });
@@ -318,13 +331,16 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
       .map(o => o.value);
     const hasAll = modeOpts.includes('all');
 
-    // State connection: reverse trigger checkbox
+    // State connection: trigger role exposes the fire/fail "On" select
     const a = d.addNode(new MNode(NodeType.POOL, 100, 100));
     const b = d.addNode(new MNode(NodeType.POOL, 200, 100));
     const sc = d.addConnection(new MConnection(a.id, b.id, ConnectionType.STATE));
     window.app._onSelect(sc.id, 'conn');
-    const hasFailTrigger = [...document.querySelectorAll('#props-content .prop-row label')]
-      .some(l => l.textContent.includes('Fail trigger'));
+    const trigChip = [...document.querySelectorAll('#props-content .var-chip')]
+      .find(c => c.textContent === 'Triggers target');
+    if (trigChip) trigChip.click();
+    const hasFailTrigger = [...document.querySelectorAll('#props-content select option')]
+      .some(o => o.textContent.includes('fails to act'));
 
     // Resource connection: distribution rate mode exists
     const rc = d.addConnection(new MConnection(a.id, b.id));

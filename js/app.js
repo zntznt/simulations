@@ -2276,56 +2276,62 @@ class App {
       }
 
     } else {
-      // State connection: variable / trigger / activator (independent roles)
-      this._field(panel, 'Variable name', 'text', conn.variableName || conn.label, v => {
-        conn.variableName = v; conn.label = v; this.renderer.render();
-      }, 'used in register formulas');
-      this._info(panel, 'Each step this variable is set to the source\'s value (pool count, source produced, drain consumed, or register value). Use it in Register or rate formulas.');
+      // State connection: one primary role, picked up front so the panel only
+      // shows the controls that matter. (Model flags stay independent, so old
+      // diagrams with combined roles still run; the panel surfaces the first.)
+      const role = conn.modifier ? 'modify'
+        : (conn.trigger || conn.reverseTrigger) ? 'trigger'
+        : conn.activator ? 'activate' : 'variable';
 
-      this._sep(panel);
+      const roleLbl = document.createElement('div');
+      roleLbl.className = 'field-label';
+      roleLbl.textContent = 'This connection…';
+      panel.appendChild(roleLbl);
 
-      this._checkRow(panel, 'Trigger (✷)', conn.trigger, v => {
-        conn.trigger = v; this._renderProps(); this.renderer.render();
-      });
-      this._info(panel, 'When the source fires, instantly fire the target node (cascades, pulses, on-demand passive nodes).');
-      if (conn.trigger) {
-        this._field(panel, 'Chance %', 'number', conn.triggerChance ?? 100, v => {
-          const n = parseFloat(v);
-          conn.triggerChance = Math.min(100, Math.max(0, isFinite(n) ? n : 100));
-          this.renderer.render();
-        }, '0–100');
-        this._field(panel, 'Every Nth', 'number', conn.triggerEvery ?? 1, v => {
-          conn.triggerEvery = Math.max(1, parseInt(v) || 1);
-          this.renderer.render();
-        }, 'fire target every Nth source firing');
+      const chips = document.createElement('div');
+      chips.className = 'var-chip-group role-chips';
+      for (const [key, label] of [
+        ['variable', 'Sets a variable'],
+        ['modify',   'Modifies target'],
+        ['trigger',  'Triggers target'],
+        ['activate', 'Activates target'],
+      ]) {
+        const chip = document.createElement('button');
+        chip.className = 'var-chip' + (role === key ? ' active' : '');
+        chip.textContent = label;
+        chip.addEventListener('click', () => {
+          if (key === role) return;
+          // First time the modifier is enabled, default to the simplest mode:
+          // a flat amount every step.
+          if (key === 'modify' && !conn.modifier && (conn.modMode || 'rate') === 'rate') conn.modMode = 'step';
+          conn.modifier = key === 'modify';
+          conn.activator = key === 'activate';
+          if (key === 'trigger') { if (!conn.trigger && !conn.reverseTrigger) conn.trigger = true; }
+          else { conn.trigger = false; conn.reverseTrigger = false; }
+          this._renderProps(); this.renderer.render();
+        });
+        chips.appendChild(chip);
       }
-
-      this._checkRow(panel, 'Fail trigger', conn.reverseTrigger, v => {
-        conn.reverseTrigger = v; this.renderer.render();
-      });
-      this._info(panel, 'Fire the target when the source FAILS to produce output (e.g. pool empty, limited source dry). Opposite of trigger.');
-
+      panel.appendChild(chips);
       this._sep(panel);
 
-      this._conditionRow(panel, 'Activator (⊢)', conn,
-        { enabled: 'activator', op: 'actOperator', val: 'actValue', val2: 'actValue2', lead: 'enable target when source' });
-      this._info(panel, 'The target node may only fire while the source value satisfies this condition. The a..b operator is an inclusive range.');
+      if (role === 'variable') {
+        this._field(panel, 'Variable name', 'text', conn.variableName || conn.label, v => {
+          conn.variableName = v; conn.label = v; this.renderer.render();
+        }, 'used in formulas');
+        this._info(panel, 'Each step this variable is set to the source\'s value (pool count, source produced, drain consumed, or register value). Use it in Register or rate formulas, or in modifier formulas on other connections.');
 
-      this._sep(panel);
-
-      this._checkRow(panel, 'Modifier (Δ)', conn.modifier, v => {
-        conn.modifier = v; this._renderProps(); this.renderer.render();
-      });
-      if (conn.modifier) {
+      } else if (role === 'modify') {
         const mode = conn.modMode || 'rate';
         const modeRow = document.createElement('div');
         modeRow.className = 'prop-row';
-        const ml = document.createElement('label'); ml.textContent = 'Mode';
+        const ml = document.createElement('label'); ml.textContent = 'When';
         const ms = document.createElement('select');
         for (const [v, t] of [
-          ['pulse', 'On source fire (flat amount)'],
-          ['delta', 'On source change (× change)'],
-          ['rate',  'Every step (× source value)'],
+          ['step',  'Every step — flat amount'],
+          ['pulse', 'When source fires — flat amount'],
+          ['delta', 'When source changes — × the change'],
+          ['rate',  'Every step — × source value'],
         ]) {
           const o = document.createElement('option');
           o.value = v; o.textContent = t;
@@ -2338,11 +2344,12 @@ class App {
 
         // Amount source: a fixed number, or a live formula over diagram
         // variables (params, custom vars, published state values).
+        const flat = mode === 'step' || mode === 'pulse';
         const useFormula = !!conn.modFormula || conn._modWantFormula;
         const srcRow = document.createElement('div');
         srcRow.className = 'prop-row';
         const sl = document.createElement('label');
-        sl.textContent = mode === 'pulse' ? 'Amount' : 'Factor';
+        sl.textContent = flat ? 'Amount' : 'Factor';
         const ss = document.createElement('select');
         for (const [v, t] of [['fixed', 'Fixed number'], ['formula', 'Formula']]) {
           const o = document.createElement('option');
@@ -2375,16 +2382,56 @@ class App {
         } else {
           this._field(panel, '', 'number', conn.modFactor, v => {
             const n = parseFloat(v); conn.modFactor = isFinite(n) ? n : 0; this.renderer.render();
-          }, mode === 'pulse' ? 'e.g. 1 = +1 per firing' : (mode === 'delta' ? 'Δtarget = factor × Δsource' : 'Δ = factor × source / step'));
+          }, {
+            step:  'e.g. 2 = +2 every step',
+            pulse: 'e.g. 1 = +1 per firing',
+            delta: 'Δtarget = factor × Δsource',
+            rate:  'Δ = factor × source / step',
+          }[mode]);
         }
 
         this._info(panel, {
-          pulse: 'Each time the source node fires, add this flat amount to the target pool/converter (negative subtracts). The easy "+1 when the source triggers".',
+          step:  'Each step, add this amount to the target pool/converter (negative subtracts). Use a formula to compute it from variables, e.g. round(gold * 0.05).',
+          pulse: 'Each time the source node fires, add this amount to the target pool/converter (negative subtracts). The easy "+1 when the source triggers".',
           delta: 'When the source value changes, add factor × the change to the target (Machinations-style label modifier).',
           rate:  'Each step, add factor × source value to the target (negative = decay). Self-connections are allowed for interest/decay.',
         }[mode]);
+
+      } else if (role === 'trigger') {
+        const onRow = document.createElement('div');
+        onRow.className = 'prop-row';
+        const ol = document.createElement('label'); ol.textContent = 'On';
+        const os = document.createElement('select');
+        for (const [v, t] of [['fire', 'Source fires'], ['fail', 'Source fails to act']]) {
+          const o = document.createElement('option');
+          o.value = v; o.textContent = t;
+          if ((conn.reverseTrigger && !conn.trigger ? 'fail' : 'fire') === v) o.selected = true;
+          os.appendChild(o);
+        }
+        os.addEventListener('change', () => {
+          conn.trigger = os.value === 'fire';
+          conn.reverseTrigger = os.value === 'fail';
+          this.renderer.render();
+        });
+        onRow.appendChild(ol); onRow.appendChild(os);
+        panel.appendChild(onRow);
+
+        this._field(panel, 'Chance %', 'number', conn.triggerChance ?? 100, v => {
+          const n = parseFloat(v);
+          conn.triggerChance = Math.min(100, Math.max(0, isFinite(n) ? n : 100));
+          this.renderer.render();
+        }, '0–100');
+        this._field(panel, 'Every Nth', 'number', conn.triggerEvery ?? 1, v => {
+          conn.triggerEvery = Math.max(1, parseInt(v) || 1);
+          this.renderer.render();
+        }, 'fire target every Nth source firing');
+        this._info(panel, '"Source fires": instantly fire the target node when the source fires (cascades, on-demand passive nodes). "Source fails": fire the target when the source could NOT act (pool empty, limited source dry).');
+
       } else {
-        this._info(panel, 'Adjust the target pool/converter without a resource flow: a flat +N when the source fires, a multiple of the source\'s change, or interest/decay every step.');
+        // Activate
+        this._conditionRow(panel, 'Condition', conn,
+          { enabled: 'activator', op: 'actOperator', val: 'actValue', val2: 'actValue2', lead: 'enable target when source' });
+        this._info(panel, 'The target node may only fire while the source value satisfies this condition. The a..b operator is an inclusive range.');
       }
     }
   }

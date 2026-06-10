@@ -607,6 +607,29 @@ test('modifier respects target capacity', () => {
   eq(b.resources, 8, 'capped at capacity');
 });
 
+test('step modifier adds a flat amount every step (pool → pool)', () => {
+  const { d, e } = setup();
+  // The simplest case: two passive pools, "+2 to the target each step".
+  const a = node(d, NodeType.POOL); a.setCount(5); a.activation = ActivationMode.PASSIVE;
+  const b = node(d, NodeType.POOL);
+  const m = conn(d, a, b, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'step'; m.modFactor = 2;
+  steps(e, 3);
+  eq(b.resources, 6, '+2 per step, no firing required');
+  eq(a.resources, 5, 'source untouched');
+});
+
+test('step modifier with a formula evaluates every step', () => {
+  const { d, e } = setup();
+  d.params.income = 3;
+  const a = node(d, NodeType.POOL); a.activation = ActivationMode.PASSIVE;
+  const b = node(d, NodeType.POOL);
+  const m = conn(d, a, b, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'step'; m.modFormula = 'income * 2';
+  steps(e, 2);
+  eq(b.resources, 12, '+6 (income×2) per step');
+});
+
 test('pulse modifier adds a flat amount when the source fires', () => {
   const { d, e } = setup();
   // Source fires automatically each step; the score pool gets +1 per firing.

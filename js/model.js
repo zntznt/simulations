@@ -462,10 +462,11 @@ class MConnection {
     this.weight = 1;
 
     // Modifier (state connection): adjust the target node's resources without
-    // a resource flow. Three modes:
-    //   'rate'  — each step add `modFactor × sourceValue` (interest / decay)
-    //   'delta' — add `modFactor × (change in sourceValue)` when it changes
+    // a resource flow. Four modes:
+    //   'step'  — each step add a flat `modFactor` (e.g. +2 per step)
     //   'pulse' — when the source FIRES, add a flat `modFactor` (e.g. +1)
+    //   'delta' — add `modFactor × (change in sourceValue)` when it changes
+    //   'rate'  — each step add `modFactor × sourceValue` (interest / decay)
     this.modifier = false;
     this.modMode = 'rate';
     this.modFactor = 1;

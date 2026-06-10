@@ -916,9 +916,10 @@ class SimEngine {
 
   // State-connection modifiers: adjust the target's resources in place (no
   // resource flow). Targets pools and converters (accumulators). Modes:
-  //   'rate'  — each step add `modFactor × sourceValue` (interest / decay)
-  //   'delta' — add `modFactor × (sourceValue − last step's sourceValue)`
+  //   'step'  — each step add a flat `modFactor` (or formula result)
   //   'pulse' — add a flat `modFactor` whenever the source fired this step
+  //   'delta' — add `modFactor × (sourceValue − last step's sourceValue)`
+  //   'rate'  — each step add `modFactor × sourceValue` (interest / decay)
   //
   // Source values are snapshotted BEFORE any delta is applied, so a network of
   // modifiers (mutual or chained, e.g. A→B→C) is order-independent and reads the
@@ -944,6 +945,8 @@ class SimEngine {
       if (mode === 'pulse') {
         if (!firedSet.has(src.id)) continue;
         delta = Math.round(factor);
+      } else if (mode === 'step') {
+        delta = Math.round(factor); // flat amount every step
       } else if (mode === 'delta') {
         const v = this._stateValueOf(src); // pre-apply snapshot
         const prev = this._prevStateVals.has(conn.id) ? this._prevStateVals.get(conn.id) : v;
