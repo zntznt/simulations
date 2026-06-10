@@ -75,7 +75,7 @@ class App {
     this.engine.onEnd = (ended) => {
       const status = document.getElementById('sim-status');
       if (status) status.textContent = `🏁 ${ended.label} reached ${ended.value} at step ${ended.step}`;
-      document.getElementById('btn-run').textContent = '▶ Run';
+      this._syncRunButton();
       this.renderer.render();
     };
 
@@ -85,6 +85,15 @@ class App {
   // ── Undo / redo ─────────────────────────────────────────────────────────────
 
   _snapshot() { return JSON.stringify(this.diagram.toJSON()); }
+
+  // Run button reflects engine state: label + a visible "running" treatment.
+  _syncRunButton() {
+    const b = document.getElementById('btn-run');
+    if (!b) return;
+    const on = this.engine.running;
+    b.textContent = on ? '⏸ Pause' : '▶ Run';
+    b.classList.toggle('running', on);
+  }
 
   // Begin a fresh history baseline (after load / new / example).
   _resetHistory() {
@@ -135,7 +144,7 @@ class App {
     this.diagram.loadJSON(JSON.parse(json));
     this._applyMeta();
     this.engine.reset();
-    document.getElementById('btn-run').textContent = '▶ Run';
+    this._syncRunButton();
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
     this._clearSparklines();
@@ -168,7 +177,7 @@ class App {
     this.diagram.meta = Diagram.defaultMeta();
     this._applyMeta();
     this.engine.reset();
-    document.getElementById('btn-run').textContent = '▶ Run';
+    this._syncRunButton();
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
     this._clearSparklines();
@@ -781,12 +790,12 @@ class App {
     runBtn.addEventListener('click', () => {
       if (!this.engine.running) document.getElementById('sim-status').textContent = '';
       this.engine.run();
-      runBtn.textContent = this.engine.running ? '⏸ Pause' : '▶ Run';
+      this._syncRunButton();
     });
 
     document.getElementById('btn-reset').addEventListener('click', () => {
       this.engine.reset();
-      document.getElementById('btn-run').textContent = '▶ Run';
+      this._syncRunButton();
       document.getElementById('sim-status').textContent = '';
       this.renderer.balls.clear();
       this._clearSparklines();
@@ -801,7 +810,7 @@ class App {
       if (this.engine.running) {
         this.engine.stop();
         this.engine.run();
-        document.getElementById('btn-run').textContent = '⏸ Pause';
+        this._syncRunButton();
       }
     });
 
@@ -956,7 +965,7 @@ class App {
 
   _openMonteCarlo() {
     this.engine.stop();
-    document.getElementById('btn-run').textContent = '▶ Run';
+    this._syncRunButton();
     document.getElementById('mc-results').innerHTML =
       '<p class="mc-empty">Choose runs &amp; steps, then press Run.</p>';
     this._showModal('mc-overlay');
@@ -982,10 +991,20 @@ class App {
       }
       html += '</p>';
 
-      html += '<table><thead><tr><th>Node</th><th>mean</th><th>min</th>'
+      html += '<table><thead><tr><th>Node</th><th>distribution</th><th>mean</th><th>min</th>'
         + '<th>p10</th><th>p50</th><th>p90</th><th>max</th></tr></thead><tbody>';
       for (const n of res.nodes) {
+        // Mini histogram of final values across all runs: where did this node
+        // actually land, not just its summary stats.
+        const { counts } = SimEngine.histogram(n.samples, 14);
+        const peak = Math.max(...counts, 1);
+        const bars = counts.map(c => {
+          const h = c === 0 ? 0 : Math.max(8, Math.round((c / peak) * 100));
+          return `<span class="mc-bar" style="height:${h}%" title="${c} runs"></span>`;
+        }).join('');
+        const hist = `<div class="mc-hist" role="img" aria-label="distribution of final values">${bars}</div>`;
         html += `<tr><td>${this._esc(n.label || n.type)}</td>`
+          + `<td class="mc-hist-cell">${hist}</td>`
           + `<td>${n.mean}</td><td>${n.min}</td><td>${n.p10}</td>`
           + `<td>${n.p50}</td><td>${n.p90}</td><td>${n.max}</td></tr>`;
       }
@@ -1852,7 +1871,7 @@ class App {
   }
 
   _groupProps(panel, group) {
-    this._title(panel, 'Container Group');
+    this._titleTyped(panel, 'Container group', group.label || '(unnamed)', group.color || '#4a9eff');
     this._info(panel, 'Drag inside to move with its contained nodes. Drag the border to resize by editing Width / Height below.');
     this._field(panel, 'Label', 'text', group.label, v => { group.label = v; this.renderer.render(); });
     this._colorField(panel, 'Color', group.color || '#4a9eff', v => { group.color = v; this.renderer.render(); });
@@ -1875,7 +1894,7 @@ class App {
   }
 
   _noteProps(panel, note) {
-    this._title(panel, 'Sticky Note');
+    this._titleTyped(panel, 'Annotation', 'Sticky note', note.color || '#f6e05e');
     const row = document.createElement('div');
     row.className = 'prop-row'; row.style.alignItems = 'flex-start';
     const lbl = document.createElement('label'); lbl.textContent = 'Text';
@@ -1907,17 +1926,32 @@ class App {
     const palette = (typeof CHART_PALETTE !== 'undefined') ? CHART_PALETTE
       : ['#4a9eff', '#4caf50', '#ef5350', '#ffa726', '#ba68c8', '#26c6da', '#ffeb3b', '#7c83ff', '#ff7043', '#9ccc65'];
 
-    this._title(panel, 'Chart');
-    this._info(panel, 'A live line chart drawn on the canvas. Pick nodes below to plot their values over the run.');
+    this._titleTyped(panel, 'Canvas widget', chart.label || 'Chart', '#26c6da');
+    this._info(panel, 'A live chart drawn on the canvas. Pick nodes below to plot their values over the run.');
     this._field(panel, 'Title', 'text', chart.label, v => { chart.label = v; this.renderer.render(); });
+
+    // Visualization style picker.
+    this._section(panel, 'Style');
+    const typeChips = document.createElement('div');
+    typeChips.className = 'var-chip-group chart-type-chips';
+    for (const [key, icon, label] of [
+      ['line', '〜', 'Line'], ['area', '◢', 'Area'], ['bars', '▮▮', 'Bars'], ['step', '⌐⌐', 'Step'],
+    ]) {
+      const chip = document.createElement('button');
+      chip.className = 'var-chip' + ((chart.chartType || 'line') === key ? ' active' : '');
+      chip.innerHTML = `<span aria-hidden="true">${icon}</span> ${label}`;
+      chip.addEventListener('click', () => {
+        chart.chartType = key;
+        this._renderProps(); this.renderer.render(); this._commit();
+      });
+      typeChips.appendChild(chip);
+    }
+    panel.appendChild(typeChips);
+
     this._field(panel, 'Width', 'number', chart.w, v => { chart.w = Math.max(120, parseInt(v) || 240); this.renderer.render(); });
     this._field(panel, 'Height', 'number', chart.h, v => { chart.h = Math.max(80, parseInt(v) || 150); this.renderer.render(); });
 
-    this._sep(panel);
-    const stitle = document.createElement('div');
-    stitle.className = 'chart-label';
-    stitle.textContent = 'Tracked nodes';
-    panel.appendChild(stitle);
+    this._section(panel, 'Tracked nodes');
 
     // Existing series, each with its plot color and a remove button.
     chart.nodeIds = (chart.nodeIds || []).filter(id => this.diagram.nodes.has(id));
@@ -1985,7 +2019,8 @@ class App {
   }
 
   _nodeProps(panel, node) {
-    this._title(panel, `${node.type.charAt(0).toUpperCase() + node.type.slice(1)} Node`);
+    const typeColor = (typeof NODE_STROKE !== 'undefined' && NODE_STROKE[node.type]) || 'var(--accent)';
+    this._titleTyped(panel, `${node.type} node`, node.label || '(unnamed)', typeColor);
 
     this._field(panel, 'Label', 'text', node.label, v => { node.label = v; this.renderer.render(); });
 
@@ -2113,6 +2148,8 @@ class App {
       this._info(panel, 'State connections feeding this register become variables. Set the connection\'s variable name (label) to use in the formula.');
     }
 
+    this._section(panel, 'Behavior');
+
     if (node.type === NodeType.POOL || node.type === NodeType.DRAIN) {
       this._select2(panel, 'Flow', ['push', 'pull'], node.flowMode, v => {
         node.flowMode = v; this._renderProps(); this.renderer.render();
@@ -2139,10 +2176,7 @@ class App {
     // Per-type holdings readout (nodes that carry colored resources).
     if (node.type !== NodeType.REGISTER && node.type !== NodeType.DRAIN
       && node.type !== NodeType.TRADER) {
-      const hlabel = document.createElement('div');
-      hlabel.className = 'chart-label'; hlabel.style.marginTop = '12px';
-      hlabel.textContent = 'Holdings by type';
-      panel.appendChild(hlabel);
+      this._section(panel, 'Holdings by type');
       const hc = document.createElement('div');
       hc.className = 'type-readout'; hc.id = 'node-holdings';
       panel.appendChild(hc);
@@ -2151,7 +2185,7 @@ class App {
 
     // End / goal condition (any node with a numeric value)
     if (node.type !== NodeType.SOURCE) {
-      this._sep(panel);
+      this._section(panel, 'Goal');
       this._conditionRow(panel, 'End / goal', node,
         { enabled: 'endEnabled', op: 'endOperator', val: 'endValue', lead: 'stop when value' });
       this._info(panel, 'Halt the simulation when this node\'s value meets the condition.');
@@ -2159,9 +2193,9 @@ class App {
 
     // Chart
     if (node.type !== NodeType.SOURCE) {
+      this._section(panel, 'History');
       const sec = document.createElement('div');
       sec.className = 'chart-section';
-      sec.innerHTML = '<div class="chart-label">Resource History</div>';
       panel.appendChild(sec);
       const sl = new Sparkline(sec, node.id, this.engine);
       this._sparklines.set(node.id, sl);
@@ -2173,9 +2207,10 @@ class App {
     const src = this.diagram.nodes.get(conn.sourceId);
     const tgt = this.diagram.nodes.get(conn.targetId);
     const isRes = conn.type === ConnectionType.RESOURCE;
-    this._title(panel, `${isRes ? 'Resource' : 'State'} Connection`);
+    this._titleTyped(panel, `${isRes ? 'Resource' : 'State'} connection`,
+      `${src?.label || '?'} → ${tgt?.label || '?'}`, isRes ? '#ffa726' : '#78909c');
 
-    this._info(panel, `${src?.label || '?'} → ${tgt?.label || '?'}`);
+    this._section(panel, 'Appearance');
 
     // Path style selector
     const styleRow = document.createElement('div');
@@ -2239,6 +2274,7 @@ class App {
         this._info(panel, 'When resources mature, each output\'s rate is its share among the delay\'s outputs.');
       } else {
         // Source / Pool / Converter: rate (fixed / dice / formula).
+        this._section(panel, 'Rate');
         this._select2(panel, 'Rate mode', Object.values(RateMode), conn.rateMode, v => {
           conn.rateMode = v;
           this._renderProps(); // re-render to show the matching rate field
@@ -2276,7 +2312,7 @@ class App {
           this._info(panel, 'Amount emitted per conversion, in the converter\'s output color.');
         } else {
           // Only Source / Pool outputs honor timing, color filter, condition.
-          this._sep(panel);
+          this._section(panel, 'Timing');
 
           this._field(panel, 'Interval', 'number', conn.interval, v => {
             conn.interval = Math.max(1, parseInt(v) || 1);
@@ -2288,7 +2324,7 @@ class App {
             this.renderer.render();
           }, '0–100');
 
-          this._sep(panel);
+          this._section(panel, 'Filter');
 
           this._colorField(panel, 'Color filter', conn.colorFilter || '', v => {
             conn.colorFilter = v;
@@ -2296,7 +2332,7 @@ class App {
           }, true, true);
           this._info(panel, 'Only resources of this color pass. Leave empty for any color.');
 
-          this._sep(panel);
+          this._section(panel, 'Condition');
 
           this._conditionRow(panel, 'Condition', conn,
             { enabled: 'condEnabled', op: 'condOperator', val: 'condValue', val2: 'condValue2', lead: 'if source' },
@@ -2340,6 +2376,7 @@ class App {
         : (conn.trigger || conn.reverseTrigger) ? 'trigger'
         : conn.activator ? 'activate' : 'variable';
 
+      this._section(panel, 'Role');
       const roleLbl = document.createElement('div');
       roleLbl.className = 'field-label';
       roleLbl.textContent = 'This connection…';
@@ -2502,6 +2539,26 @@ class App {
     panel.appendChild(h);
   }
 
+  // Selection header: a small uppercase kind overline with a type-colored dot,
+  // then the element's own name large — "what is it" before "which one".
+  _titleTyped(panel, kind, text, color) {
+    const wrap = document.createElement('div');
+    wrap.className = 'props-title-block';
+    const over = document.createElement('div');
+    over.className = 'props-overline';
+    const dot = document.createElement('span');
+    dot.className = 'props-dot';
+    dot.style.background = color || 'var(--accent)';
+    over.appendChild(dot);
+    over.appendChild(document.createTextNode(kind));
+    const h = document.createElement('h3');
+    h.className = 'props-title';
+    h.textContent = text;
+    wrap.appendChild(over);
+    wrap.appendChild(h);
+    panel.appendChild(wrap);
+  }
+
   _info(panel, text) {
     const p = document.createElement('p');
     p.className = 'props-info';
@@ -2513,6 +2570,15 @@ class App {
     const hr = document.createElement('div');
     hr.className = 'props-sep';
     panel.appendChild(hr);
+  }
+
+  // A labelled section header — names the group of controls that follows so
+  // the panel reads as a scannable outline instead of anonymous dividers.
+  _section(panel, text) {
+    const h = document.createElement('div');
+    h.className = 'props-sec';
+    h.textContent = text;
+    panel.appendChild(h);
   }
 
   // A labelled checkbox row. onChange(checked).

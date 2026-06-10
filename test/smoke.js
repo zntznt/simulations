@@ -224,11 +224,59 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     document.getElementById('mc-run').click();
     await new Promise(r => setTimeout(r, 150));
     const rows = document.querySelectorAll('#mc-results table tbody tr').length;
-    return { tlShown, cw, mcShown, rows };
+    const hists = document.querySelectorAll('#mc-results .mc-hist').length;
+    const histBars = document.querySelectorAll('#mc-results .mc-bar').length;
+    return { tlShown, cw, mcShown, rows, hists, histBars };
   });
-  if (analysis.tlShown && analysis.cw > 0 && analysis.mcShown && analysis.rows >= 1)
-    ok(`analysis: timeline chart + Monte Carlo (${analysis.rows} result rows)`);
+  if (analysis.tlShown && analysis.cw > 0 && analysis.mcShown && analysis.rows >= 1
+      && analysis.hists === analysis.rows && analysis.histBars > 0)
+    ok(`analysis: timeline + Monte Carlo (${analysis.rows} rows, distribution histograms)`);
   else fail('analysis: ' + JSON.stringify(analysis));
+
+  // UI pass: chart visualization types render, run button reflects engine
+  // state, and node properties read as labelled sections.
+  const uiPass = await page.evaluate(async () => {
+    const r = {};
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 150, 150));
+    const p = d.addNode(new MNode(NodeType.POOL, 350, 150));
+    d.addConnection(new MConnection(s.id, p.id)).rate = 2;
+    const ch = d.addChart(new MChart(150, 260));
+    ch.nodeIds = [p.id];
+    window.app.engine.reset();
+    for (let i = 0; i < 5; i++) window.app.engine.doStep();
+    window.app.renderer.render();
+    // Each chart type draws its own geometry without errors.
+    const plotEl = () => document.querySelector(`[data-id="${ch.id}"] .chart-plot`);
+    ch.chartType = 'bars'; window.app.renderer.render();
+    r.bars = plotEl().querySelectorAll('rect').length >= 4;
+    ch.chartType = 'area'; window.app.renderer.render();
+    r.area = !!plotEl().querySelector('polygon');
+    ch.chartType = 'step'; window.app.renderer.render();
+    r.step = [...plotEl().querySelectorAll('path')].some(el => (el.getAttribute('d') || '').includes('H'));
+    // Type picker chips render in the chart panel and switch the type.
+    window.app._onSelect(ch.id, 'chart');
+    const chip = [...document.querySelectorAll('#props-content .chart-type-chips .var-chip')]
+      .find(c => c.textContent.includes('Line'));
+    r.chips = !!chip;
+    if (chip) { chip.click(); r.chipSwitch = ch.chartType === 'line'; }
+    // Run button shows the running state.
+    document.getElementById('btn-run').click();
+    r.running = document.getElementById('btn-run').classList.contains('running')
+      && document.getElementById('btn-run').textContent.includes('Pause');
+    document.getElementById('btn-run').click();
+    r.stopped = !document.getElementById('btn-run').classList.contains('running');
+    // Node panel reads as labelled sections.
+    window.app._onSelect(p.id, 'node');
+    const secs = [...document.querySelectorAll('#props-content .props-sec')].map(el => el.textContent);
+    r.sections = secs.includes('Behavior') && secs.includes('Goal') && secs.includes('History');
+    r.typedTitle = !!document.querySelector('#props-content .props-overline');
+    return r;
+  });
+  if (Object.values(uiPass).every(Boolean))
+    ok('UI pass: chart types + type chips + run state + sectioned panels');
+  else fail('UI pass: ' + JSON.stringify(uiPass));
 
   // Editor 3a: zoom + undo/redo.
   const ed = await page.evaluate(() => {
@@ -705,9 +753,9 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     window.app.renderer.render();
 
     window.app._onSelect(g.id, 'group');
-    const hasGroupTitle = document.getElementById('props-content').textContent.includes('Container Group');
+    const hasGroupTitle = document.getElementById('props-content').textContent.includes('Container group');
     window.app._onSelect(note.id, 'note');
-    const hasNoteTitle = document.getElementById('props-content').textContent.includes('Sticky Note');
+    const hasNoteTitle = document.getElementById('props-content').textContent.includes('Sticky note');
 
     const json = JSON.parse(JSON.stringify(d.toJSON()));
     const d2 = new Diagram();
@@ -736,7 +784,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     // Props panel shows the chart editor with the tracked node.
     window.app._onSelect(chart.id, 'chart');
     const panelText = document.getElementById('props-content').textContent;
-    const hasChartPanel = panelText.includes('Chart') && panelText.includes('Tracked nodes') && panelText.includes('Bank');
+    const hasChartPanel = panelText.includes('Canvas widget') && panelText.includes('Tracked nodes') && panelText.includes('Bank');
 
     // Before a run: a hint is shown, no polylines yet.
     const chartEl = window.app.renderer._chartEls.get(chart.id);

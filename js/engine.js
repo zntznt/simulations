@@ -1155,10 +1155,26 @@ class SimEngine {
       runs, maxSteps,
       nodes: tracked.map(n => ({
         id: n.id, label: n.label, type: n.type, ...this._stats(samples.get(n.id)),
+        // Raw final values, one per run — lets the UI draw distributions.
+        samples: samples.get(n.id),
       })),
       endedRate: endedCount / runs,
       endStep: endSteps.length ? this._stats(endSteps) : null,
     };
+  }
+
+  // Bucket samples into `bins` counts between min and max (for histograms).
+  static histogram(samples, bins = 12) {
+    if (!samples || !samples.length) return { counts: [], lo: 0, hi: 0 };
+    let lo = Infinity, hi = -Infinity;
+    for (const v of samples) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const counts = new Array(bins).fill(0);
+    if (hi === lo) { counts[0] = samples.length; return { counts, lo, hi }; }
+    for (const v of samples) {
+      const b = Math.min(bins - 1, Math.floor(((v - lo) / (hi - lo)) * bins));
+      counts[b]++;
+    }
+    return { counts, lo, hi };
   }
 
   _stats(arr) {

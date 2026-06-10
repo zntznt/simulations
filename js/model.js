@@ -574,14 +574,22 @@ class MChart {
     this.w = 240; this.h = 150;
     this.label = 'Chart';
     this.nodeIds = [];      // tracked node ids, each plotted as a series
+    // Visualization style: 'line' | 'area' | 'bars' | 'step'
+    this.chartType = 'line';
   }
   toJSON() {
     return {
       id: this.id, x: this.x, y: this.y, w: this.w, h: this.h,
       label: this.label, nodeIds: [...this.nodeIds],
+      chartType: this.chartType !== 'line' ? this.chartType : undefined,
     };
   }
-  loadJSON(d) { Object.assign(this, d); this.nodeIds = [...(d.nodeIds || [])]; return this; }
+  loadJSON(d) {
+    Object.assign(this, d);
+    this.nodeIds = [...(d.nodeIds || [])];
+    if (!this.chartType) this.chartType = 'line';
+    return this;
+  }
 }
 
 class Diagram {

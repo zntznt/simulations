@@ -885,6 +885,27 @@ test('Monte Carlo reports goal reach rate and end-step stats', () => {
   assert(res.endStep && res.endStep.min === 3 && res.endStep.max === 3, 'ends at step 3 each run');
 });
 
+test('Monte Carlo returns raw samples for distribution charts', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p); c.rate = 1; c.chance = 50;
+  const res = e.runMonteCarlo(20, 30);
+  const pn = res.nodes.find(x => x.id === p.id);
+  eq(pn.samples.length, 20, 'one sample per run');
+  assert(pn.samples.every(v => v >= 0 && v <= 30), 'samples within plausible range');
+});
+
+test('histogram buckets samples between min and max', () => {
+  const h = SimEngine.histogram([0, 1, 1, 2, 2, 2, 10], 5);
+  eq(h.lo, 0, 'lo'); eq(h.hi, 10, 'hi');
+  eq(h.counts.reduce((a, b) => a + b, 0), 7, 'all samples bucketed');
+  eq(h.counts[4], 1, 'max lands in the last bin');
+  const flat = SimEngine.histogram([4, 4, 4], 5);
+  eq(flat.counts[0], 3, 'identical samples collapse into one bin');
+  eq(SimEngine.histogram([], 5).counts.length, 0, 'empty input → empty histogram');
+});
+
 test('Monte Carlo does not disturb the live diagram', () => {
   const { d, e } = setup();
   const s = node(d, NodeType.SOURCE);
@@ -1332,6 +1353,19 @@ test('MChart serializes and deserializes correctly', () => {
   const c2 = new MChart(0, 0); c2.loadJSON(json);
   eq(c2.label, 'Economy', 'label round-trip');
   eq(c2.nodeIds[1], 'n_b', 'nodeIds round-trip');
+});
+
+test('chart type round-trips (default omitted, non-default kept)', () => {
+  const c = new MChart(0, 0);
+  eq(c.chartType, 'line', 'default type is line');
+  const j1 = JSON.parse(JSON.stringify(c.toJSON()));
+  eq(j1.chartType, undefined, 'default type omitted from JSON');
+  c.chartType = 'bars';
+  const j2 = JSON.parse(JSON.stringify(c.toJSON()));
+  const c2 = new MChart(0, 0); c2.loadJSON(j2);
+  eq(c2.chartType, 'bars', 'non-default type preserved');
+  const c3 = new MChart(0, 0); c3.loadJSON(j1);
+  eq(c3.chartType, 'line', 'legacy JSON without type defaults to line');
 });
 
 test('chart nodeIds is copied, not aliased, on load', () => {

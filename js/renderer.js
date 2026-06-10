@@ -729,12 +729,45 @@ class Renderer {
     zeroLbl.textContent = '0';
     plot.appendChild(zeroLbl);
 
-    // One polyline per tracked node, plus a live end-value label.
+    // One series per tracked node, drawn in the chart's visualization style,
+    // plus a live end-value label.
+    const type = chart.chartType || 'line';
+    const baseY = y0 + plotH;
     ids.forEach((id, idx) => {
       const color = palette[idx % palette.length];
-      const pts = hist.map((snap, i) => `${xAt(i).toFixed(1)},${yAt(snap.snap[id] ?? 0).toFixed(1)}`).join(' ');
-      plot.appendChild(svgEl('polyline', { points: pts, fill: 'none', stroke: color, 'stroke-width': '1.5' }));
-      const last = hist[hist.length - 1].snap[id] ?? 0;
+      const vals = hist.map(snap => snap.snap[id] ?? 0);
+
+      if (type === 'bars') {
+        // Grouped bars: each step's slot is shared between the series.
+        const slot = plotW / n;
+        const bw = Math.max(1, (slot * 0.8) / ids.length);
+        vals.forEach((v, i) => {
+          const h = (v / max) * plotH;
+          if (h <= 0) return;
+          plot.appendChild(svgEl('rect', {
+            x: (x0 + i * slot + slot * 0.1 + idx * bw).toFixed(1),
+            y: (baseY - h).toFixed(1),
+            width: bw.toFixed(1), height: h.toFixed(1),
+            fill: color, opacity: '0.85',
+          }));
+        });
+      } else if (type === 'step') {
+        // Staircase: hold each value until the next step — honest for counts.
+        let dPath = `M ${xAt(0).toFixed(1)},${yAt(vals[0]).toFixed(1)}`;
+        for (let i = 1; i < n; i++)
+          dPath += ` H ${xAt(i).toFixed(1)} V ${yAt(vals[i]).toFixed(1)}`;
+        plot.appendChild(svgEl('path', { d: dPath, fill: 'none', stroke: color, 'stroke-width': '1.5' }));
+      } else {
+        // line + area share the polyline; area adds a translucent fill below.
+        const pts = vals.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
+        if (type === 'area') {
+          const poly = `${xAt(0).toFixed(1)},${baseY.toFixed(1)} ${pts} ${xAt(n - 1).toFixed(1)},${baseY.toFixed(1)}`;
+          plot.appendChild(svgEl('polygon', { points: poly, fill: color, opacity: '0.18', stroke: 'none' }));
+        }
+        plot.appendChild(svgEl('polyline', { points: pts, fill: 'none', stroke: color, 'stroke-width': '1.5' }));
+      }
+
+      const last = vals[vals.length - 1];
       const lbl = svgEl('text', {
         x: String(x0 + plotW), y: String(Math.max(y0 + 7, yAt(last) - 2)),
         'text-anchor': 'end', 'font-size': '8', 'font-family': 'monospace', fill: color,
