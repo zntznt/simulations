@@ -220,6 +220,9 @@ class BallSystem {
 
   spawn(pathEl, amount, color, durationMs) {
     if (!pathEl) return;
+    // Respect the user's motion preference: transfers still happen, the
+    // travelling-ball animation is simply skipped.
+    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const capped = Math.min(amount, 12);
     const pathLen = pathEl.getTotalLength();
     if (pathLen < 1) return;

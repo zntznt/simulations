@@ -361,6 +361,43 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P2 engine UI: gate all-mode, reverse trigger, distribution rate');
   else fail('P2 engine UI: ' + JSON.stringify(p2eng));
 
+  // Accessibility: dialog semantics + focus trap + Escape on modals, label
+  // association in the props panel, aria-pressed toggles, status live region,
+  // and arrow-key nudging of a selected node.
+  const a11y = await page.evaluate(() => {
+    const r = {};
+    // Modal: dialog role, focus moves in, Escape closes and restores focus.
+    document.getElementById('btn-library').focus();
+    window.app._openLibrary();
+    const modal = document.getElementById('lib-modal');
+    r.dialogRole = modal.getAttribute('role') === 'dialog' && modal.getAttribute('aria-modal') === 'true';
+    r.focusIn = document.getElementById('lib-overlay').contains(document.activeElement);
+    document.getElementById('lib-overlay').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    r.escClosed = document.getElementById('lib-overlay').classList.contains('hidden');
+    r.focusRestored = document.activeElement === document.getElementById('btn-library');
+    // Props panel: a labelled field is programmatically associated.
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const p = d.addNode(new MNode(NodeType.POOL, 200, 200));
+    window.app._onSelect(p.id, 'node');
+    const row = [...document.querySelectorAll('#props-content .prop-row')]
+      .find(rw => rw.querySelector('label')?.htmlFor);
+    r.labelFor = !!row && row.querySelector('label').htmlFor === row.querySelector('input, select')?.id;
+    // Toggle semantics.
+    r.toolPressed = document.querySelector('[data-tool="select"]').hasAttribute('aria-pressed');
+    r.railPressed = document.querySelector('#diagram-rail .rail-btn').hasAttribute('aria-pressed');
+    r.statusLive = document.getElementById('sim-status').getAttribute('role') === 'status';
+    // Arrow-key nudge moves the selected node.
+    window.app.editor._select(p.id, 'node');
+    const x0 = p.x;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    r.nudge = p.x > x0;
+    return r;
+  });
+  if (Object.values(a11y).every(Boolean)) ok('a11y: dialogs + labels + toggles + live status + arrow nudge');
+  else fail('a11y: ' + JSON.stringify(a11y));
+
   // Diagram rail: each feature button renders its editor into the props panel;
   // the active button highlights, clicking it again returns to the default view.
   const rail = await page.evaluate(() => {

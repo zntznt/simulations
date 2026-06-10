@@ -6,7 +6,7 @@
   --panel2: #1a1e2e;
   --border: #252d45;
   --text: #c8cfe0;
-  --text-dim: #6b7793;
+  --text-dim: #8290ad; /* ≥ 4.5:1 on --bg and --panel for WCAG AA small text */
   --accent: #4a9eff;
   --accent2: #ffa726;
   --red: #ef5350;
@@ -96,8 +96,22 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 /* Keyboard-focus visibility (accessibility) */
 .btn:focus-visible, [data-tool]:focus-visible,
-.prop-row input:focus-visible, .prop-row select:focus-visible {
+.prop-row input:focus-visible, .prop-row select:focus-visible,
+.rail-btn:focus-visible, .menu-item:focus-visible, .palette-header:focus-visible,
+.var-chip:focus-visible, .var-kind-tab:focus-visible, .conn-style-btn:focus-visible,
+.wide-input:focus-visible, .var-wide-input:focus-visible, .var-name-input:focus-visible,
+.var-range-num:focus-visible, .var-delete-btn:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 1px;
+}
+
+/* Respect the user's motion preference: collapse UI transitions/animations.
+   (The renderer also skips the travelling-ball animation under this query.) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 /* ── Right props panel ── */

@@ -251,12 +251,27 @@ class App {
         closeAll(willOpen ? m : null);
         pop.classList.toggle('hidden', !willOpen);
         btn.setAttribute('aria-expanded', String(willOpen));
+        if (willOpen) pop.querySelector('.menu-item')?.focus();
       });
       pop.addEventListener('click', (e) => {
         if (e.target.closest('.menu-item')) {
           pop.classList.add('hidden');
           btn.setAttribute('aria-expanded', 'false');
         }
+      });
+      // Arrow keys move through the menu; Home/End jump to the extremes.
+      pop.addEventListener('keydown', (e) => {
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+        const items = [...pop.querySelectorAll('.menu-item')].filter(i => i.offsetParent !== null);
+        if (!items.length) return;
+        e.preventDefault();
+        const idx = items.indexOf(document.activeElement);
+        let next;
+        if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = items.length - 1;
+        else if (e.key === 'ArrowDown') next = (idx + 1) % items.length;
+        else next = (idx - 1 + items.length) % items.length;
+        items[next].focus();
       });
     }
     document.addEventListener('click', () => closeAll());
@@ -300,11 +315,11 @@ class App {
     ];
 
     document.getElementById('btn-library').addEventListener('click', () => this._openLibrary());
-    document.getElementById('lib-close').addEventListener('click', () =>
-      document.getElementById('lib-overlay').classList.add('hidden'));
+    document.getElementById('lib-close').addEventListener('click', () => this._hideModal('lib-overlay'));
     document.getElementById('lib-overlay').addEventListener('click', e => {
-      if (e.target.id === 'lib-overlay') e.currentTarget.classList.add('hidden');
+      if (e.target.id === 'lib-overlay') this._hideModal('lib-overlay');
     });
+    this._modalize('lib-overlay');
     document.getElementById('lib-save').addEventListener('click', () => {
       const name = document.getElementById('lib-name').value.trim() || 'Untitled';
       const lib = this._getLibrary();
@@ -326,7 +341,7 @@ class App {
   _openLibrary() {
     this._renderTemplates();
     this._renderLibraryList();
-    document.getElementById('lib-overlay').classList.remove('hidden');
+    this._showModal('lib-overlay');
   }
 
   _renderTemplates() {
@@ -357,7 +372,7 @@ class App {
     this._applyMeta();
     this._resetHistory();
     this.renderer.fitView();
-    document.getElementById('lib-overlay').classList.add('hidden');
+    this._hideModal('lib-overlay');
   }
 
   _renderLibraryList() {
@@ -394,7 +409,7 @@ class App {
           this.renderer.fitView();
         } catch (err) { alert('Failed to load: ' + err.message); }
         this._resetHistory();
-        document.getElementById('lib-overlay').classList.add('hidden');
+        this._hideModal('lib-overlay');
       });
       const delBtn = document.createElement('button');
       delBtn.textContent = '×';
@@ -531,11 +546,47 @@ class App {
 
   // ── Transient toast ─────────────────────────────────────────────────────────
 
+  // ── Modal a11y: dialog semantics, focus trap, Escape, focus restore ───────
+
+  _showModal(overlayId) {
+    const overlay = document.getElementById(overlayId);
+    this._modalReturnFocus = document.activeElement;
+    overlay.classList.remove('hidden');
+    const first = overlay.querySelector('input, select, textarea, button:not([disabled])');
+    if (first) first.focus();
+  }
+
+  _hideModal(overlayId) {
+    document.getElementById(overlayId).classList.add('hidden');
+    if (this._modalReturnFocus && this._modalReturnFocus.focus) this._modalReturnFocus.focus();
+    this._modalReturnFocus = null;
+  }
+
+  // Keyboard behaviour for a modal overlay: Escape closes, Tab cycles within.
+  _modalize(overlayId) {
+    const overlay = document.getElementById(overlayId);
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        this._hideModal(overlayId);
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const focusables = [...overlay.querySelectorAll('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+        .filter(el => !el.disabled && el.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+      else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+    });
+  }
+
   _toast(msg) {
     let t = document.getElementById('app-toast');
     if (!t) {
       t = document.createElement('div');
       t.id = 'app-toast';
+      t.setAttribute('role', 'status'); // announced politely by screen readers
       document.body.appendChild(t);
     }
     t.textContent = msg;
@@ -893,11 +944,11 @@ class App {
 
     // Monte Carlo batch runs
     document.getElementById('btn-batch').addEventListener('click', () => this._openMonteCarlo());
-    document.getElementById('mc-close').addEventListener('click', () =>
-      document.getElementById('mc-overlay').classList.add('hidden'));
+    document.getElementById('mc-close').addEventListener('click', () => this._hideModal('mc-overlay'));
     document.getElementById('mc-overlay').addEventListener('click', (e) => {
-      if (e.target.id === 'mc-overlay') e.currentTarget.classList.add('hidden');
+      if (e.target.id === 'mc-overlay') this._hideModal('mc-overlay');
     });
+    this._modalize('mc-overlay');
     document.getElementById('mc-run').addEventListener('click', () => this._runMonteCarlo());
   }
 
@@ -908,7 +959,7 @@ class App {
     document.getElementById('btn-run').textContent = '▶ Run';
     document.getElementById('mc-results').innerHTML =
       '<p class="mc-empty">Choose runs &amp; steps, then press Run.</p>';
-    document.getElementById('mc-overlay').classList.remove('hidden');
+    this._showModal('mc-overlay');
   }
 
   _runMonteCarlo() {
@@ -1294,6 +1345,9 @@ class App {
         btn.addEventListener('click', () => this._toggleFeature(btn.dataset.feature));
       });
     }
+    // Seed toggle-state semantics for assistive tech.
+    this._syncRailButtons();
+    this._syncToolButtons(this.editor.tool);
   }
 
   // Toggle a diagram feature into the properties panel (clicking the active
@@ -1311,8 +1365,11 @@ class App {
   }
 
   _syncRailButtons() {
-    document.querySelectorAll('#diagram-rail .rail-btn').forEach(b =>
-      b.classList.toggle('active', b.dataset.feature === this._activeFeature));
+    document.querySelectorAll('#diagram-rail .rail-btn').forEach(b => {
+      const on = b.dataset.feature === this._activeFeature;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
   }
 
   // Time mode (synchronous turn-based vs asynchronous per-node rhythm).
@@ -2466,6 +2523,7 @@ class App {
     lbl.textContent = label;
     const chk = document.createElement('input');
     chk.type = 'checkbox';
+    chk.id = this._uid(); lbl.htmlFor = chk.id;
     chk.checked = !!checked;
     chk.addEventListener('change', () => onChange(chk.checked));
     row.appendChild(lbl);
@@ -2533,6 +2591,9 @@ class App {
     return chk;
   }
 
+  // Unique id generator for programmatic label↔control association.
+  _uid() { return 'fld-' + (App._fieldSeq = (App._fieldSeq || 0) + 1); }
+
   _field(panel, label, type, value, onChange, placeholder = '') {
     const row = document.createElement('div');
     row.className = 'prop-row';
@@ -2542,6 +2603,8 @@ class App {
     inp.type = type;
     inp.value = value;
     if (placeholder) inp.placeholder = placeholder;
+    if (label) { inp.id = this._uid(); lbl.htmlFor = inp.id; }
+    else inp.setAttribute('aria-label', placeholder || 'value');
     inp.addEventListener('input', () => onChange(inp.value));
     row.appendChild(lbl);
     row.appendChild(inp);
@@ -2613,6 +2676,7 @@ class App {
     const lbl = document.createElement('label');
     lbl.textContent = label;
     const sel = document.createElement('select');
+    sel.id = this._uid(); lbl.htmlFor = sel.id;
     for (const opt of options) {
       const o = document.createElement('option');
       o.value = opt;

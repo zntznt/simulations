@@ -20,7 +20,7 @@
       <input type="range" id="sim-speed" min="0.25" max="10" step="0.25" value="2" title="Simulation speed" aria-label="Simulation speed">
       <span id="speed-label">2×</span>
       <span id="step-counter">Step: 0</span>
-      <span id="sim-status"></span>
+      <span id="sim-status" role="status"></span>
     </div>
 
     <div class="analysis-controls">
@@ -343,7 +343,7 @@
     <div class="timeline-head">
       <span class="timeline-title">Timeline</span>
       <div id="tl-legend" class="tl-legend"></div>
-      <button class="btn" id="tl-close" title="Hide timeline">✕</button>
+      <button class="btn" id="tl-close" title="Hide timeline" aria-label="Hide timeline">✕</button>
     </div>
     <canvas id="timeline-canvas"></canvas>
   </div>
@@ -351,10 +351,10 @@
 
 <!-- Library modal -->
 <div id="lib-overlay" class="hidden">
-  <div id="lib-modal">
+  <div id="lib-modal" role="dialog" aria-modal="true" aria-labelledby="lib-title">
     <div class="mc-head">
-      <span>📚 Library</span>
-      <button class="btn" id="lib-close">✕</button>
+      <span id="lib-title">📚 Library</span>
+      <button class="btn" id="lib-close" aria-label="Close library">✕</button>
     </div>
 
     <div class="lib-section">
@@ -375,10 +375,10 @@
 
 <!-- Monte Carlo modal -->
 <div id="mc-overlay" class="hidden">
-  <div id="mc-modal">
+  <div id="mc-modal" role="dialog" aria-modal="true" aria-labelledby="mc-title">
     <div class="mc-head">
-      <span>🎲 Monte Carlo — batch runs</span>
-      <button class="btn" id="mc-close">✕</button>
+      <span id="mc-title">🎲 Monte Carlo — batch runs</span>
+      <button class="btn" id="mc-close" aria-label="Close Monte Carlo">✕</button>
     </div>
     <div class="mc-controls">
       <label>Runs <input type="number" id="mc-runs" value="100" min="1" max="5000"></label>

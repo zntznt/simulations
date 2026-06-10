@@ -743,6 +743,32 @@ class Editor {
       this.renderer.clearMarquee();
       this._select(null, null);
     }
+    // Arrow keys nudge the selection (grid step when snap is on, else 4px;
+    // Shift = 1px for fine placement). Commit is debounced so holding a key
+    // produces a single undo entry.
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      const targets = [];
+      if (this.selection.size) {
+        for (const id of this.selection) {
+          const n = this.diagram.nodes.get(id);
+          if (n) targets.push(n);
+        }
+      } else if (this.renderer.selectedId) {
+        const id = this.renderer.selectedId;
+        const item = this.diagram.nodes.get(id) || this.diagram.groups.get(id)
+          || this.diagram.notes.get(id) || this.diagram.charts.get(id);
+        if (item) targets.push(item);
+      }
+      if (!targets.length) return;
+      e.preventDefault();
+      const step = e.shiftKey ? 1 : (this._snapEnabled ? this._snapSize : 4);
+      const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+      const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+      for (const t of targets) { t.x += dx; t.y += dy; }
+      this.renderer.render();
+      clearTimeout(this._nudgeTimer);
+      this._nudgeTimer = setTimeout(() => this._changed(), 400);
+    }
   }
 
   _onKeyUp(e) {
