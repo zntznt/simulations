@@ -107,6 +107,9 @@ class SimEngine {
     this._runFireQueue([{ node, forced: true }], ctx, fired);
     this._applyPushProposals(ctx);
     this._applyCtx(ctx);
+    // Pulse modifiers respond to firings, so a manual click must apply them
+    // too (rate/delta modes are per-step and belong to the tick only).
+    this._applyModifiers(new Set(fired), true);
     this._updateVariables();
     this._evalRegisters();
     if (this.onStep) this.onStep(this.step, fired, ctx.transfers);
@@ -920,18 +923,23 @@ class SimEngine {
   // Source values are snapshotted BEFORE any delta is applied, so a network of
   // modifiers (mutual or chained, e.g. A→B→C) is order-independent and reads the
   // step's starting values — matching the engine's atomic, one-step-lag model.
-  _applyModifiers(firedSet = new Set()) {
+  _applyModifiers(firedSet = new Set(), pulseOnly = false) {
     const d = this.diagram;
     if (!this._prevStateVals) this._prevStateVals = new Map();
     const mods = [];
     for (const conn of d.connections.values()) {
       if (conn.type !== ConnectionType.STATE || !conn.modifier) continue;
+      const mode = conn.modMode || 'rate';
+      if (pulseOnly && mode !== 'pulse') continue;
       const src = d.nodes.get(conn.sourceId);
       const tgt = d.nodes.get(conn.targetId);
       if (!src || !tgt || !this._canModify(tgt)) continue;
-      const factor = Number(conn.modFactor);
+      // The amount/factor may be a live formula over diagram variables
+      // (params, custom vars, published state values) instead of a number.
+      const factor = conn.modFormula
+        ? evalFormula(conn.modFormula, d.variables)
+        : Number(conn.modFactor);
       if (!isFinite(factor) || factor === 0) continue;
-      const mode = conn.modMode || 'rate';
       let delta;
       if (mode === 'pulse') {
         if (!firedSet.has(src.id)) continue;

@@ -2336,9 +2336,47 @@ class App {
         modeRow.appendChild(ml); modeRow.appendChild(ms);
         panel.appendChild(modeRow);
 
-        this._field(panel, mode === 'pulse' ? 'Amount' : 'Factor', 'number', conn.modFactor, v => {
-          const n = parseFloat(v); conn.modFactor = isFinite(n) ? n : 0; this.renderer.render();
-        }, mode === 'pulse' ? 'e.g. 1 = +1 per firing' : (mode === 'delta' ? 'Δtarget = factor × Δsource' : 'Δ = factor × source / step'));
+        // Amount source: a fixed number, or a live formula over diagram
+        // variables (params, custom vars, published state values).
+        const useFormula = !!conn.modFormula || conn._modWantFormula;
+        const srcRow = document.createElement('div');
+        srcRow.className = 'prop-row';
+        const sl = document.createElement('label');
+        sl.textContent = mode === 'pulse' ? 'Amount' : 'Factor';
+        const ss = document.createElement('select');
+        for (const [v, t] of [['fixed', 'Fixed number'], ['formula', 'Formula']]) {
+          const o = document.createElement('option');
+          o.value = v; o.textContent = t;
+          if ((useFormula ? 'formula' : 'fixed') === v) o.selected = true;
+          ss.appendChild(o);
+        }
+        ss.addEventListener('change', () => {
+          if (ss.value === 'fixed') { conn.modFormula = ''; conn._modWantFormula = false; }
+          else conn._modWantFormula = true; // remember the choice while the formula is still empty
+          this._renderProps(); this.renderer.render();
+        });
+        srcRow.appendChild(sl); srcRow.appendChild(ss);
+        panel.appendChild(srcRow);
+
+        if (useFormula) {
+          const fRow = document.createElement('div');
+          fRow.className = 'prop-row';
+          fRow.appendChild(document.createElement('label'));
+          const fi = document.createElement('input');
+          fi.type = 'text'; fi.value = conn.modFormula || '';
+          fi.placeholder = 'e.g. round(gold * 0.1)';
+          fi.addEventListener('input', () => {
+            const valid = !fi.value.trim() || validateFormula(fi.value);
+            fi.classList.toggle('invalid', !valid);
+            if (valid) { conn.modFormula = fi.value.trim(); this.renderer.render(); }
+          });
+          fRow.appendChild(fi);
+          panel.appendChild(fRow);
+        } else {
+          this._field(panel, '', 'number', conn.modFactor, v => {
+            const n = parseFloat(v); conn.modFactor = isFinite(n) ? n : 0; this.renderer.render();
+          }, mode === 'pulse' ? 'e.g. 1 = +1 per firing' : (mode === 'delta' ? 'Δtarget = factor × Δsource' : 'Δ = factor × source / step'));
+        }
 
         this._info(panel, {
           pulse: 'Each time the source node fires, add this flat amount to the target pool/converter (negative subtracts). The easy "+1 when the source triggers".',

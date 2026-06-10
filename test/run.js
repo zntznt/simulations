@@ -632,6 +632,78 @@ test('pulse modifier stays silent when the source does not fire', () => {
   eq(score.resources, 0, 'no firings, no pulses');
 });
 
+test('pulse modifier applies when an interactive node is CLICKED', () => {
+  const { d, e } = setup();
+  // A button-style interactive source: clicking it must pulse +1 to score.
+  const btn = node(d, NodeType.SOURCE); btn.activation = ActivationMode.INTERACTIVE;
+  const p = node(d, NodeType.POOL);
+  conn(d, btn, p).rate = 1;
+  const score = node(d, NodeType.POOL);
+  const m = conn(d, btn, score, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'pulse'; m.modFactor = 1;
+  e.reset();
+  e.fireInteractive(btn.id);
+  e.fireInteractive(btn.id);
+  eq(score.resources, 2, '+1 per click');
+  eq(p.resources, 2, 'flow also ran per click');
+});
+
+test('rate/delta modifiers do NOT run on interactive clicks (per-step only)', () => {
+  const { d, e } = setup();
+  const btn = node(d, NodeType.SOURCE); btn.activation = ActivationMode.INTERACTIVE;
+  const p = node(d, NodeType.POOL);
+  conn(d, btn, p).rate = 1;
+  const bank = node(d, NodeType.POOL); bank.setCount(100);
+  const m = conn(d, bank, bank, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'rate'; m.modFactor = 0.1;
+  e.reset();
+  e.fireInteractive(btn.id);
+  eq(bank.resources, 100, 'interest is per-step, not per-click');
+  e.doStep();
+  eq(bank.resources, 110, 'interest applied on the tick');
+});
+
+test('modifier amount can be a formula over diagram variables', () => {
+  const { d, e } = setup();
+  d.params.bonus = 4;
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 1;
+  const score = node(d, NodeType.POOL);
+  const m = conn(d, s, score, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'pulse'; m.modFormula = 'bonus + 1';
+  steps(e, 2);
+  eq(score.resources, 10, '+5 (bonus+1) per firing over 2 steps');
+});
+
+test('formula modifier tracks a published state variable', () => {
+  const { d, e } = setup();
+  // gold pool grows 2/step and publishes 'gold'; tax pool gains gold*0.5
+  // per step (rate-mode formula, factor read live each step).
+  const s = node(d, NodeType.SOURCE);
+  const gold = node(d, NodeType.POOL);
+  conn(d, s, gold).rate = 2;
+  const reg = conn(d, gold, gold, ConnectionType.STATE); reg.variableName = 'gold';
+  const tax = node(d, NodeType.POOL);
+  const m = conn(d, s, tax, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'pulse'; m.modFormula = 'gold * 0.5';
+  steps(e, 3);
+  // Variables hold last-step committed values: pulses see gold = 0, 2, 4.
+  eq(tax.resources, 3, 'round(0)+round(1)+round(2) from the lagged gold value');
+});
+
+test('modFormula survives JSON round-trip', () => {
+  const { d } = setup();
+  const a = node(d, NodeType.POOL);
+  const b = node(d, NodeType.POOL);
+  const m = conn(d, a, b, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'pulse'; m.modFormula = 'round(gold * 0.1)';
+  const json = JSON.parse(JSON.stringify(d.toJSON()));
+  const d2 = new Diagram(); d2.loadJSON(json);
+  const m2 = [...d2.connections.values()].find(c => c.modifier);
+  assert(m2 && m2.modFormula === 'round(gold * 0.1)', 'formula preserved');
+});
+
 test('negative pulse modifier subtracts on each source firing', () => {
   const { d, e } = setup();
   const s = node(d, NodeType.SOURCE);

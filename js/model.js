@@ -469,6 +469,9 @@ class MConnection {
     this.modifier = false;
     this.modMode = 'rate';
     this.modFactor = 1;
+    // Optional: amount/factor as a live formula over diagram variables
+    // (overrides modFactor when non-empty), e.g. 'round(gold * 0.1)'.
+    this.modFormula = '';
 
     // Reverse trigger (state): fire the target when the source FAILS to act
     // this step (e.g. pool was empty, limited source ran dry).
@@ -519,6 +522,7 @@ class MConnection {
       modifier: this.modifier || undefined,
       modMode: this.modMode !== 'rate' ? this.modMode : undefined,
       modFactor: this.modFactor,
+      modFormula: this.modFormula || undefined,
       pathStyle: this.pathStyle !== 'curve' ? this.pathStyle : undefined,
       cpDx: this.cpDx || undefined,
       cpDy: this.cpDy || undefined,

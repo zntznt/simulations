@@ -823,11 +823,16 @@ class Renderer {
       if ((conn.triggerEvery || 1) > 1) txt += `/${conn.triggerEvery}`;
       if (conn.triggerChance != null && conn.triggerChance < 100) txt += ` ${conn.triggerChance}%`;
     } else if (isModifier) {
-      const sign = conn.modFactor > 0 ? '+' : '';
       const mode = conn.modMode || 'rate';
-      if (mode === 'pulse') txt = `${sign}${conn.modFactor} ✷`;
-      else if (mode === 'delta') txt = `${sign}${conn.modFactor}×Δ`;
-      else txt = `Δ ${sign}${conn.modFactor}×`;
+      if (conn.modFormula) {
+        const f = conn.modFormula.length > 16 ? conn.modFormula.slice(0, 15) + '…' : conn.modFormula;
+        txt = mode === 'pulse' ? `${f} ✷` : (mode === 'delta' ? `${f}×Δ` : `Δ ${f}×`);
+      } else {
+        const sign = conn.modFactor > 0 ? '+' : '';
+        if (mode === 'pulse') txt = `${sign}${conn.modFactor} ✷`;
+        else if (mode === 'delta') txt = `${sign}${conn.modFactor}×Δ`;
+        else txt = `Δ ${sign}${conn.modFactor}×`;
+      }
     } else if (isActivator) {
       txt = conn.actOperator === 'between'
         ? `⊢ ${Math.min(conn.actValue, conn.actValue2)}..${Math.max(conn.actValue, conn.actValue2)}`
