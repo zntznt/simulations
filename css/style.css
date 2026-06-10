@@ -164,15 +164,95 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
    value is not committed until it parses. */
 .prop-row input.invalid, .prop-row input.invalid:focus { border-color: #ef5350; }
 
-/* Random-variable cards in the diagram panel */
-.randvar-card {
-  border: 1px solid var(--border); border-radius: 6px;
-  padding: 8px 8px 2px; margin-bottom: 10px; background: rgba(255,255,255,0.02);
+/* ── Custom Variables Panel ────────────────────────────────────────────── */
+.var-card {
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 8px; margin-bottom: 14px; overflow: hidden;
 }
-.randvar-value {
-  flex: 0 0 auto; font-size: 11px; font-family: monospace;
-  color: var(--accent); white-space: nowrap;
+
+.var-card-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
 }
+
+.var-name-input {
+  flex: 1; background: transparent; border: none;
+  border-bottom: 2px solid transparent; color: var(--text);
+  font-size: 13px; font-weight: 600; padding: 1px 0; outline: none;
+  transition: border-color 0.15s;
+}
+.var-name-input:focus { border-bottom-color: var(--accent); }
+
+.var-delete-btn {
+  padding: 1px 7px; flex-shrink: 0;
+  color: var(--text-dim); font-size: 16px; line-height: 1;
+}
+.var-delete-btn:hover { color: var(--red); border-color: var(--red); }
+
+.var-kind-tabs {
+  display: flex; gap: 4px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+}
+.var-kind-tab {
+  flex: 1; padding: 4px 2px; border: 1px solid var(--border);
+  border-radius: 4px; background: none; color: var(--text-dim);
+  font-size: 11px; cursor: pointer; transition: all 0.15s; text-align: center;
+}
+.var-kind-tab:hover { color: var(--text); background: var(--bg); }
+.var-kind-tab.active {
+  background: rgba(74,158,255,0.15); border-color: var(--accent); color: var(--accent);
+}
+
+.var-body { padding: 12px; border-bottom: 1px solid var(--border); }
+
+.var-field-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text-dim); margin-bottom: 6px;
+}
+
+.var-wide-input {
+  width: 100%; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 5px; color: var(--text); padding: 7px 10px;
+  font-size: 12px; outline: none; transition: border-color 0.15s;
+}
+.var-wide-input:focus { border-color: var(--accent); }
+.var-wide-input.invalid, .var-wide-input.invalid:focus { border-color: var(--red); }
+
+.var-range-row { display: flex; align-items: center; gap: 8px; }
+.var-range-num {
+  flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 5px; color: var(--text); padding: 7px 10px;
+  font-size: 12px; outline: none; transition: border-color 0.15s;
+}
+.var-range-num:focus { border-color: var(--accent); }
+.var-range-num.invalid, .var-range-num.invalid:focus { border-color: var(--red); }
+.var-range-sep { color: var(--text-dim); font-size: 15px; flex-shrink: 0; }
+
+.var-footer {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; flex-wrap: wrap;
+}
+.var-chip-group { display: flex; gap: 3px; }
+.var-chip {
+  padding: 3px 9px; border: 1px solid var(--border);
+  border-radius: 10px; background: none; color: var(--text-dim);
+  font-size: 11px; cursor: pointer; transition: all 0.15s;
+}
+.var-chip:hover { color: var(--text); border-color: var(--text-dim); }
+.var-chip.active {
+  background: rgba(74,158,255,0.15); border-color: var(--accent); color: var(--accent);
+}
+
+.var-value-display {
+  margin-left: auto; font-family: monospace; font-size: 15px;
+  font-weight: 700; color: var(--accent); white-space: nowrap;
+}
+
+.var-add-btn { width: 100%; margin-top: 2px; }
+
+/* Legacy compat — kept for any stray references */
+.randvar-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 10px; }
+.randvar-value { font-size: 11px; font-family: monospace; color: var(--accent); }
 
 .chart-section { margin-top: 16px; }
 .chart-label { font-size: 11px; color: var(--text-dim); margin-bottom: 6px; }

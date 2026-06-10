@@ -1268,66 +1268,98 @@ class App {
     this._info(panel, 'Named values usable in any formula — random (interval, array, dice) or computed (math). Re-evaluated every step, or once each time Run is pressed.');
 
     const vars = this.diagram.customVars;
+    const KINDS = ['interval', 'array', 'dice', 'math'];
+    const KIND_LABELS = { interval: 'Interval', array: 'Array', dice: 'Dice', math: 'Math ƒ' };
+    const fmtVal = v => isFinite(v) ? (Number.isInteger(v) ? String(v) : parseFloat(v.toFixed(4)).toString()) : '—';
 
-    const mkSelect = (options, value, onChange) => {
-      const s = document.createElement('select');
-      for (const [v, label] of options) {
-        const o = document.createElement('option');
-        o.value = v; o.textContent = label;
-        if (v === value) o.selected = true;
-        s.appendChild(o);
+    const mkChipGroup = (choices, current, onChange) => {
+      const grp = document.createElement('div');
+      grp.className = 'var-chip-group';
+      for (const [v, label] of choices) {
+        const chip = document.createElement('button');
+        chip.className = 'var-chip' + (v === current ? ' active' : '');
+        chip.textContent = label;
+        chip.addEventListener('click', () => {
+          grp.querySelectorAll('.var-chip').forEach(c => c.classList.toggle('active', c === chip));
+          onChange(v);
+        });
+        grp.appendChild(chip);
       }
-      s.addEventListener('change', () => onChange(s.value));
-      return s;
+      return grp;
     };
 
     vars.forEach((rv, i) => {
       const card = document.createElement('div');
-      card.className = 'randvar-card';
+      card.className = 'var-card';
 
-      // Row 1: name, kind, delete.
-      const r1 = document.createElement('div');
-      r1.className = 'prop-row';
+      // Value readout element created early so resample() can reference it.
+      const valOut = document.createElement('div');
+      valOut.className = 'var-value-display';
+      valOut.textContent = fmtVal(rv.value);
+      const resample = () => { rv.value = sampleCustomVar(rv, this.diagram.variables); valOut.textContent = fmtVal(rv.value); };
+
+      // ── Header: name + delete ────────────────────────────────────────────
+      const header = document.createElement('div');
+      header.className = 'var-card-header';
+
       const name = document.createElement('input');
-      name.type = 'text'; name.value = rv.name; name.placeholder = 'name'; name.style.flex = '1';
+      name.type = 'text'; name.value = rv.name; name.placeholder = 'variable name';
+      name.className = 'var-name-input';
       name.addEventListener('blur', () => {
         const nk = name.value.trim();
         if (!nk || !VALID_IDENT.test(nk)) { name.value = rv.name; return; }
-        rv.name = nk;
+        if (nk !== rv.name) { rv.name = nk; this._commit(); }
       });
-      const kind = mkSelect([['interval', 'interval'], ['array', 'array'], ['dice', 'dice'], ['math', 'math']], rv.kind, v => {
-        rv.kind = v;
-        rv.value = sampleCustomVar(rv, this.diagram.variables);
-        this._renderProps(); this._commit();
-      });
-      const del = document.createElement('button');
-      del.textContent = '×'; del.className = 'btn';
-      del.style.cssText = 'padding:2px 8px;flex-shrink:0';
-      del.addEventListener('click', () => { vars.splice(i, 1); this._renderProps(); this._commit(); });
-      r1.appendChild(name); r1.appendChild(kind); r1.appendChild(del);
-      card.appendChild(r1);
 
-      // Row 2: the kind's own fields.
-      const r2 = document.createElement('div');
-      r2.className = 'prop-row';
-      const resample = () => { rv.value = sampleCustomVar(rv, this.diagram.variables); valOut.textContent = `= ${rv.value}`; };
+      const del = document.createElement('button');
+      del.className = 'btn var-delete-btn'; del.title = 'Remove variable';
+      del.innerHTML = '&times;';
+      del.addEventListener('click', () => { vars.splice(i, 1); this._renderProps(); this._commit(); });
+
+      header.appendChild(name); header.appendChild(del);
+      card.appendChild(header);
+
+      // ── Kind tabs ────────────────────────────────────────────────────────
+      const tabs = document.createElement('div');
+      tabs.className = 'var-kind-tabs';
+      for (const k of KINDS) {
+        const tab = document.createElement('button');
+        tab.className = 'var-kind-tab' + (rv.kind === k ? ' active' : '');
+        tab.textContent = KIND_LABELS[k];
+        tab.addEventListener('click', () => {
+          if (rv.kind === k) return;
+          rv.kind = k;
+          rv.value = sampleCustomVar(rv, this.diagram.variables);
+          this._renderProps(); this._commit();
+        });
+        tabs.appendChild(tab);
+      }
+      card.appendChild(tabs);
+
+      // ── Body: kind-specific input ────────────────────────────────────────
+      const body = document.createElement('div');
+      body.className = 'var-body';
+
       if (rv.kind === 'math') {
+        const lbl = document.createElement('div');
+        lbl.className = 'var-field-label'; lbl.textContent = 'Formula';
         const f = document.createElement('input');
-        f.type = 'text'; f.style.flex = '1';
+        f.type = 'text'; f.className = 'var-wide-input';
         f.value = rv.formula || '';
         f.placeholder = 'e.g. round(gold * 0.1) + max(2, level)';
         f.addEventListener('input', () => {
-          const valid = validateFormula(f.value);
+          const valid = !f.value.trim() || validateFormula(f.value);
           f.classList.toggle('invalid', !valid);
           if (valid) { rv.formula = f.value.trim(); resample(); }
         });
-        r2.appendChild(f);
+        body.appendChild(lbl); body.appendChild(f);
       } else if (rv.kind === 'array') {
+        const lbl = document.createElement('div');
+        lbl.className = 'var-field-label'; lbl.textContent = 'Values (comma-separated)';
         const arr = document.createElement('input');
-        arr.type = 'text'; arr.style.flex = '1';
+        arr.type = 'text'; arr.className = 'var-wide-input';
         arr.value = (rv.values || []).join(', ');
         arr.placeholder = 'e.g. 1, 2, 5, 10';
-        // Live-validate: every comma-separated token must be a finite number.
         arr.addEventListener('input', () => {
           const tokens = arr.value.split(',').map(t => t.trim());
           const nums = tokens.map(parseFloat);
@@ -1335,66 +1367,72 @@ class App {
           arr.classList.toggle('invalid', !valid);
           if (valid) { rv.values = nums; resample(); }
         });
-        r2.appendChild(arr);
+        body.appendChild(lbl); body.appendChild(arr);
       } else if (rv.kind === 'dice') {
+        const lbl = document.createElement('div');
+        lbl.className = 'var-field-label'; lbl.textContent = 'Dice notation';
         const dice = document.createElement('input');
-        dice.type = 'text'; dice.style.flex = '1';
+        dice.type = 'text'; dice.className = 'var-wide-input';
         dice.value = rv.dice || '2d6';
-        dice.placeholder = 'e.g. 2d6';
+        dice.placeholder = 'e.g. 2d6 or 3d10';
         dice.addEventListener('input', () => {
           const valid = /^\d+\s*d\s*\d+$/i.test(dice.value.trim());
           dice.classList.toggle('invalid', !valid);
           if (valid) { rv.dice = dice.value.trim(); resample(); }
         });
-        r2.appendChild(dice);
+        body.appendChild(lbl); body.appendChild(dice);
       } else {
-        const min = document.createElement('input');
-        min.type = 'number'; min.value = rv.min ?? 0; min.style.flex = '1';
-        const max = document.createElement('input');
-        max.type = 'number'; max.value = rv.max ?? 10; max.style.flex = '1';
+        const lbl = document.createElement('div');
+        lbl.className = 'var-field-label'; lbl.textContent = 'Range';
+        const row = document.createElement('div');
+        row.className = 'var-range-row';
+        const minEl = document.createElement('input');
+        minEl.type = 'number'; minEl.value = rv.min ?? 0; minEl.className = 'var-range-num'; minEl.placeholder = 'min';
+        const sep = document.createElement('span');
+        sep.textContent = '→'; sep.className = 'var-range-sep';
+        const maxEl = document.createElement('input');
+        maxEl.type = 'number'; maxEl.value = rv.max ?? 10; maxEl.className = 'var-range-num'; maxEl.placeholder = 'max';
         const upd = () => {
-          const lo = parseFloat(min.value), hi = parseFloat(max.value);
+          const lo = parseFloat(minEl.value), hi = parseFloat(maxEl.value);
           const valid = isFinite(lo) && isFinite(hi) && hi >= lo;
-          min.classList.toggle('invalid', !valid);
-          max.classList.toggle('invalid', !valid);
+          minEl.classList.toggle('invalid', !valid);
+          maxEl.classList.toggle('invalid', !valid);
           if (valid) { rv.min = lo; rv.max = hi; resample(); }
         };
-        min.addEventListener('input', upd);
-        max.addEventListener('input', upd);
-        const to = document.createElement('span');
-        to.textContent = 'to'; to.style.cssText = 'color:var(--text-dim);font-size:11px;flex-shrink:0';
-        r2.appendChild(min); r2.appendChild(to); r2.appendChild(max);
+        minEl.addEventListener('input', upd); maxEl.addEventListener('input', upd);
+        row.appendChild(minEl); row.appendChild(sep); row.appendChild(maxEl);
+        body.appendChild(lbl); body.appendChild(row);
       }
-      card.appendChild(r2);
+      card.appendChild(body);
 
-      // Row 3: distribution (random kinds only), update rhythm, current value.
-      const r3 = document.createElement('div');
-      r3.className = 'prop-row';
+      // ── Footer: dist chips + update chips + value display ────────────────
+      const footer = document.createElement('div');
+      footer.className = 'var-footer';
+
       if (rv.kind !== 'math') {
-        const dist = mkSelect([['uniform', 'uniform'], ['gaussian', 'gaussian']], rv.dist || 'uniform', v => {
-          rv.dist = v; resample();
-        });
-        r3.appendChild(dist);
+        const distGrp = mkChipGroup(
+          [['uniform', 'uniform'], ['gaussian', 'gaussian']],
+          rv.dist || 'uniform',
+          v => { rv.dist = v; resample(); }
+        );
+        footer.appendChild(distGrp);
       }
-      const update = mkSelect([['step', 'every step'], ['play', 'on play']], rv.update || 'step', v => {
-        rv.update = v;
-      });
-      const valOut = document.createElement('span');
-      valOut.className = 'randvar-value';
-      valOut.textContent = `= ${isFinite(rv.value) ? rv.value : '?'}`;
-      r3.appendChild(update); r3.appendChild(valOut);
-      card.appendChild(r3);
 
+      const updateGrp = mkChipGroup(
+        [['step', 'per step'], ['play', 'on play']],
+        rv.update || 'step',
+        v => { rv.update = v; this._commit(); }
+      );
+      footer.appendChild(updateGrp);
+      footer.appendChild(valOut);
+
+      card.appendChild(footer);
       panel.appendChild(card);
     });
 
-    const addRow = document.createElement('div');
-    addRow.className = 'prop-row';
-    addRow.appendChild(document.createElement('label'));
     const addBtn = document.createElement('button');
     addBtn.textContent = '+ Add Variable';
-    addBtn.className = 'btn';
-    addBtn.style.flex = '1';
+    addBtn.className = 'btn var-add-btn';
     addBtn.addEventListener('click', () => {
       let k = 'var' + (vars.length + 1);
       while (vars.some(v => v.name === k)) k += '_';
@@ -1404,8 +1442,7 @@ class App {
       this._renderProps();
       this._commit();
     });
-    addRow.appendChild(addBtn);
-    panel.appendChild(addRow);
+    panel.appendChild(addBtn);
   }
 
   // Named resource types editor + live per-type totals (diagram panel).

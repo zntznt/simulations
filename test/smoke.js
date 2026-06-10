@@ -379,7 +379,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     // Switch to array kind and exercise validation through the real input.
     rv.kind = 'array';
     window.app._renderProps();
-    const card = panel.querySelector('.randvar-card');
+    const card = panel.querySelector('.var-card');
     const arrInput = card.querySelector('input[placeholder*="1, 2"]');
     const type = (v) => { arrInput.value = v; arrInput.dispatchEvent(new Event('input', { bubbles: true })); };
     type('1, 2, banana');
@@ -413,7 +413,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const rv = window.app.diagram.customVars[0];
     rv.kind = 'math';
     window.app._renderProps();
-    const card = panel.querySelector('.randvar-card');
+    const card = panel.querySelector('.var-card');
     const fInput = card.querySelector('input[placeholder*="round"]');
     if (!fInput) return { error: 'no formula input' };
     const type = (v) => { fInput.value = v; fInput.dispatchEvent(new Event('input', { bubbles: true })); };
@@ -421,7 +421,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const invalidFlagged = fInput.classList.contains('invalid');
     type('min(2 ^ 3, 100)');
     const validAccepted = !fInput.classList.contains('invalid');
-    const distHidden = card.querySelectorAll('select').length === 2; // kind + update only
+    const distHidden = card.querySelectorAll('.var-chip-group').length === 1; // update only (no dist for math)
     const { app } = window;
     const s = app.diagram.addNode(new MNode(NodeType.SOURCE, 100, 100));
     const p = app.diagram.addNode(new MNode(NodeType.POOL, 300, 100));
