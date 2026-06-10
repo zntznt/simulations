@@ -820,10 +820,18 @@ class Renderer {
       }
     } else if (isTrigger) {
       txt = conn.label ? `✷ ${conn.label}` : '✷';
+      if ((conn.triggerEvery || 1) > 1) txt += `/${conn.triggerEvery}`;
+      if (conn.triggerChance != null && conn.triggerChance < 100) txt += ` ${conn.triggerChance}%`;
     } else if (isModifier) {
-      txt = `Δ ${conn.modFactor > 0 ? '+' : ''}${conn.modFactor}×`;
+      const sign = conn.modFactor > 0 ? '+' : '';
+      const mode = conn.modMode || 'rate';
+      if (mode === 'pulse') txt = `${sign}${conn.modFactor} ✷`;
+      else if (mode === 'delta') txt = `${sign}${conn.modFactor}×Δ`;
+      else txt = `Δ ${sign}${conn.modFactor}×`;
     } else if (isActivator) {
-      txt = `⊢ ${conn.actOperator}${conn.actValue}`;
+      txt = conn.actOperator === 'between'
+        ? `⊢ ${Math.min(conn.actValue, conn.actValue2)}..${Math.max(conn.actValue, conn.actValue2)}`
+        : `⊢ ${conn.actOperator}${conn.actValue}`;
     } else {
       txt = conn.variableName || conn.label || '';
     }

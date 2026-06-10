@@ -438,29 +438,36 @@ class MConnection {
 
     // Conditional activation (compares source's count to a threshold)
     this.condEnabled = false;
-    this.condOperator = '>';  // '>' | '>=' | '<' | '<=' | '==' | '!='
+    this.condOperator = '>';  // '>' | '>=' | '<' | '<=' | '==' | '!=' | 'between'
     this.condValue = 0;
+    this.condValue2 = 0;      // upper bound when condOperator === 'between'
 
     // State connections: variable name written to diagram.variables
     this.variableName = '';
 
     // Trigger (state connection): fire the target node when the source fires.
     this.trigger = false;
+    this.triggerChance = 100;  // % chance the trigger propagates each firing
+    this.triggerEvery = 1;     // propagate only every Nth source firing (counter)
 
     // Activator (state connection): the target node may only fire while the
     // source value satisfies this condition.
     this.activator = false;
     this.actOperator = '>=';
     this.actValue = 0;
+    this.actValue2 = 0;        // upper bound when actOperator === 'between'
 
     // Gate output weight (resource connection out of a Gate): relative share
     // for deterministic splits / weighted chance for probabilistic routing.
     this.weight = 1;
 
-    // Modifier (state connection): each step add `modFactor * sourceValue` to
-    // the target node's resources (negative = decay). Enables growth / decay /
-    // interest in place, without a resource flow.
+    // Modifier (state connection): adjust the target node's resources without
+    // a resource flow. Three modes:
+    //   'rate'  — each step add `modFactor × sourceValue` (interest / decay)
+    //   'delta' — add `modFactor × (change in sourceValue)` when it changes
+    //   'pulse' — when the source FIRES, add a flat `modFactor` (e.g. +1)
     this.modifier = false;
+    this.modMode = 'rate';
     this.modFactor = 1;
 
     // Reverse trigger (state): fire the target when the source FAILS to act
@@ -497,15 +504,20 @@ class MConnection {
       interval: this.interval, chance: this.chance,
       colorFilter: this.colorFilter,
       condEnabled: this.condEnabled, condOperator: this.condOperator, condValue: this.condValue,
+      condValue2: this.condValue2 || undefined,
       condRefMode: this.condRefMode !== 'source' ? this.condRefMode : undefined,
       condVariable: this.condVariable || undefined,
       variableName: this.variableName,
       trigger: this.trigger || undefined,
+      triggerChance: this.triggerChance !== 100 ? this.triggerChance : undefined,
+      triggerEvery: this.triggerEvery !== 1 ? this.triggerEvery : undefined,
       reverseTrigger: this.reverseTrigger || undefined,
       activator: this.activator || undefined,
       actOperator: this.actOperator, actValue: this.actValue,
+      actValue2: this.actValue2 || undefined,
       weight: this.weight,
       modifier: this.modifier || undefined,
+      modMode: this.modMode !== 'rate' ? this.modMode : undefined,
       modFactor: this.modFactor,
       pathStyle: this.pathStyle !== 'curve' ? this.pathStyle : undefined,
       cpDx: this.cpDx || undefined,

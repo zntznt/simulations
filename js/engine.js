@@ -42,6 +42,17 @@ class SimEngine {
       if (n.type === NodeType.TRADER) n.trades = 0;
     }
     this.diagram.variables = {};
+    // Per-connection trigger counters (for "every Nth firing" triggers).
+    this._trigCounts = new Map();
+    // Previous-step source snapshots for delta-mode modifiers (seeded with the
+    // initial values so the first step sees no spurious change).
+    this._prevStateVals = new Map();
+    for (const c of this.diagram.connections.values()) {
+      if (c.type === ConnectionType.STATE && c.modifier && c.modMode === 'delta') {
+        const src = this.diagram.nodes.get(c.sourceId);
+        if (src) this._prevStateVals.set(c.id, this._stateValueOf(src));
+      }
+    }
     // Compute initial variable/register values so the display is correct
     // before the first step runs.
     this._sampleCustomVars('all');
@@ -152,7 +163,7 @@ class SimEngine {
     for (const { node } of initial) {
       if (firedSet.has(node.id)) continue;
       for (const c of d.outgoing(node.id)) {
-        if (c.type === ConnectionType.STATE && c.reverseTrigger) {
+        if (c.type === ConnectionType.STATE && c.reverseTrigger && this._triggerPasses(c)) {
           const tgt = d.nodes.get(c.targetId);
           if (tgt) failQueue.push({ node: tgt, forced: true });
         }
@@ -186,7 +197,7 @@ class SimEngine {
 
     // Apply state-connection modifiers (in-place growth / decay) on the
     // committed state, then refresh shared variables + registers.
-    this._applyModifiers();
+    this._applyModifiers(new Set(fired));
     this._updateVariables();
     this._evalRegisters();
 
@@ -208,7 +219,7 @@ class SimEngine {
       activated.add(node.id);
       fired.push(node.id);
       for (const t of d.outgoing(node.id)) {
-        if (t.type === ConnectionType.STATE && t.trigger) {
+        if (t.type === ConnectionType.STATE && t.trigger && this._triggerPasses(t)) {
           const tgt = d.nodes.get(t.targetId);
           if (tgt) queue.push({ node: tgt, forced: true });
         }
@@ -222,7 +233,7 @@ class SimEngine {
       if (conn.type !== ConnectionType.STATE || !conn.activator) continue;
       const src = this.diagram.nodes.get(conn.sourceId);
       const val = this._stateValueOf(src);
-      if (!this._evalCond(val, conn.actOperator, conn.actValue)) return false;
+      if (!this._evalCond(val, conn.actOperator, conn.actValue, conn.actValue2)) return false;
     }
     return true;
   }
@@ -900,15 +911,18 @@ class SimEngine {
     return null;
   }
 
-  // State-connection modifiers: each step, add `modFactor * sourceValue` to the
-  // target node's resources (negative factors decay it). Targets pools and
-  // converters (accumulators).
+  // State-connection modifiers: adjust the target's resources in place (no
+  // resource flow). Targets pools and converters (accumulators). Modes:
+  //   'rate'  — each step add `modFactor × sourceValue` (interest / decay)
+  //   'delta' — add `modFactor × (sourceValue − last step's sourceValue)`
+  //   'pulse' — add a flat `modFactor` whenever the source fired this step
   //
   // Source values are snapshotted BEFORE any delta is applied, so a network of
   // modifiers (mutual or chained, e.g. A→B→C) is order-independent and reads the
   // step's starting values — matching the engine's atomic, one-step-lag model.
-  _applyModifiers() {
+  _applyModifiers(firedSet = new Set()) {
     const d = this.diagram;
+    if (!this._prevStateVals) this._prevStateVals = new Map();
     const mods = [];
     for (const conn of d.connections.values()) {
       if (conn.type !== ConnectionType.STATE || !conn.modifier) continue;
@@ -917,7 +931,19 @@ class SimEngine {
       if (!src || !tgt || !this._canModify(tgt)) continue;
       const factor = Number(conn.modFactor);
       if (!isFinite(factor) || factor === 0) continue;
-      const delta = Math.round(factor * this._stateValueOf(src)); // pre-apply snapshot
+      const mode = conn.modMode || 'rate';
+      let delta;
+      if (mode === 'pulse') {
+        if (!firedSet.has(src.id)) continue;
+        delta = Math.round(factor);
+      } else if (mode === 'delta') {
+        const v = this._stateValueOf(src); // pre-apply snapshot
+        const prev = this._prevStateVals.has(conn.id) ? this._prevStateVals.get(conn.id) : v;
+        this._prevStateVals.set(conn.id, v);
+        delta = Math.round(factor * (v - prev));
+      } else {
+        delta = Math.round(factor * this._stateValueOf(src)); // pre-apply snapshot
+      }
       if (!isFinite(delta) || delta === 0) continue;
       mods.push({ src, tgt, delta });
     }
@@ -1029,12 +1055,28 @@ class SimEngine {
       const val = (conn.condRefMode === 'variable' && conn.condVariable)
         ? (this.diagram.variables[conn.condVariable] ?? 0)
         : this._stateValueOf(sourceNode);
-      if (!this._evalCond(val, conn.condOperator, conn.condValue)) return false;
+      if (!this._evalCond(val, conn.condOperator, conn.condValue, conn.condValue2)) return false;
     }
     return true;
   }
 
-  _evalCond(val, op, threshold) {
+  // Does a trigger-style state connection propagate this time? Gated by an
+  // every-Nth-firing counter, then a % chance. The counter advances on every
+  // source firing (even when the chance roll then fails).
+  _triggerPasses(conn) {
+    const every = Math.max(1, Math.round(conn.triggerEvery || 1));
+    if (every > 1) {
+      if (!this._trigCounts) this._trigCounts = new Map();
+      const n = (this._trigCounts.get(conn.id) || 0) + 1;
+      this._trigCounts.set(conn.id, n);
+      if (n % every !== 0) return false;
+    }
+    const chance = conn.triggerChance == null ? 100 : Number(conn.triggerChance);
+    if (chance < 100 && Math.random() * 100 >= chance) return false;
+    return true;
+  }
+
+  _evalCond(val, op, threshold, threshold2 = 0) {
     switch (op) {
       case '>':  return val > threshold;
       case '>=': return val >= threshold;
@@ -1042,6 +1084,8 @@ class SimEngine {
       case '<=': return val <= threshold;
       case '==': return val === threshold;
       case '!=': return val !== threshold;
+      case 'between':
+        return val >= Math.min(threshold, threshold2) && val <= Math.max(threshold, threshold2);
       default:   return true;
     }
   }

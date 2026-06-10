@@ -607,6 +607,139 @@ test('modifier respects target capacity', () => {
   eq(b.resources, 8, 'capped at capacity');
 });
 
+test('pulse modifier adds a flat amount when the source fires', () => {
+  const { d, e } = setup();
+  // Source fires automatically each step; the score pool gets +1 per firing.
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 2;
+  const score = node(d, NodeType.POOL);
+  const m = conn(d, s, score, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'pulse'; m.modFactor = 1;
+  steps(e, 4);
+  eq(score.resources, 4, '+1 per source firing over 4 steps');
+  eq(p.resources, 8, 'resource flow unaffected');
+});
+
+test('pulse modifier stays silent when the source does not fire', () => {
+  const { d, e } = setup();
+  // Passive pool never fires; its pulse modifier must never run.
+  const a = node(d, NodeType.POOL); a.setCount(5); a.activation = ActivationMode.PASSIVE;
+  const score = node(d, NodeType.POOL);
+  const m = conn(d, a, score, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'pulse'; m.modFactor = 3;
+  steps(e, 3);
+  eq(score.resources, 0, 'no firings, no pulses');
+});
+
+test('negative pulse modifier subtracts on each source firing', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 1;
+  const hp = node(d, NodeType.POOL); hp.setCount(10);
+  const m = conn(d, s, hp, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'pulse'; m.modFactor = -2;
+  steps(e, 3);
+  eq(hp.resources, 4, '10 - 2×3 firings');
+});
+
+test('delta modifier mirrors the source\'s change, not its value', () => {
+  const { d, e } = setup();
+  // A grows by 2/step from a source; B should also grow by 2/step (×1 change),
+  // NOT by A's full value every step.
+  const s = node(d, NodeType.SOURCE);
+  const a = node(d, NodeType.POOL);
+  conn(d, s, a).rate = 2;
+  const b = node(d, NodeType.POOL);
+  const m = conn(d, a, b, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'delta'; m.modFactor = 1;
+  steps(e, 3);
+  eq(a.resources, 6, 'A grew 2/step');
+  eq(b.resources, 6, 'B tracked A\'s change 1:1');
+});
+
+test('delta modifier scales the change and sees decreases', () => {
+  const { d, e } = setup();
+  // A drains by 1/step; B (×-1 of the change) should GROW by 1/step.
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, a, dr).rate = 1;
+  const b = node(d, NodeType.POOL);
+  const m = conn(d, a, b, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'delta'; m.modFactor = -1;
+  steps(e, 4);
+  eq(a.resources, 6, 'A drained 1/step');
+  eq(b.resources, 4, 'B grew by -1 × (-1 change) per step');
+});
+
+test('trigger fires the target only every Nth source firing', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, a, dr).rate = 1;                          // A fires every step
+  const c = node(d, NodeType.SOURCE); c.activation = ActivationMode.PASSIVE;
+  const out = node(d, NodeType.POOL);
+  conn(d, c, out).rate = 1;
+  const t = conn(d, a, c, ConnectionType.STATE);
+  t.trigger = true; t.triggerEvery = 3;
+  steps(e, 6);
+  eq(out.resources, 2, 'triggered on the 3rd and 6th firing only');
+});
+
+test('trigger chance 0 never propagates; 100 always does', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, a, dr).rate = 1;
+  const c = node(d, NodeType.SOURCE); c.activation = ActivationMode.PASSIVE;
+  const out = node(d, NodeType.POOL);
+  conn(d, c, out).rate = 1;
+  const t = conn(d, a, c, ConnectionType.STATE);
+  t.trigger = true; t.triggerChance = 0;
+  steps(e, 3);
+  eq(out.resources, 0, '0% chance: never triggers');
+  t.triggerChance = 100;
+  steps(e, 3);
+  eq(out.resources, 3, '100% chance: triggers every firing');
+});
+
+test('activator between operator gates by inclusive range', () => {
+  const { d, e } = setup();
+  const g = node(d, NodeType.POOL); g.setCount(5);
+  const a = node(d, NodeType.POOL); a.setCount(10);
+  const b = node(d, NodeType.POOL);
+  conn(d, a, b).rate = 1;
+  const act = conn(d, g, a, ConnectionType.STATE);
+  act.activator = true; act.actOperator = 'between'; act.actValue = 3; act.actValue2 = 7;
+  steps(e, 1);
+  eq(b.resources, 1, 'enabled while g(5) in 3..7');
+  g.setCount(8);
+  e.doStep();
+  eq(b.resources, 1, 'disabled once g(8) leaves the range');
+});
+
+test('new connection fields survive JSON round-trip', () => {
+  const { d } = setup();
+  const a = node(d, NodeType.POOL);
+  const b = node(d, NodeType.POOL);
+  const t = conn(d, a, b, ConnectionType.STATE);
+  t.trigger = true; t.triggerChance = 40; t.triggerEvery = 2;
+  const m = conn(d, a, b, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'pulse'; m.modFactor = -2;
+  const ac = conn(d, a, b, ConnectionType.STATE);
+  ac.activator = true; ac.actOperator = 'between'; ac.actValue = 1; ac.actValue2 = 9;
+  const json = JSON.parse(JSON.stringify(d.toJSON()));
+  const d2 = new Diagram(); d2.loadJSON(json);
+  const conns = [...d2.connections.values()];
+  const t2 = conns.find(c => c.trigger);
+  assert(t2 && t2.triggerChance === 40 && t2.triggerEvery === 2, 'trigger chance/every preserved');
+  const m2 = conns.find(c => c.modifier);
+  assert(m2 && m2.modMode === 'pulse' && m2.modFactor === -2, 'pulse modifier preserved');
+  const a2 = conns.find(c => c.activator);
+  assert(a2 && a2.actOperator === 'between' && a2.actValue === 1 && a2.actValue2 === 9, 'range activator preserved');
+});
+
 test('toJSON/loadJSON preserves limited source, queue, and modifier', () => {
   const { d } = setup();
   const s = node(d, NodeType.SOURCE); s.limited = true; s.setCount(7, s.resourceColor);

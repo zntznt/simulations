@@ -2242,7 +2242,7 @@ class App {
           this._sep(panel);
 
           this._conditionRow(panel, 'Condition', conn,
-            { enabled: 'condEnabled', op: 'condOperator', val: 'condValue', lead: 'if source' },
+            { enabled: 'condEnabled', op: 'condOperator', val: 'condValue', val2: 'condValue2', lead: 'if source' },
             (details) => {
               // Compare against: source value OR a named diagram variable
               const refRow = document.createElement('div');
@@ -2285,9 +2285,20 @@ class App {
       this._sep(panel);
 
       this._checkRow(panel, 'Trigger (✷)', conn.trigger, v => {
-        conn.trigger = v; this.renderer.render();
+        conn.trigger = v; this._renderProps(); this.renderer.render();
       });
       this._info(panel, 'When the source fires, instantly fire the target node (cascades, pulses, on-demand passive nodes).');
+      if (conn.trigger) {
+        this._field(panel, 'Chance %', 'number', conn.triggerChance ?? 100, v => {
+          const n = parseFloat(v);
+          conn.triggerChance = Math.min(100, Math.max(0, isFinite(n) ? n : 100));
+          this.renderer.render();
+        }, '0–100');
+        this._field(panel, 'Every Nth', 'number', conn.triggerEvery ?? 1, v => {
+          conn.triggerEvery = Math.max(1, parseInt(v) || 1);
+          this.renderer.render();
+        }, 'fire target every Nth source firing');
+      }
 
       this._checkRow(panel, 'Fail trigger', conn.reverseTrigger, v => {
         conn.reverseTrigger = v; this.renderer.render();
@@ -2297,8 +2308,8 @@ class App {
       this._sep(panel);
 
       this._conditionRow(panel, 'Activator (⊢)', conn,
-        { enabled: 'activator', op: 'actOperator', val: 'actValue', lead: 'enable target when source' });
-      this._info(panel, 'The target node may only fire while the source value satisfies this condition.');
+        { enabled: 'activator', op: 'actOperator', val: 'actValue', val2: 'actValue2', lead: 'enable target when source' });
+      this._info(panel, 'The target node may only fire while the source value satisfies this condition. The a..b operator is an inclusive range.');
 
       this._sep(panel);
 
@@ -2306,11 +2317,37 @@ class App {
         conn.modifier = v; this._renderProps(); this.renderer.render();
       });
       if (conn.modifier) {
-        this._field(panel, 'Factor', 'number', conn.modFactor, v => {
+        const mode = conn.modMode || 'rate';
+        const modeRow = document.createElement('div');
+        modeRow.className = 'prop-row';
+        const ml = document.createElement('label'); ml.textContent = 'Mode';
+        const ms = document.createElement('select');
+        for (const [v, t] of [
+          ['pulse', 'On source fire (flat amount)'],
+          ['delta', 'On source change (× change)'],
+          ['rate',  'Every step (× source value)'],
+        ]) {
+          const o = document.createElement('option');
+          o.value = v; o.textContent = t;
+          if (v === mode) o.selected = true;
+          ms.appendChild(o);
+        }
+        ms.addEventListener('change', () => { conn.modMode = ms.value; this._renderProps(); this.renderer.render(); });
+        modeRow.appendChild(ml); modeRow.appendChild(ms);
+        panel.appendChild(modeRow);
+
+        this._field(panel, mode === 'pulse' ? 'Amount' : 'Factor', 'number', conn.modFactor, v => {
           const n = parseFloat(v); conn.modFactor = isFinite(n) ? n : 0; this.renderer.render();
-        }, 'Δ = factor × source / step');
+        }, mode === 'pulse' ? 'e.g. 1 = +1 per firing' : (mode === 'delta' ? 'Δtarget = factor × Δsource' : 'Δ = factor × source / step'));
+
+        this._info(panel, {
+          pulse: 'Each time the source node fires, add this flat amount to the target pool/converter (negative subtracts). The easy "+1 when the source triggers".',
+          delta: 'When the source value changes, add factor × the change to the target (Machinations-style label modifier).',
+          rate:  'Each step, add factor × source value to the target (negative = decay). Self-connections are allowed for interest/decay.',
+        }[mode]);
+      } else {
+        this._info(panel, 'Adjust the target pool/converter without a resource flow: a flat +N when the source fires, a multiple of the source\'s change, or interest/decay every step.');
       }
-      this._info(panel, 'Each step, add factor × source value to the target pool/converter (negative = decay). Self-connections are allowed for interest/decay.');
     }
   }
 
@@ -2371,22 +2408,40 @@ class App {
     il.textContent = keys.lead || 'when';
 
     const op = document.createElement('select');
-    for (const o of ['>', '>=', '<', '<=', '==', '!=']) {
+    const ops = ['>', '>=', '<', '<=', '==', '!='];
+    if (keys.val2) ops.push('between');
+    for (const o of ops) {
       const e = document.createElement('option');
-      e.value = o; e.textContent = o;
+      e.value = o; e.textContent = o === 'between' ? 'a..b' : o;
       if (o === obj[keys.op]) e.selected = true;
       op.appendChild(e);
     }
-    op.addEventListener('change', () => { obj[keys.op] = op.value; this.renderer.render(); });
 
     const val = document.createElement('input');
     val.type = 'number';
     val.value = obj[keys.val];
     val.addEventListener('input', () => { obj[keys.val] = parseFloat(val.value) || 0; this.renderer.render(); });
 
+    // Second bound, shown only for the inclusive range operator.
+    let val2 = null;
+    if (keys.val2) {
+      val2 = document.createElement('input');
+      val2.type = 'number';
+      val2.value = obj[keys.val2] || 0;
+      val2.style.display = obj[keys.op] === 'between' ? '' : 'none';
+      val2.addEventListener('input', () => { obj[keys.val2] = parseFloat(val2.value) || 0; this.renderer.render(); });
+    }
+
+    op.addEventListener('change', () => {
+      obj[keys.op] = op.value;
+      if (val2) val2.style.display = op.value === 'between' ? '' : 'none';
+      this.renderer.render();
+    });
+
     inner.appendChild(il);
     inner.appendChild(op);
     inner.appendChild(val);
+    if (val2) inner.appendChild(val2);
     details.appendChild(inner);
     if (extraFn) extraFn(details);
     panel.appendChild(details);
