@@ -25,10 +25,13 @@ class App {
     this.timeline = new TimelineChart(document.getElementById('timeline-canvas'), document.getElementById('tl-legend'), this.diagram, this.engine);
     this._timelineVisible = false;
 
+    this._activeFeature = null; // which diagram-rail feature flyout is open
+
     this._bindControls();
     this._initLibrary();
     this._initMenus();
     this._initPalette();
+    this._initDiagramRail();
 
     this.engine.onStep = (step, fired, transfers) => {
       document.getElementById('step-counter').textContent = `Step: ${step}`;
@@ -47,6 +50,8 @@ class App {
       if (this._timelineVisible) this.timeline.update();
       this._refreshResourceCount();
       this._refreshTypeReadouts();
+      // Keep the live "Watch" flyout ticking with the run.
+      if (this._activeFeature === 'monitor') this._renderFlyout();
     };
 
     this.engine.onEnd = (ended) => {
@@ -971,6 +976,10 @@ class App {
   // ── Properties panel ──────────────────────────────────────────────────────
 
   _renderProps() {
+    // Keep the diagram-settings flyout in sync on every panel refresh (selection
+    // change, edit, undo/redo, load) — its data is diagram-level and may move.
+    this._renderFlyout();
+
     const panel = document.getElementById('props-content');
     panel.innerHTML = '';
     this._clearSparklines();
@@ -1004,13 +1013,78 @@ class App {
     }
   }
 
-  // Default panel (nothing selected): shows diagram-level parameters.
+  // Default panel (nothing selected): a short hint pointing at the diagram rail.
+  // Diagram-level settings now live in the right-hand rail's flyouts, so the
+  // properties panel is dedicated to the selected node / connection.
   _diagramProps(panel) {
     this._title(panel, 'Diagram');
     this._info(panel, 'Select a node or connection to edit its properties.');
-
-    // Time mode (synchronous turn-based vs asynchronous per-node rhythm).
     this._sep(panel);
+    const p = document.createElement('p');
+    p.className = 'props-empty';
+    p.innerHTML = 'Diagram-wide settings — <b>time mode</b>, <b>parameters</b>, '
+      + '<b>variables</b>, <b>resource types</b>, the <b>artificial player</b>, and a '
+      + 'live <b>variable watch</b> — are on the rail to the right <span aria-hidden="true">→</span>';
+    panel.appendChild(p);
+  }
+
+  // ── Diagram rail + settings flyout ────────────────────────────────────────
+  // Metadata for each rail feature: a title and the editor that renders it into
+  // a container. Editors are reused as-is; the flyout supplies the framing.
+  _featureMeta() {
+    return {
+      time:      { title: 'Time Mode',        render: c => this._timeModeEditor(c) },
+      params:    { title: 'Parameters',       render: c => this._paramsEditor(c) },
+      vars:      { title: 'Custom Variables', render: c => this._customVarsEditor(c) },
+      resources: { title: 'Resource Types',   render: c => this._resourceTypesEditor(c) },
+      player:    { title: 'Artificial Player', render: c => this._diagramAI(c) },
+      monitor:   { title: 'Live Variables',   render: c => this._liveVarsReadout(c) },
+    };
+  }
+
+  _initDiagramRail() {
+    const rail = document.getElementById('diagram-rail');
+    if (rail) {
+      rail.querySelectorAll('.rail-btn').forEach(btn => {
+        btn.addEventListener('click', () => this._toggleFeature(btn.dataset.feature));
+      });
+    }
+    const close = document.getElementById('flyout-close');
+    if (close) close.addEventListener('click', () => this._closeFeature());
+  }
+
+  _toggleFeature(name) {
+    if (this._activeFeature === name) { this._closeFeature(); return; }
+    this._activeFeature = name;
+    document.querySelectorAll('#diagram-rail .rail-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.feature === name));
+    const fly = document.getElementById('diagram-flyout');
+    fly.classList.remove('hidden');
+    fly.setAttribute('aria-hidden', 'false');
+    this._renderFlyout();
+  }
+
+  _closeFeature() {
+    this._activeFeature = null;
+    document.querySelectorAll('#diagram-rail .rail-btn').forEach(b => b.classList.remove('active'));
+    const fly = document.getElementById('diagram-flyout');
+    if (fly) { fly.classList.add('hidden'); fly.setAttribute('aria-hidden', 'true'); }
+  }
+
+  // Re-render the open flyout's content (no-op when nothing is open).
+  _renderFlyout() {
+    if (!this._activeFeature) return;
+    const meta = this._featureMeta()[this._activeFeature];
+    const content = document.getElementById('flyout-content');
+    const titleEl = document.getElementById('flyout-title');
+    if (!meta || !content) return;
+    if (titleEl) titleEl.textContent = meta.title;
+    content.innerHTML = '';
+    meta.render(content);
+  }
+
+  // Time mode (synchronous turn-based vs asynchronous per-node rhythm).
+  _timeModeEditor(panel) {
     const tm = this.diagram.timeMode || 'sync';
     this._select2(panel, 'Time mode', ['sync', 'async'], tm, v => {
       this.diagram.timeMode = v; this._renderProps(); this._commit();
@@ -1018,14 +1092,11 @@ class App {
     this._info(panel, tm === 'async'
       ? 'Asynchronous: each automatic node fires on its own "Fire every" rhythm (set per node).'
       : 'Synchronous (turn-based): every automatic node fires once per step.');
+  }
 
-    this._sep(panel);
-    const ptitle = document.createElement('h3');
-    ptitle.className = 'props-title';
-    ptitle.textContent = 'Parameters';
-    panel.appendChild(ptitle);
+  // Named constants available to all formulas.
+  _paramsEditor(panel) {
     this._info(panel, 'Named constants available to all formulas (e.g. growth_rate * pool).');
-
     const params = this.diagram.params;
     for (const [key] of Object.entries(params)) {
       const row = document.createElement('div');
@@ -1074,46 +1145,34 @@ class App {
     });
     addRow.appendChild(addBtn);
     panel.appendChild(addRow);
+  }
 
-    // Custom random variables (interval / array / dice).
-    this._customVarsEditor(panel);
-
-    // Named resource types + live per-type totals.
-    this._resourceTypesEditor(panel);
-
-    // Artificial player (scripted actor firing interactive nodes).
-    this._diagramAI(panel);
-
-    // Live variables readout (during simulation)
+  // Live variables readout (populated during a simulation run).
+  _liveVarsReadout(panel) {
+    this._info(panel, 'Every named value in the shared store — parameters, state-connection variables, custom variables, and register outputs — updated as the simulation runs.');
     const vars = Object.entries(this.diagram.variables);
-    if (vars.length) {
-      this._sep(panel);
-      const vtitle = document.createElement('div');
-      vtitle.className = 'chart-label';
-      vtitle.textContent = 'Live Variables';
-      panel.appendChild(vtitle);
-      for (const [k, v] of vars) {
-        const row = document.createElement('div');
-        row.className = 'prop-row';
-        const kl = document.createElement('label'); kl.textContent = k;
-        const vl = document.createElement('span');
-        vl.style.cssText = 'color:var(--accent);font-family:monospace;font-size:12px;';
-        vl.textContent = typeof v === 'number' ? (+v.toFixed(3)) : v;
-        row.appendChild(kl); row.appendChild(vl);
-        panel.appendChild(row);
-      }
+    if (!vars.length) {
+      const p = document.createElement('p');
+      p.className = 'props-empty';
+      p.textContent = 'No variables yet. Run the simulation (or define parameters / variables) to see values here.';
+      panel.appendChild(p);
+      return;
+    }
+    for (const [k, v] of vars) {
+      const row = document.createElement('div');
+      row.className = 'prop-row';
+      const kl = document.createElement('label'); kl.textContent = k;
+      const vl = document.createElement('span');
+      vl.style.cssText = 'color:var(--accent);font-family:monospace;font-size:12px;';
+      vl.textContent = typeof v === 'number' ? (+v.toFixed(3)) : v;
+      row.appendChild(kl); row.appendChild(vl);
+      panel.appendChild(row);
     }
   }
 
   // Artificial-player editor (shown in the diagram panel). Lets you script
   // interactive nodes to fire on an interval or a variable condition.
   _diagramAI(panel) {
-    this._sep(panel);
-    const h = document.createElement('h3');
-    h.className = 'props-title';
-    h.textContent = 'Artificial Player';
-    panel.appendChild(h);
-
     const ai = this.diagram.aiPlayer || (this.diagram.aiPlayer = { enabled: false, rules: [] });
     this._checkRow(panel, 'Enabled', ai.enabled, v => { ai.enabled = v; this._commit(); });
     this._info(panel, 'Scripted actor: fires interactive nodes automatically during a run — every N steps, or when a variable condition holds.');
@@ -1209,11 +1268,6 @@ class App {
   // The random kinds pick a distribution (uniform / gaussian); all pick an
   // update rhythm ('step' = fresh value every step, 'play' = per Run press).
   _customVarsEditor(panel) {
-    this._sep(panel);
-    const h = document.createElement('h3');
-    h.className = 'props-title';
-    h.textContent = 'Custom Variables';
-    panel.appendChild(h);
     this._info(panel, 'Named values usable in any formula — random (interval, array, dice) or computed (math). Re-evaluated every step, or once each time Run is pressed.');
 
     const vars = this.diagram.customVars;
@@ -1359,11 +1413,6 @@ class App {
 
   // Named resource types editor + live per-type totals (diagram panel).
   _resourceTypesEditor(panel) {
-    this._sep(panel);
-    const h = document.createElement('h3');
-    h.className = 'props-title';
-    h.textContent = 'Resource Types';
-    panel.appendChild(h);
     this._info(panel, 'Give resources readable names. Each type maps a name to a color, which the engine uses to track it. Pick a type from the colour fields on sources, converters, and filters.');
 
     const types = this.diagram.resourceTypes;

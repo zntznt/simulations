@@ -46,7 +46,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 
 /* ── Main layout ── */
-#main { display: flex; flex: 1; overflow: hidden; }
+#main { display: flex; flex: 1; overflow: hidden; position: relative; }
 
 /* ── Left palette ── */
 #palette {
@@ -115,6 +115,42 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 #props-content { flex: 1; overflow-y: auto; padding: 12px 16px; }
 
 .props-empty { color: var(--text-dim); font-size: 12px; line-height: 1.5; margin-top: 8px; }
+
+/* ── Far-right diagram rail ── */
+#diagram-rail {
+  width: 64px; background: var(--panel); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center; padding: 8px 0;
+  gap: 2px; flex-shrink: 0; overflow-y: auto; z-index: 6;
+}
+.rail-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  width: 56px; padding: 7px 4px; border: 1px solid transparent;
+  border-radius: 6px; background: none; color: var(--text); cursor: pointer;
+  font-size: 10px; transition: all 0.15s;
+}
+.rail-btn:hover { background: var(--panel2); border-color: var(--border); }
+.rail-btn.active { background: rgba(74,158,255,0.15); border-color: var(--accent); color: var(--accent); }
+
+/* ── Diagram settings flyout (anchored to the rail) ── */
+#diagram-flyout {
+  position: absolute; top: 0; right: 64px; bottom: 0; width: 300px;
+  background: var(--panel); border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0,0,0,0.32); z-index: 7;
+  display: flex; flex-direction: column;
+  animation: flyout-in 0.14s ease-out;
+}
+#diagram-flyout.hidden { display: none; }
+@keyframes flyout-in {
+  from { transform: translateX(12px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+#flyout-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--border);
+  font-size: 13px; font-weight: 600; color: var(--text);
+}
+#flyout-header .btn { padding: 3px 9px; font-size: 13px; line-height: 1; }
+#flyout-content { flex: 1; overflow-y: auto; padding: 12px 16px; }
 
 .props-title {
   font-size: 14px; font-weight: 600; color: var(--text);
@@ -454,5 +490,7 @@ input[type="range"] {
 /* ── Embed mode (clean, shareable view) ── */
 body.embed #palette,
 body.embed #props-panel,
+body.embed #diagram-rail,
+body.embed #diagram-flyout,
 body.embed .file-controls,
 body.embed .analysis-controls { display: none; }

@@ -279,6 +279,71 @@
       </div>
     </aside>
 
+    <!-- Diagram settings flyout (opened from the right rail) -->
+    <aside id="diagram-flyout" class="hidden" aria-hidden="true">
+      <div id="flyout-header">
+        <span id="flyout-title">Diagram</span>
+        <button class="btn" id="flyout-close" title="Close" aria-label="Close panel">✕</button>
+      </div>
+      <div id="flyout-content"></div>
+    </aside>
+
+    <!-- Far-right rail: diagram-level settings -->
+    <nav id="diagram-rail" aria-label="Diagram settings">
+      <button class="rail-btn" data-feature="time" title="Time mode — sync / async">
+        <div class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+          </svg>
+        </div>
+        Time
+      </button>
+      <button class="rail-btn" data-feature="params" title="Parameters — named constants">
+        <div class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2.2"/>
+            <line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2.2"/>
+            <line x1="4" y1="17" x2="20" y2="17"/><circle cx="8" cy="17" r="2.2"/>
+          </svg>
+        </div>
+        Params
+      </button>
+      <button class="rail-btn" data-feature="vars" title="Variables — random &amp; computed">
+        <div class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 4c-2 0-3 1-3 3v2c0 1-1 2-2 2 1 0 2 1 2 2v2c0 2 1 3 3 3"/>
+            <path d="M15 4c2 0 3 1 3 3v2c0 1 1 2 2 2-1 0-2 1-2 2v2c0 2-1 3-3 3"/>
+          </svg>
+        </div>
+        Vars
+      </button>
+      <button class="rail-btn" data-feature="resources" title="Resource types — named, coloured resources">
+        <div class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h7l9 9-7 7-9-9V4z"/><circle cx="8.5" cy="8.5" r="1.6"/>
+          </svg>
+        </div>
+        Types
+      </button>
+      <button class="rail-btn" data-feature="player" title="Artificial player — scripted actor">
+        <div class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="8" width="14" height="11" rx="2"/><path d="M12 8V4M9 4h6"/>
+            <circle cx="9.5" cy="13" r="1.1"/><circle cx="14.5" cy="13" r="1.1"/>
+          </svg>
+        </div>
+        Player
+      </button>
+      <button class="rail-btn" data-feature="monitor" title="Live variables — runtime readout">
+        <div class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12h4l3 8 4-16 3 8h4"/>
+          </svg>
+        </div>
+        Watch
+      </button>
+    </nav>
+
   </div>
 
   <!-- Timeline chart (toggle) -->
