@@ -146,9 +146,14 @@ algorithm, the one‑step variable lag, and more — see
 
 ## Bundled examples
 
-- **Basic Economy** — a source → treasury → upkeep loop with a split gate and a register.
-- **Loot Farm** — dice rolls, chance %, conditional flows, and formula registers, with a wealth goal.
-- **Factory Line** — triggers, activators, a weighted quality gate, and a production goal.
+Each is a self-contained systems model with emergent behaviour, shipped with an
+explanatory note and an on-canvas chart. Open the **Library** to load one.
+
+- **Predator & Prey** — coupled populations settle into a stable limit cycle (foxes peak just after rabbits). Logistic growth via a register, predation via a formula rate, starvation via a self-modifier.
+- **Epidemic (SIR)** — the textbook outbreak curve; infections crest exactly as the effective reproduction number Rₑ falls through 1, and the run halts when the outbreak fades.
+- **Supply Chain** — ore smelted 2:1 into ingots and shipped through a 3-step delay; nothing sells until the pipeline fills, then output holds steady. Speed up the mine to create a bottleneck.
+- **Barter Economy** — two towns swap grain for timber through a Trader (an atomic 2-for-2 exchange); each storehouse ends up holding both colours.
+- **Service Desk** — a single-server queue with random (Poisson) arrivals; the line builds and clears — the M/D/1 queue behind every checkout.
 
 ---
 

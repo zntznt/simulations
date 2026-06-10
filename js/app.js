@@ -168,7 +168,7 @@ class App {
     }
 
     const saved = localStorage.getItem('sim_autosave');
-    this._loadExample();
+    this._demoEcosystem();
     this.renderer.fitView();
     this._resetHistory();
     if (saved) {
@@ -270,9 +270,11 @@ class App {
     // Starter templates live in the Library now (no separate dropdown). Each
     // entry builds a sample diagram via its existing loader.
     this._templates = [
-      { name: 'Basic Economy', desc: 'Source → Treasury → Drain, a gate split, and a register.', load: () => this._loadExample() },
-      { name: 'Loot Farm', desc: 'Dice rolls, chance %, a conditional, and formula registers.', load: () => this._loadLootExample() },
-      { name: 'Factory Line', desc: 'Triggers, activators, weighted gates, and a goal.', load: () => this._loadFactoryExample() },
+      { name: 'Predator & Prey', desc: 'Two populations lock into a self-sustaining oscillation — a stable limit cycle.', load: () => this._demoEcosystem() },
+      { name: 'Epidemic (SIR)', desc: 'The outbreak curve: infections peak as Rₑ falls through 1, then fade.', load: () => this._demoEpidemic() },
+      { name: 'Supply Chain', desc: 'A 2:1 smelter and a shipping delay — pipeline latency, then steady output.', load: () => this._demoSupplyChain() },
+      { name: 'Barter Economy', desc: 'Two towns swap grain for timber through a Trader; watch the colours mix.', load: () => this._demoTradeNetwork() },
+      { name: 'Service Desk', desc: 'A single-server queue with random arrivals — the line builds and clears.', load: () => this._demoQueue() },
     ];
 
     document.getElementById('btn-library').addEventListener('click', () => this._openLibrary());
@@ -517,189 +519,179 @@ class App {
   }
 
   // ── Example diagrams ──────────────────────────────────────────────────────
+  //
+  // Each demo is a self-contained systems model that produces genuinely
+  // emergent behaviour — not just a wiring sampler. They lean on the engine's
+  // formula rates, modifiers, registers, delays, queues, traders and coloured
+  // resources, and each ships with a titled group, an explanatory note and an
+  // on-canvas chart so it reads at a glance. Verified headlessly against the
+  // engine before shipping; see the parameters on each for the tuned values.
 
-  _loadExample() {
-    const src = this.diagram.addNode(new MNode(NodeType.SOURCE, 200, 300));
-    src.label = 'Gold Source';
-    src.resourceColor = '#ffd700';
+  // Small builder helpers shared by the demos below.
+  _demo() {
+    const d = this.diagram;
+    return {
+      d,
+      node: (type, x, y, label, f) => {
+        const n = d.addNode(new MNode(type, x, y));
+        if (label != null) n.label = label;
+        if (f) f(n);
+        return n;
+      },
+      res: (s, t, f) => { const c = d.addConnection(new MConnection(s.id, t.id)); if (f) f(c); return c; },
+      st: (s, t, f) => { const c = d.addConnection(new MConnection(s.id, t.id, ConnectionType.STATE)); if (f) f(c); return c; },
+      group: (x, y, w, h, label, color) => { const g = d.addGroup(new MGroup(x, y, w, h)); g.label = label; if (color) g.color = color; return g; },
+      note: (x, y, w, h, text) => { const n = d.addNote(new MNote(x, y)); n.w = w; n.h = h; n.text = text; return n; },
+      chart: (x, y, w, h, label, ids) => { const c = d.addChart(new MChart(x, y)); c.w = w; c.h = h; c.label = label; c.nodeIds = ids; return c; },
+    };
+  }
 
-    const pool = this.diagram.addNode(new MNode(NodeType.POOL, 400, 300));
-    pool.label = 'Treasury';
+  // 1 — PREDATOR & PREY: two coupled populations settle into a stable limit
+  // cycle. Rabbits breed logistically; foxes eat rabbits and starve without
+  // them. Tunable via the breedRate / carrying / hunt parameters.
+  _demoEcosystem() {
+    const b = this._demo();
+    b.d.params = { breedRate: 0.45, carrying: 200, hunt: 0.008 };
+    b.group(250, 70, 700, 590, 'Predator–Prey Ecosystem', '#7cb342');
 
-    const drain = this.diagram.addNode(new MNode(NodeType.DRAIN, 620, 300));
-    drain.label = 'Upkeep';
+    const births = b.node(NodeType.REGISTER, 470, 165, 'births',
+      n => { n.formula = 'Math.round(breedRate * prey * (1 - prey/carrying))'; });
+    const rabbits = b.node(NodeType.POOL, 380, 340, 'Rabbits',
+      n => { n.setCount(80, '#7cb342'); n.capacity = 500; });
+    const foxes = b.node(NodeType.POOL, 760, 340, 'Foxes', n => n.setCount(20, '#ef5350'));
 
-    const c1 = this.diagram.addConnection(new MConnection(src.id, pool.id));
-    c1.rate = 3;
+    b.st(rabbits, births, c => { c.variableName = 'prey'; c.label = 'prey'; });
+    b.st(births, rabbits, c => { c.modifier = true; c.modFactor = 1; c.label = 'breed'; });
+    b.st(foxes, rabbits, c => { c.variableName = 'pred'; c.label = 'pred'; });
+    b.res(rabbits, foxes, c => { c.rateMode = RateMode.FORMULA; c.formula = 'hunt * prey * pred'; c.label = 'hunt'; });
+    b.st(foxes, foxes, c => { c.modifier = true; c.modFactor = -0.28; c.label = 'starve'; });
 
-    const c2 = this.diagram.addConnection(new MConnection(pool.id, drain.id));
-    c2.rate = 1;
-
-    const gate = this.diagram.addNode(new MNode(NodeType.GATE, 400, 460));
-    gate.label = 'Split';
-
-    const pool2 = this.diagram.addNode(new MNode(NodeType.POOL, 280, 580));
-    pool2.label = 'Pool A';
-
-    const pool3 = this.diagram.addNode(new MNode(NodeType.POOL, 520, 580));
-    pool3.label = 'Pool B';
-
-    const cg = this.diagram.addConnection(new MConnection(pool.id, gate.id));
-    cg.rate = 2;
-    this.diagram.addConnection(new MConnection(gate.id, pool2.id));
-    this.diagram.addConnection(new MConnection(gate.id, pool3.id));
-
-    // Register example: reads the Treasury count via a named state variable.
-    const reg = this.diagram.addNode(new MNode(NodeType.REGISTER, 620, 460));
-    reg.label = 'Total';
-    reg.formula = 'treasury * 2';
-
-    const sc = this.diagram.addConnection(new MConnection(pool.id, reg.id, ConnectionType.STATE));
-    sc.variableName = 'treasury';
-    sc.label = 'treasury';
-
+    b.chart(370, 470, 470, 170, 'Populations', [rabbits.id, foxes.id]);
+    b.note(980, 165, 250, 250,
+      'Foxes eat rabbits; rabbits breed (slowing as they crowd their range); ' +
+      'foxes starve without food.\n\nNo target was set — yet the two populations ' +
+      'lock into a self-sustaining oscillation, foxes peaking just after rabbits. ' +
+      'Press Run and watch the cycle.');
     this.renderer.render();
   }
 
-  // Loot Farm: showcases dice rolls, chance %, conditional, and formula registers.
-  _loadLootExample() {
-    const d = this.diagram;
+  // 2 — EPIDEMIC (SIR): the textbook outbreak curve. Infections peak exactly as
+  // the effective reproduction number Rₑ falls through 1 (herd immunity); the
+  // run halts when the outbreak fades.
+  _demoEpidemic() {
+    const b = this._demo();
+    b.d.params = { beta: 0.6, gamma: 0.18, N: 600 };
+    b.group(240, 70, 840, 540, 'Epidemic — SIR Model', '#ef5350');
 
-    const src = d.addNode(new MNode(NodeType.SOURCE, 150, 270));
-    src.label = 'Enemy Spawn';
-    src.resourceColor = '#ef5350';
+    const reff = b.node(NodeType.REGISTER, 640, 165, 'Reff',
+      n => { n.formula = '(beta/gamma) * S / N'; });
+    const sus = b.node(NodeType.POOL, 380, 340, 'Susceptible', n => n.setCount(590, '#42a5f5'));
+    const inf = b.node(NodeType.POOL, 640, 340, 'Infected', n => {
+      n.setCount(10, '#ef5350');
+      n.endEnabled = true; n.endOperator = '<='; n.endValue = 3;   // outbreak fades → halt
+    });
+    const rec = b.node(NodeType.POOL, 900, 340, 'Recovered', n => n.setCount(0, '#66bb6a'));
 
-    const combat = d.addNode(new MNode(NodeType.POOL, 360, 270));
-    combat.label = 'Combat';
-    combat.capacity = 20;
+    b.res(sus, inf, c => { c.rateMode = RateMode.FORMULA; c.formula = 'beta * S * I / N'; c.label = 'infect'; });
+    b.res(inf, rec, c => { c.rateMode = RateMode.FORMULA; c.formula = 'gamma * I'; c.label = 'recover'; });
+    b.st(sus, reff, c => { c.variableName = 'S'; c.label = 'S'; });
+    b.st(inf, sus, c => { c.variableName = 'I'; c.label = 'I'; });
 
-    const xp = d.addNode(new MNode(NodeType.DRAIN, 360, 110));
-    xp.label = 'XP';
-
-    const gold = d.addNode(new MNode(NodeType.POOL, 570, 180));
-    gold.label = 'Gold';
-
-    const rareLoot = d.addNode(new MNode(NodeType.POOL, 570, 390));
-    rareLoot.label = 'Rare Loot';
-
-    const shop = d.addNode(new MNode(NodeType.DRAIN, 780, 180));
-    shop.label = 'Shop';
-
-    const reg = d.addNode(new MNode(NodeType.REGISTER, 780, 390));
-    reg.label = 'Wealth';
-    reg.formula = 'gold * 10 + rare * 50';
-    reg.endEnabled = true;            // stop the run once we're rich enough
-    reg.endOperator = '>=';
-    reg.endValue = 1000;
-
-    // Enemy Spawn → Combat: 3 enemies per step
-    const c1 = d.addConnection(new MConnection(src.id, combat.id));
-    c1.rate = 3;
-
-    // Combat → XP: dice 2d4 each step
-    const c2 = d.addConnection(new MConnection(combat.id, xp.id));
-    c2.rateMode = RateMode.DICE;
-    c2.dice = '2d4';
-    c2.label = '2d4';
-
-    // Combat → Gold: rate 1, 65% chance
-    const c3 = d.addConnection(new MConnection(combat.id, gold.id));
-    c3.rate = 1;
-    c3.chance = 65;
-    c3.label = '65%';
-
-    // Combat → Rare Loot: rate 1, 20% chance
-    const c4 = d.addConnection(new MConnection(combat.id, rareLoot.id));
-    c4.rate = 1;
-    c4.chance = 20;
-    c4.label = '20%';
-
-    // Gold → Shop: rate 3, fires only when Gold >= 10
-    const c5 = d.addConnection(new MConnection(gold.id, shop.id));
-    c5.rate = 3;
-    c5.condEnabled = true;
-    c5.condOperator = '>=';
-    c5.condValue = 10;
-    c5.label = '≥10→shop';
-
-    // State: Gold Pool → Register
-    const sc1 = d.addConnection(new MConnection(gold.id, reg.id, ConnectionType.STATE));
-    sc1.variableName = 'gold';
-    sc1.label = 'gold';
-
-    // State: Rare Loot → Register
-    const sc2 = d.addConnection(new MConnection(rareLoot.id, reg.id, ConnectionType.STATE));
-    sc2.variableName = 'rare';
-    sc2.label = 'rare';
-
+    b.chart(380, 470, 520, 150, 'S / I / R', [sus.id, inf.id, rec.id]);
+    b.note(1110, 165, 250, 270,
+      'Each infected person infects susceptibles at rate β·S·I/N and recovers at ' +
+      'rate γ·I.\n\nWatch infections crest the instant Rₑ drops below 1 — the herd-' +
+      'immunity threshold. A slice of the population is never infected. ' +
+      'Open the Timeline to trace all three curves.');
     this.renderer.render();
   }
 
-  // Factory Line: showcases triggers, activators, weighted gates, and a goal.
-  _loadFactoryExample() {
-    const d = this.diagram;
+  // 3 — SUPPLY CHAIN: a production pipeline. Ore is smelted 2:1 into ingots,
+  // shipped through a 3-step delay, then sold. The first sale lands only after
+  // the pipeline fills — visible latency, then steady throughput.
+  _demoSupplyChain() {
+    const b = this._demo();
+    b.d.resourceTypes = [{ name: 'Ore', color: '#90a4ae' }, { name: 'Ingot', color: '#ffa726' }];
+    b.group(170, 200, 1010, 220, 'Factory Supply Chain', '#ffa726');
 
-    // Power plant whose output gates the whole line via an activator.
-    const power = d.addNode(new MNode(NodeType.SOURCE, 130, 130));
-    power.label = 'Power';
-    power.resourceColor = '#ffeb3b';
-    const grid = d.addNode(new MNode(NodeType.POOL, 130, 300));
-    grid.label = 'Grid';
-    grid.capacity = 12;
-    const pc = d.addConnection(new MConnection(power.id, grid.id));
-    pc.rate = 2;
+    const mine = b.node(NodeType.SOURCE, 250, 310, 'Mine', n => { n.resourceColor = '#90a4ae'; });
+    const ore = b.node(NodeType.POOL, 430, 310, 'Ore', n => { n.capacity = 12; });
+    const smelter = b.node(NodeType.CONVERTER, 610, 310, 'Smelter',
+      n => { n.inputAmount = 2; n.outputColor = '#ffa726'; });
+    const ingots = b.node(NodeType.POOL, 790, 310, 'Ingots');
+    const shipping = b.node(NodeType.DELAY, 960, 310, 'Shipping', n => { n.delay = 3; });
+    const market = b.node(NodeType.DRAIN, 1120, 310, 'Market');
 
-    // Ore line: a source feeds a stockpile that triggers a passive smelter.
-    const ore = d.addNode(new MNode(NodeType.SOURCE, 130, 470));
-    ore.label = 'Ore Vein';
-    ore.resourceColor = '#8d6e63';
-    const stock = d.addNode(new MNode(NodeType.POOL, 340, 470));
-    stock.label = 'Stockpile';
-    const oc = d.addConnection(new MConnection(ore.id, stock.id));
-    oc.rate = 3;
+    b.res(mine, ore, c => { c.rate = 2; });
+    b.res(ore, smelter, c => { c.rate = 2; c.label = '2 ore'; });
+    b.res(smelter, ingots, c => { c.rate = 1; c.label = '1 ingot'; });
+    b.res(ingots, shipping, c => { c.rate = 1; });
+    b.res(shipping, market, c => { c.rate = 1; });
 
-    // Smelter is PASSIVE — it only runs when triggered by the Stockpile, and
-    // only while the Grid has power (activator).
-    const smelter = d.addNode(new MNode(NodeType.CONVERTER, 540, 470));
-    smelter.label = 'Smelter';
-    smelter.activation = ActivationMode.PASSIVE;
-    smelter.inputAmount = 2;
-    smelter.outputColor = '#ff7043';
-    const feed = d.addConnection(new MConnection(stock.id, smelter.id));
-    feed.rate = 3;
+    b.chart(250, 470, 560, 180, 'Ore · Ingots · Sold', [ore.id, ingots.id, market.id]);
+    b.note(880, 470, 300, 180,
+      'The Smelter converts 2 ore → 1 ingot; Shipping is a 3-step delay before ' +
+      'the Market buys.\n\nNothing sells until the pipeline fills — then output ' +
+      'holds steady at 1/step. Speed up the Mine and the Ore buffer (cap 12) ' +
+      'backs up: a bottleneck.');
+    this.renderer.render();
+  }
 
-    // Trigger: every step the Stockpile fires, pulse the Smelter.
-    const trig = d.addConnection(new MConnection(stock.id, smelter.id, ConnectionType.STATE));
-    trig.trigger = true;
+  // 4 — BARTER ECONOMY: two towns each make one good and swap for the other
+  // through a Trader (an atomic 2-grain ⇄ 2-timber exchange). Each storehouse
+  // ends up holding BOTH colours — the barter made visible.
+  _demoTradeNetwork() {
+    const b = this._demo();
+    b.d.resourceTypes = [{ name: 'Grain', color: '#fdd835' }, { name: 'Timber', color: '#8d6e63' }];
+    b.group(220, 120, 770, 540, 'Barter Economy', '#8d6e63');
 
-    // Activator: Smelter only runs while Grid >= 4 power.
-    const act = d.addConnection(new MConnection(grid.id, smelter.id, ConnectionType.STATE));
-    act.activator = true;
-    act.actOperator = '>=';
-    act.actValue = 4;
+    const farm = b.node(NodeType.SOURCE, 300, 250, 'Farmland', n => { n.resourceColor = '#fdd835'; });
+    const granary = b.node(NodeType.POOL, 510, 250, 'Granary', n => { n.capacity = 20; n.setCount(10, '#fdd835'); });
+    const builders = b.node(NodeType.DRAIN, 770, 250, 'Builders');
+    const forest = b.node(NodeType.SOURCE, 300, 530, 'Forest', n => { n.resourceColor = '#8d6e63'; });
+    const yard = b.node(NodeType.POOL, 510, 530, 'Lumberyard', n => { n.capacity = 20; n.setCount(10, '#8d6e63'); });
+    const sawmill = b.node(NodeType.DRAIN, 770, 530, 'Sawmill');
+    const market = b.node(NodeType.TRADER, 640, 390, 'Market');
 
-    // Smelter output → a probabilistic gate splitting ingots two ways.
-    const gate = d.addNode(new MNode(NodeType.GATE, 750, 470));
-    gate.label = 'QC';
-    gate.gateMode = 'probabilistic';
-    const sg = d.addConnection(new MConnection(smelter.id, gate.id));
-    sg.rate = 4;
+    b.res(farm, granary, c => { c.rate = 3; });
+    b.res(forest, yard, c => { c.rate = 3; });
+    // Trader: Granary pays 2 grain → Lumberyard pays 2 timber back.
+    b.res(granary, market, c => { c.rate = 2; c.colorFilter = '#fdd835'; c.label = '2 grain'; });
+    b.res(market, yard, c => { c.rate = 2; c.colorFilter = '#8d6e63'; c.label = '2 timber'; });
+    // Each town consumes the good it imported.
+    b.res(granary, builders, c => { c.rate = 2; c.colorFilter = '#8d6e63'; c.label = 'timber'; });
+    b.res(yard, sawmill, c => { c.rate = 2; c.colorFilter = '#fdd835'; c.label = 'grain'; });
 
-    const goods = d.addNode(new MNode(NodeType.POOL, 900, 380));
-    goods.label = 'Ingots';
-    const scrap = d.addNode(new MNode(NodeType.DRAIN, 900, 560));
-    scrap.label = 'Scrap';
+    b.note(1030, 250, 250, 280,
+      'The Granary makes grain, the Lumberyard makes timber — but each needs the ' +
+      "other.\n\nThe Market is a Trader: it swaps 2 grain for 2 timber atomically " +
+      '(all-or-nothing). Imported goods are then consumed. Select a storehouse — ' +
+      'it now holds BOTH colours, proof the barter flowed.');
+    this.renderer.render();
+  }
 
-    const gGood = d.addConnection(new MConnection(gate.id, goods.id));
-    gGood.weight = 4;            // 80% pass
-    const gScrap = d.addConnection(new MConnection(gate.id, scrap.id));
-    gScrap.weight = 1;           // 20% scrap
+  // 5 — SERVICE DESK: a single-server queue with random (Poisson) arrivals.
+  // When arrivals outpace the one server the line grows; when they ease it
+  // clears — the M/D/1 queue behind every checkout and call centre.
+  _demoQueue() {
+    const b = this._demo();
+    b.group(260, 180, 600, 230, 'Single-Server Queue', '#7c83ff');
 
-    // Goal: produce 60 ingots, then halt.
-    goods.endEnabled = true;
-    goods.endOperator = '>=';
-    goods.endValue = 60;
+    const arrivals = b.node(NodeType.SOURCE, 360, 290, 'Arrivals', n => { n.resourceColor = '#7c83ff'; });
+    const desk = b.node(NodeType.QUEUE, 560, 290, 'Service Desk', n => { n.processTime = 2; });
+    const served = b.node(NodeType.DRAIN, 760, 290, 'Served');
 
+    b.res(arrivals, desk, c => {
+      c.rateMode = RateMode.DISTRIBUTION; c.distType = 'poisson'; c.distParam1 = 0.35; c.label = 'Poisson';
+    });
+    b.res(desk, served, c => { c.rate = 1; });
+
+    b.chart(330, 470, 480, 160, 'Waiting · Served', [desk.id, served.id]);
+    b.note(900, 250, 270, 220,
+      'Customers arrive at random (Poisson, ~0.35/step); one server takes 2 steps ' +
+      'each.\n\nThe line breathes — building when arrivals cluster, draining when ' +
+      'they thin. Run it again for a different trace, or open Batch Analysis to ' +
+      'see the distribution of queue lengths across many runs.');
     this.renderer.render();
   }
 

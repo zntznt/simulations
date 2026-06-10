@@ -38,7 +38,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   }
 
   // Navigation: zoom controls step the scale and update the readout; fit-to-content
-  // re-frames without error. (The Factory template stays loaded for the run below.)
+  // re-frames without error.
   const nav = await page.evaluate(() => {
     const r = window.app.renderer;
     r.zoomTo(1);
@@ -53,15 +53,20 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (/^\d+%$/.test(nav.label)) ok('zoom readout shows a percentage'); else fail(`zoom readout malformed: "${nav.label}"`);
   if (nav.fitScale > 0) ok(`fit-to-content set scale ${Math.round(nav.fitScale * 100)}%`); else fail('fitView produced a non-positive scale');
 
-  // Factory example is loaded; run it headlessly to completion (goal stop).
+  // Load the goal-bearing demo (Epidemic halts when the outbreak fades) and run
+  // it headlessly to completion (goal stop).
+  await page.evaluate(() => {
+    const t = window.app._templates.find(x => x.name === 'Epidemic (SIR)');
+    window.app._loadTemplate(t);
+  });
   const ended = await page.evaluate(async () => {
     const e = window.app.engine;
     e.reset();
     for (let i = 0; i < 500 && !e.ended; i++) e.doStep();
     return e.ended;
   });
-  if (ended && ended.label) ok(`factory reached goal: ${ended.label}=${ended.value} @ step ${ended.step}`);
-  else fail('factory goal never reached within 500 steps');
+  if (ended && ended.label) ok(`epidemic reached goal: ${ended.label}=${ended.value} @ step ${ended.step}`);
+  else fail('epidemic goal never reached within 500 steps');
 
   // Status banner reflects the end state.
   const status = await page.evaluate(() => {
