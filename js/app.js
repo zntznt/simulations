@@ -195,47 +195,35 @@ class App {
         this.renderer.render();
         this.renderer.fitView();
         this._resetHistory();
+        this._renderProps();
         return;
-      } catch { /* fall through to example */ }
+      } catch { /* fall through to autosave or demo */ }
     }
 
+    // Autosave found → restore silently so the diagram persists across reloads.
     const saved = localStorage.getItem('sim_autosave');
+    if (saved) {
+      try {
+        this.diagram.loadJSON(JSON.parse(saved));
+        this._applyMeta();
+        this.engine.reset();
+        this.renderer.balls.clear();
+        this._clearSparklines();
+        this.editor._select(null, null);
+        this.renderer.render();
+        this.renderer.fitView();
+        this._resetHistory();
+        this._renderProps();
+        return;
+      } catch { /* corrupted save → fall through to demo */ }
+    }
+
+    // No autosave (fresh session): show the default example.
     this._demoEcosystem();
     this._applyMeta();
     this.renderer.fitView();
     this._resetHistory();
-    if (saved) {
-      const banner = document.createElement('div');
-      banner.id = 'autosave-banner';
-      banner.innerHTML = '<span>📂 Autosaved diagram found.</span>';
-      const restoreBtn = document.createElement('button');
-      restoreBtn.textContent = 'Restore';
-      restoreBtn.className = 'btn';
-      const dismissBtn = document.createElement('button');
-      dismissBtn.textContent = 'Dismiss';
-      dismissBtn.className = 'btn';
-      banner.appendChild(restoreBtn);
-      banner.appendChild(dismissBtn);
-      document.body.appendChild(banner);
-      restoreBtn.addEventListener('click', () => {
-        banner.remove();
-        try {
-          this.diagram.loadJSON(JSON.parse(saved));
-          this._applyMeta();
-          this.engine.reset();
-          this.renderer.balls.clear();
-          this._clearSparklines();
-          this.editor._select(null, null);
-          this.renderer.render();
-          this.renderer.fitView();
-          this._resetHistory();
-        } catch { alert('Failed to restore autosave.'); }
-      });
-      dismissBtn.addEventListener('click', () => {
-        banner.remove();
-        try { localStorage.removeItem('sim_autosave'); } catch {}
-      });
-    }
+    this._renderProps();
   }
 
   // ── Dropdown menus (File, …) ────────────────────────────────────────────────
