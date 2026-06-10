@@ -1,3 +1,21 @@
+// UI accent color schemes selectable per simulation (meta.scheme). Each remaps
+// the two accent CSS variables; 'default' restores the stylesheet values.
+const COLOR_SCHEMES = {
+  default: { label: 'Ocean (default)', accent: '#4a9eff', accent2: '#ffa726' },
+  forest:  { label: 'Forest',          accent: '#66bb6a', accent2: '#ffca28' },
+  sunset:  { label: 'Sunset',          accent: '#ff7043', accent2: '#ab47bc' },
+  candy:   { label: 'Candy',           accent: '#ec407a', accent2: '#26c6da' },
+  royal:   { label: 'Royal',           accent: '#7e57c2', accent2: '#ffd54f' },
+  mono:    { label: 'Monochrome',      accent: '#90a4ae', accent2: '#cfd8dc' },
+};
+
+// Curated Google Fonts offered as the display font (meta.font). '' keeps the
+// built-in stack. Families are fetched from fonts.googleapis.com on demand.
+const GOOGLE_FONTS = [
+  'Roboto', 'Open Sans', 'Nunito', 'Poppins', 'Space Grotesk',
+  'Source Sans 3', 'Lexend', 'Merriweather', 'JetBrains Mono',
+];
+
 class App {
   constructor() {
     this.diagram = new Diagram();
@@ -81,8 +99,12 @@ class App {
   // that calls _commit() while its `change` event also bubbles to the panel's
   // delegated commit listener) don't create empty undo steps.
   _commit() {
-    const snap = this._snapshot();
+    let snap = this._snapshot();
     if (snap === this._lastState) return;
+    // A real change happened: bump the file's modified timestamp (it is part
+    // of the snapshot, so re-take it after stamping).
+    this.diagram.meta.modified = Date.now();
+    snap = this._snapshot();
     if (this._lastState != null) {
       this._undoStack.push(this._lastState);
       if (this._undoStack.length > 100) this._undoStack.shift();
@@ -111,6 +133,7 @@ class App {
 
   _restoreState(json) {
     this.diagram.loadJSON(JSON.parse(json));
+    this._applyMeta();
     this.engine.reset();
     document.getElementById('btn-run').textContent = '▶ Run';
     document.getElementById('sim-status').textContent = '';
@@ -142,6 +165,8 @@ class App {
     this.diagram.customVars = [];
     this.diagram.timeMode = 'sync';
     this.diagram.aiPlayer = { enabled: false, rules: [] };
+    this.diagram.meta = Diagram.defaultMeta();
+    this._applyMeta();
     this.engine.reset();
     document.getElementById('btn-run').textContent = '▶ Run';
     document.getElementById('sim-status').textContent = '';
@@ -165,6 +190,7 @@ class App {
     if (shared) {
       try {
         this.diagram.loadJSON(shared);
+        this._applyMeta();
         this.engine.reset();
         this.renderer.render();
         this.renderer.fitView();
@@ -175,6 +201,7 @@ class App {
 
     const saved = localStorage.getItem('sim_autosave');
     this._demoEcosystem();
+    this._applyMeta();
     this.renderer.fitView();
     this._resetHistory();
     if (saved) {
@@ -194,6 +221,7 @@ class App {
         banner.remove();
         try {
           this.diagram.loadJSON(JSON.parse(saved));
+          this._applyMeta();
           this.engine.reset();
           this.renderer.balls.clear();
           this._clearSparklines();
@@ -336,6 +364,9 @@ class App {
     if (!confirm(`Load "${t.name}"? Unsaved work will be lost.`)) return;
     this._clearAll();
     t.load();
+    this.diagram.meta.name = t.name;
+    this.diagram.meta.description = t.desc;
+    this._applyMeta();
     this._resetHistory();
     this.renderer.fitView();
     document.getElementById('lib-overlay').classList.add('hidden');
@@ -366,6 +397,7 @@ class App {
         this._clearAll();
         try {
           this.diagram.loadJSON(JSON.parse(entry.json));
+          this._applyMeta();
           this.engine.reset();
           this.renderer.balls.clear();
           this._clearSparklines();
@@ -787,6 +819,7 @@ class App {
         reader.onload = ev => {
           try {
             this.diagram.loadJSON(JSON.parse(ev.target.result));
+            this._applyMeta();
             this.engine.reset();
             this.renderer.balls.clear();
             this._clearSparklines();
@@ -1023,18 +1056,232 @@ class App {
     }
   }
 
-  // Default panel (nothing selected): a short hint pointing at the diagram rail.
-  // Diagram-level settings now live in the right-hand rail, so the
-  // properties panel is dedicated to the selected node / connection.
+  // ── Simulation meta (default panel + presentation) ─────────────────────────
+
+  // Apply the simulation's presentation meta to the live UI: canvas
+  // background, accent color scheme, display font (lazy-loaded from Google
+  // Fonts), and the document title.
+  _applyMeta() {
+    const meta = this.diagram.meta || (this.diagram.meta = Diagram.defaultMeta());
+    this.renderer.setBackground(meta.bgColor);
+
+    const rootStyle = document.documentElement.style;
+    const scheme = COLOR_SCHEMES[meta.scheme];
+    if (scheme && meta.scheme !== 'default') {
+      rootStyle.setProperty('--accent', scheme.accent);
+      rootStyle.setProperty('--accent2', scheme.accent2);
+    } else {
+      rootStyle.removeProperty('--accent');
+      rootStyle.removeProperty('--accent2');
+    }
+
+    // Display font: inject (or retarget) a single Google Fonts stylesheet
+    // link, then point the --font stack at the family. '' restores the
+    // built-in stack. If the fetch fails (offline), the fallbacks apply.
+    let link = document.getElementById('gfont-link');
+    if (meta.font) {
+      const href = 'https://fonts.googleapis.com/css2?family='
+        + encodeURIComponent(meta.font).replace(/%20/g, '+')
+        + ':wght@400;600;700&display=swap';
+      if (!link) {
+        link = document.createElement('link');
+        link.id = 'gfont-link';
+        link.rel = 'stylesheet';
+        document.head.appendChild(link);
+      }
+      if (link.getAttribute('href') !== href) link.setAttribute('href', href);
+      rootStyle.setProperty('--font', `'${meta.font}', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`);
+    } else {
+      if (link) link.remove();
+      rootStyle.removeProperty('--font');
+    }
+
+    document.title = meta.name ? `${meta.name} — Simulations` : 'Simulations — Economy Designer';
+  }
+
+  // Rasterize the live SVG canvas into a small data-URL thumbnail. Async:
+  // calls cb('') if the browser can't rasterize (e.g. tainted canvas).
+  _captureThumbnail(cb) {
+    try {
+      const svg = this.renderer.svg;
+      const w = svg.clientWidth || 800, h = svg.clientHeight || 600;
+      const clone = svg.cloneNode(true);
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      clone.setAttribute('width', w);
+      clone.setAttribute('height', h);
+      const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        const tw = 320, th = Math.max(1, Math.round(tw * h / w));
+        const c = document.createElement('canvas');
+        c.width = tw; c.height = th;
+        c.getContext('2d').drawImage(img, 0, 0, tw, th);
+        URL.revokeObjectURL(url);
+        let dataUrl = '';
+        try { dataUrl = c.toDataURL('image/jpeg', 0.78); } catch {}
+        cb(dataUrl);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); cb(''); };
+      img.src = url;
+    } catch { cb(''); }
+  }
+
+  // Default panel (nothing selected): simulation-wide settings — name and
+  // description, captured thumbnail, appearance (color scheme / canvas
+  // background / display font), and file metadata. Per-element properties
+  // take the panel over on selection; mechanics live in the right-hand rail.
   _diagramProps(panel) {
-    this._title(panel, 'Diagram');
-    this._info(panel, 'Select a node or connection to edit its properties.');
+    const meta = this.diagram.meta;
+    this._title(panel, 'Simulation');
+
+    const field = (labelText) => {
+      const l = document.createElement('div');
+      l.className = 'field-label';
+      l.textContent = labelText;
+      panel.appendChild(l);
+    };
+
+    // ── Identity ────────────────────────────────────────────────────────────
+    field('Name');
+    const name = document.createElement('input');
+    name.type = 'text'; name.className = 'wide-input';
+    name.value = meta.name; name.placeholder = 'Untitled simulation';
+    name.addEventListener('change', () => {
+      meta.name = name.value.trim();
+      this._applyMeta(); this._commit();
+    });
+    panel.appendChild(name);
+
+    field('Description');
+    const desc = document.createElement('textarea');
+    desc.className = 'wide-input sim-desc';
+    desc.rows = 3; desc.value = meta.description;
+    desc.placeholder = 'What does this simulation model?';
+    desc.addEventListener('change', () => { meta.description = desc.value.trim(); this._commit(); });
+    panel.appendChild(desc);
+
+    // ── Thumbnail ───────────────────────────────────────────────────────────
+    this._sep(panel);
+    field('Thumbnail');
+    const thumbBox = document.createElement('div');
+    thumbBox.className = 'sim-thumb';
+    if (meta.thumbnail) {
+      const img = document.createElement('img');
+      img.src = meta.thumbnail; img.alt = 'Diagram thumbnail';
+      thumbBox.appendChild(img);
+    } else {
+      thumbBox.classList.add('empty');
+      thumbBox.textContent = 'No thumbnail yet';
+    }
+    panel.appendChild(thumbBox);
+    const thumbRow = document.createElement('div');
+    thumbRow.className = 'sim-thumb-actions';
+    const capBtn = document.createElement('button');
+    capBtn.className = 'btn'; capBtn.textContent = '📸 Capture from canvas';
+    capBtn.addEventListener('click', () => {
+      capBtn.disabled = true;
+      this._captureThumbnail(url => {
+        capBtn.disabled = false;
+        if (!url) { alert('Could not capture the canvas in this browser.'); return; }
+        meta.thumbnail = url;
+        this._commit(); this._renderProps();
+      });
+    });
+    thumbRow.appendChild(capBtn);
+    if (meta.thumbnail) {
+      const clr = document.createElement('button');
+      clr.className = 'btn'; clr.textContent = 'Remove';
+      clr.addEventListener('click', () => { meta.thumbnail = ''; this._commit(); this._renderProps(); });
+      thumbRow.appendChild(clr);
+    }
+    panel.appendChild(thumbRow);
+
+    // ── Appearance ──────────────────────────────────────────────────────────
+    this._sep(panel);
+    field('Color scheme');
+    const schemeSel = document.createElement('select');
+    schemeSel.className = 'wide-input';
+    for (const [key, s] of Object.entries(COLOR_SCHEMES)) {
+      const o = document.createElement('option');
+      o.value = key; o.textContent = s.label;
+      if ((meta.scheme || 'default') === key) o.selected = true;
+      schemeSel.appendChild(o);
+    }
+    schemeSel.addEventListener('change', () => {
+      meta.scheme = schemeSel.value;
+      this._applyMeta(); this._commit();
+    });
+    panel.appendChild(schemeSel);
+
+    field('Canvas background');
+    const bgRow = document.createElement('div');
+    bgRow.className = 'sim-bg-row';
+    const bg = document.createElement('input');
+    bg.type = 'color'; bg.value = meta.bgColor || '#0f1117';
+    bg.addEventListener('input', () => {
+      meta.bgColor = bg.value;
+      this.renderer.setBackground(meta.bgColor);
+    });
+    bg.addEventListener('change', () => this._commit());
+    const bgReset = document.createElement('button');
+    bgReset.className = 'btn'; bgReset.textContent = 'Reset';
+    bgReset.addEventListener('click', () => {
+      meta.bgColor = '';
+      bg.value = '#0f1117';
+      this.renderer.setBackground('');
+      this._commit();
+    });
+    bgRow.appendChild(bg); bgRow.appendChild(bgReset);
+    panel.appendChild(bgRow);
+
+    field('Display font');
+    const fontSel = document.createElement('select');
+    fontSel.className = 'wide-input';
+    const defOpt = document.createElement('option');
+    defOpt.value = ''; defOpt.textContent = 'Inter (default)';
+    fontSel.appendChild(defOpt);
+    for (const f of GOOGLE_FONTS) {
+      const o = document.createElement('option');
+      o.value = f; o.textContent = f;
+      if (meta.font === f) o.selected = true;
+      fontSel.appendChild(o);
+    }
+    fontSel.addEventListener('change', () => {
+      meta.font = fontSel.value;
+      this._applyMeta(); this._commit();
+    });
+    panel.appendChild(fontSel);
+
+    // ── File metadata ───────────────────────────────────────────────────────
+    this._sep(panel);
+    field('File');
+    const metaList = document.createElement('div');
+    metaList.className = 'sim-meta';
+    const fmtDate = ts => ts ? new Date(ts).toLocaleString() : '—';
+    const sizeKB = (JSON.stringify(this.diagram.toJSON()).length / 1024).toFixed(1);
+    const rows = [
+      ['Created', fmtDate(meta.created)],
+      ['Modified', fmtDate(meta.modified)],
+      ['Nodes', String(this.diagram.nodes.size)],
+      ['Connections', String(this.diagram.connections.size)],
+      ['Size', `${sizeKB} KB`],
+    ];
+    for (const [k, v] of rows) {
+      const r = document.createElement('div');
+      r.className = 'sim-meta-row';
+      r.innerHTML = `<span>${k}</span><b></b>`;
+      r.querySelector('b').textContent = v;
+      metaList.appendChild(r);
+    }
+    panel.appendChild(metaList);
+
     this._sep(panel);
     const p = document.createElement('p');
     p.className = 'props-empty';
-    p.innerHTML = 'Diagram-wide settings — <b>time mode</b>, <b>parameters</b>, '
-      + '<b>variables</b>, <b>resource types</b>, the <b>artificial player</b>, and a '
-      + 'live <b>variable watch</b> — are on the rail to the right <span aria-hidden="true">→</span>';
+    p.innerHTML = 'Mechanics — <b>time mode</b>, <b>parameters</b>, <b>variables</b>, '
+      + '<b>resource types</b>, the <b>artificial player</b>, and a live '
+      + '<b>variable watch</b> — are on the rail to the right <span aria-hidden="true">→</span>';
     panel.appendChild(p);
   }
 

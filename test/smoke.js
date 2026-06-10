@@ -12,6 +12,9 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage();
+  // The display-font feature loads stylesheets from Google Fonts; stub the
+  // request so the smoke run works offline and stays free of network errors.
+  await page.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
   const errors = [];
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', e => errors.push(String(e)));
@@ -363,6 +366,58 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (rail.paramsShown && rail.active && rail.switched && rail.closed)
     ok('diagram rail: feature panels open / switch / highlight / toggle off');
   else fail('diagram rail: ' + JSON.stringify(rail));
+
+  // Simulation panel (nothing selected): name/description edit, color scheme
+  // remaps accents, background paints the canvas, font select injects a
+  // Google Fonts link, file metadata shows, and everything round-trips JSON.
+  const simMeta = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._closeFeature();
+    window.app.editor._select(null, null);
+    const panel = document.getElementById('props-content');
+    const titled = panel.textContent.includes('Simulation');
+    const nameInput = panel.querySelector('input[placeholder="Untitled simulation"]');
+    if (!nameInput) return { error: 'no name input' };
+    nameInput.value = 'Gold Rush';
+    nameInput.dispatchEvent(new Event('change', { bubbles: true }));
+    const titleSync = document.title.startsWith('Gold Rush');
+    const desc = panel.querySelector('textarea');
+    desc.value = 'A mining economy.';
+    desc.dispatchEvent(new Event('change', { bubbles: true }));
+    // Scheme: pick 'forest' and check the accent var flipped.
+    const selects = [...panel.querySelectorAll('select')];
+    const schemeSel = selects[0], fontSel = selects[1];
+    schemeSel.value = 'forest';
+    schemeSel.dispatchEvent(new Event('change', { bubbles: true }));
+    const accentChanged = document.documentElement.style.getPropertyValue('--accent') === '#66bb6a';
+    // Background color paints the canvas bg rect.
+    window.app.diagram.meta.bgColor = '#fdf6e3';
+    window.app.renderer.setBackground('#fdf6e3');
+    const bgApplied = window.app.renderer._bgRect.getAttribute('fill') === '#fdf6e3';
+    // Font: choose one, expect the gfont link + --font var.
+    fontSel.value = 'Space Grotesk';
+    fontSel.dispatchEvent(new Event('change', { bubbles: true }));
+    const link = document.getElementById('gfont-link');
+    const fontApplied = !!link && link.href.includes('Space+Grotesk')
+      && document.documentElement.style.getPropertyValue('--font').includes('Space Grotesk');
+    // Metadata block renders.
+    window.app._renderProps();
+    const metaShown = panel.textContent.includes('Created') && panel.textContent.includes('Modified')
+      && panel.textContent.includes('KB');
+    // Round-trip.
+    const d2 = JSON.parse(JSON.stringify(window.app.diagram.toJSON()));
+    const rt = d2.meta && d2.meta.name === 'Gold Rush' && d2.meta.description === 'A mining economy.'
+      && d2.meta.scheme === 'forest' && d2.meta.bgColor === '#fdf6e3' && d2.meta.font === 'Space Grotesk';
+    // Restore defaults so later checks see the stock theme.
+    window.app.diagram.meta = Diagram.defaultMeta();
+    window.app._applyMeta();
+    window.app._renderProps();
+    return { titled, titleSync, accentChanged, bgApplied, fontApplied, metaShown, rt };
+  });
+  if (simMeta.titled && simMeta.titleSync && simMeta.accentChanged && simMeta.bgApplied
+      && simMeta.fontApplied && simMeta.metaShown && simMeta.rt)
+    ok('simulation panel: name/desc + scheme + background + font + metadata + round-trip');
+  else fail('simulation panel: ' + JSON.stringify(simMeta));
 
   // Custom variables: add one via the panel, check the array input validates,
   // and verify a step-updated var feeds a formula during a run.

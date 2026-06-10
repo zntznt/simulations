@@ -337,7 +337,9 @@ class Renderer {
     defs.appendChild(filt);
 
     this.svg.appendChild(defs);
-    this.svg.appendChild(svgEl('rect', { width: '100%', height: '100%', fill: '#0f1117' }));
+    this._bgRect = svgEl('rect', { width: '100%', height: '100%', fill: '#0f1117' });
+    this._gridStroke = pat.firstChild;
+    this.svg.appendChild(this._bgRect);
     this.svg.appendChild(svgEl('rect', { width: '100%', height: '100%', fill: 'url(#grid)' }));
 
     // Onboarding hint, shown only while the canvas is completely empty.
@@ -375,6 +377,21 @@ class Renderer {
   }
 
   setPan(x, y) { this._panX = x; this._panY = y; this._updateTransform(); }
+  // Canvas background override (simulation meta). Empty string restores the
+  // theme default. The grid stroke flips dark/light to stay visible.
+  setBackground(color) {
+    const bg = color || '#0f1117';
+    this._bgRect.setAttribute('fill', bg);
+    let light = false;
+    const m = /^#([0-9a-f]{6})$/i.exec(bg);
+    if (m) {
+      const v = parseInt(m[1], 16);
+      const lum = 0.299 * (v >> 16 & 255) + 0.587 * (v >> 8 & 255) + 0.114 * (v & 255);
+      light = lum > 140;
+    }
+    if (this._gridStroke) this._gridStroke.setAttribute('stroke', light ? 'rgba(0,0,0,0.13)' : '#1a2035');
+  }
+
   _updateTransform() {
     const t = `translate(${this._panX},${this._panY}) scale(${this._scale})`;
     this.root.setAttribute('transform', t);

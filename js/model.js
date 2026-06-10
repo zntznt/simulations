@@ -592,6 +592,21 @@ class Diagram {
     // Artificial player: scripted actor that fires interactive nodes during a
     // run, on an interval or when a variable condition holds.
     this.aiPlayer = { enabled: false, rules: [] };
+    // Simulation-wide presentation + file metadata (edited in the default
+    // properties panel): name/description, canvas background, UI color scheme,
+    // display font (Google Fonts), a captured thumbnail, and timestamps.
+    this.meta = Diagram.defaultMeta();
+  }
+
+  static defaultMeta() {
+    return {
+      name: '', description: '',
+      bgColor: '',        // '' = theme default canvas background
+      scheme: 'default',  // UI accent scheme key (see app COLOR_SCHEMES)
+      font: '',           // '' = default font stack; else a Google Fonts family
+      thumbnail: '',      // small data-URL snapshot of the canvas
+      created: Date.now(), modified: Date.now(),
+    };
   }
 
   addNode(n) { this.nodes.set(n.id, n); return n; }
@@ -644,6 +659,7 @@ class Diagram {
       aiPlayer: (this.aiPlayer && this.aiPlayer.rules && this.aiPlayer.rules.length)
         ? { enabled: !!this.aiPlayer.enabled, rules: this.aiPlayer.rules.map(r => ({ ...r })) }
         : undefined,
+      meta: { ...this.meta },
     };
   }
 
@@ -663,6 +679,7 @@ class Diagram {
     this.aiPlayer = data.aiPlayer
       ? { enabled: !!data.aiPlayer.enabled, rules: (data.aiPlayer.rules || []).map(r => ({ ...r })) }
       : { enabled: false, rules: [] };
+    this.meta = { ...Diagram.defaultMeta(), ...(data.meta || {}) };
     for (const nd of data.nodes) {
       const node = new MNode(nd.type, nd.x, nd.y);
       node.loadJSON(nd);

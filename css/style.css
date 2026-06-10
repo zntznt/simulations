@@ -205,18 +205,22 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 .var-body { padding: 12px; border-bottom: 1px solid var(--border); }
 
-.var-field-label {
+.var-field-label, .field-label {
   font-size: 10px; font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.5px; color: var(--text-dim); margin-bottom: 6px;
 }
+.field-label { margin-top: 2px; }
 
-.var-wide-input {
+.var-wide-input, .wide-input {
   width: 100%; background: var(--bg); border: 1px solid var(--border);
   border-radius: 5px; color: var(--text); padding: 7px 10px;
   font-size: 12px; outline: none; transition: border-color 0.15s;
+  font-family: var(--font);
 }
-.var-wide-input:focus { border-color: var(--accent); }
+.var-wide-input:focus, .wide-input:focus { border-color: var(--accent); }
 .var-wide-input.invalid, .var-wide-input.invalid:focus { border-color: var(--red); }
+.wide-input { margin-bottom: 12px; }
+select.wide-input option { background: var(--panel2); }
 
 .var-range-row { display: flex; align-items: center; gap: 8px; }
 .var-range-num {
@@ -253,6 +257,40 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 /* Legacy compat — kept for any stray references */
 .randvar-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 10px; }
 .randvar-value { font-size: 11px; font-family: monospace; color: var(--accent); }
+
+/* ── Simulation panel (nothing selected) ───────────────────────────────── */
+.sim-desc { resize: vertical; min-height: 56px; line-height: 1.45; }
+
+.sim-thumb {
+  width: 100%; border: 1px solid var(--border); border-radius: 6px;
+  overflow: hidden; background: var(--bg); margin-bottom: 8px;
+}
+.sim-thumb img { display: block; width: 100%; }
+.sim-thumb.empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 90px; color: var(--text-dim); font-size: 11px;
+  border-style: dashed;
+}
+.sim-thumb-actions { display: flex; gap: 6px; margin-bottom: 12px; }
+.sim-thumb-actions .btn { flex: 1; }
+
+.sim-bg-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.sim-bg-row input[type="color"] {
+  flex: 1; height: 30px; padding: 2px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+}
+
+.sim-meta {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: rgba(255,255,255,0.02); overflow: hidden; margin-bottom: 12px;
+}
+.sim-meta-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 10px; font-size: 11px;
+}
+.sim-meta-row + .sim-meta-row { border-top: 1px solid var(--border); }
+.sim-meta-row span { color: var(--text-dim); }
+.sim-meta-row b { font-weight: 600; font-family: monospace; font-size: 11px; }
 
 .chart-section { margin-top: 16px; }
 .chart-label { font-size: 11px; color: var(--text-dim); margin-bottom: 6px; }
