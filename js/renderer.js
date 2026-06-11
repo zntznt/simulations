@@ -998,36 +998,70 @@ class Renderer {
 
   _makeNodeEl(node) {
     const g = svgEl('g', { 'data-id': node.id, cursor: 'pointer' });
+    // nd = node-decoration: functional motif, pointer-events off, never overridden by _updateNodeEl
 
     if (node.type === NodeType.POOL) {
       g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
       g.appendChild(svgEl('circle', { class: 'ns-color-ring', r: '26', fill: 'none', 'stroke-width': '4', opacity: '0.5' }));
     } else if (node.type === NodeType.SOURCE) {
       g.appendChild(svgEl('polygon', { class: 'ns', points: '0,-32 28,16 -28,16' }));
+      // Emit motif: upward arrow pointing toward apex (resources generated, flowing out)
+      g.appendChild(svgEl('path', { class: 'nd', d: 'M 0,14 V 4 M -4,8 L 0,4 L 4,8',
+        fill: 'none', stroke: NODE_STROKE.source, 'stroke-width': '2',
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
     } else if (node.type === NodeType.DRAIN) {
       g.appendChild(svgEl('polygon', { class: 'ns', points: '0,32 -28,-16 28,-16' }));
+      // Absorb motif: downward arrow pointing toward drain tip (resources consumed)
+      g.appendChild(svgEl('path', { class: 'nd', d: 'M 0,8 V 18 M -4,14 L 0,18 L 4,14',
+        fill: 'none', stroke: NODE_STROKE.drain, 'stroke-width': '2',
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
     } else if (node.type === NodeType.GATE) {
       g.appendChild(svgEl('polygon', { class: 'ns', points: '0,-34 34,0 0,34 -34,0' }));
+      // Fork motif: Y-split showing one-in, many-out routing
+      g.appendChild(svgEl('path', { class: 'nd', d: 'M 0,10 V 16 M 0,16 L -7,22 M 0,16 L 7,22',
+        fill: 'none', stroke: NODE_STROKE.gate, 'stroke-width': '2',
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
     } else if (node.type === NodeType.CONVERTER) {
       g.appendChild(svgEl('circle', { class: 'ns ns-back', cx: '-14', r: '24' }));
       g.appendChild(svgEl('circle', { class: 'ns', cx: '14', r: '24' }));
       g.appendChild(svgEl('line', { x1: '0', y1: '-18', x2: '0', y2: '18', stroke: '#667', 'stroke-width': '1.5' }));
+      // Transform motif: right-pointing arrow across the divider (input left → output right)
+      g.appendChild(svgEl('path', { class: 'nd', d: 'M -6,14 H 4 M 1,11 L 4,14 L 1,17',
+        fill: 'none', stroke: NODE_STROKE.converter, 'stroke-width': '2',
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
     } else if (node.type === NodeType.REGISTER) {
       g.appendChild(svgEl('rect', { class: 'ns', x: '-44', y: '-30', width: '88', height: '60', rx: '6' }));
+      // Value-store motif: two stacked bars (stored variable rows)
+      g.appendChild(svgEl('path', { class: 'nd', d: 'M -12,13 H 12 M -8,20 H 8',
+        fill: 'none', stroke: NODE_STROKE.register, 'stroke-width': '2',
+        'stroke-linecap': 'round', 'pointer-events': 'none' }));
     } else if (node.type === NodeType.DELAY) {
       g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
       g.appendChild(svgEl('circle', { class: 'delay-ring', r: '24', fill: 'none', 'stroke-dasharray': '5,3', 'stroke-width': '1.5' }));
+      // Clock motif: pivot dot + two hands (resources deferred over time)
+      g.appendChild(svgEl('circle', { class: 'nd', cx: '0', cy: '14', r: '1.8',
+        fill: NODE_STROKE.delay, 'pointer-events': 'none' }));
+      g.appendChild(svgEl('path', { class: 'nd', d: 'M 0,14 V 8 M 0,14 L 5,18',
+        fill: 'none', stroke: NODE_STROKE.delay, 'stroke-width': '2',
+        'stroke-linecap': 'round', 'pointer-events': 'none' }));
     } else if (node.type === NodeType.QUEUE) {
       g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
-      // FIFO motif: three units lined up near the bottom.
-      for (const x of [-8, 0, 8])
-        g.appendChild(svgEl('circle', { class: 'q-dot', cx: x, cy: '16', r: '2.2', fill: NODE_STROKE.queue }));
+      // FIFO motif: entry arrow feeding into three waiting items
+      const qc = NODE_STROKE.queue;
+      g.appendChild(svgEl('path', { class: 'nd', d: 'M -20,14 H -13 M -16,11 L -13,14 L -16,17',
+        fill: 'none', stroke: qc, 'stroke-width': '1.8',
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
+      for (const x of [-6, 2, 10])
+        g.appendChild(svgEl('circle', { class: 'q-dot nd', cx: x, cy: '14', r: '2.5',
+          fill: qc, 'pointer-events': 'none' }));
     } else if (node.type === NodeType.TRADER) {
       g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
-      // Exchange motif (⇄): two opposing arrows below the count.
+      // Exchange motif (⇄): two opposing arrows
       const tc = NODE_STROKE.trader;
-      g.appendChild(svgEl('path', { d: 'M -11,11 H 9 M 5,7 L 9,11 L 5,15', fill: 'none', stroke: tc, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-      g.appendChild(svgEl('path', { d: 'M 11,19 H -9 M -5,15 L -9,19 L -5,23', fill: 'none', stroke: tc, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+      g.appendChild(svgEl('path', { d: 'M -11,11 H 9 M 5,7 L 9,11 L 5,15',
+        fill: 'none', stroke: tc, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+      g.appendChild(svgEl('path', { d: 'M 11,19 H -9 M -5,15 L -9,19 L -5,23',
+        fill: 'none', stroke: tc, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
     }
 
     g.appendChild(svgEl('text', { class: 'n-count', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'pointer-events': 'none' }));
