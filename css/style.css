@@ -90,8 +90,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   display: flex; align-items: center; justify-content: center; gap: 4px;
 }
 .palette-header:hover { color: var(--text); }
-.palette-header::after { content: '▾'; font-size: 8px; opacity: 0.7; }
-.palette-header[aria-expanded="false"]::after { content: '▸'; }
+.palette-header::after {
+  content: '\f0d7'; /* fa-caret-down */
+  font-family: 'Font Awesome 6 Free'; font-weight: 900;
+  font-size: 8px; opacity: 0.7;
+}
+.palette-header[aria-expanded="false"]::after { content: '\f0da'; /* fa-caret-right */ }
 .palette-items {
   display: flex; flex-direction: column; align-items: center;
   gap: 2px; width: 100%; padding-bottom: 4px;
@@ -113,6 +117,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 
 .tool-icon svg { width: 26px; height: 26px; }
+.tool-icon .fa-solid { font-size: 17px; }
 
 /* ── Canvas ── */
 #canvas-wrap { flex: 1; position: relative; overflow: hidden; }
@@ -395,7 +400,11 @@ select.wide-input option { background: var(--panel2); }
 .menu-item:hover { background: rgba(74,158,255,0.14); color: var(--accent); }
 .menu-sep { height: 1px; background: var(--border); margin: 4px 8px; }
 /* Toggleable menu items show a leading check when active (e.g. timeline on). */
-.menu-item-toggle::before { content: '✓'; display: inline-block; width: 14px; visibility: hidden; }
+.menu-item-toggle::before {
+  content: '\f00c'; /* fa-check */
+  font-family: 'Font Awesome 6 Free'; font-weight: 900;
+  display: inline-block; width: 14px; visibility: hidden;
+}
 .menu-item-toggle.active::before { visibility: visible; }
 .menu-item-toggle.active { color: var(--accent); }
 

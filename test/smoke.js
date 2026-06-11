@@ -74,9 +74,10 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   // Status banner reflects the end state.
   const status = await page.evaluate(() => {
     window.app.engine.onEnd(window.app.engine.ended);
-    return document.getElementById('sim-status').textContent;
+    const el = document.getElementById('sim-status');
+    return { text: el.textContent, flag: !!el.querySelector('.fa-flag-checkered') };
   });
-  if (status.includes('🏁')) ok(`status banner shows goal: "${status}"`); else fail('no goal banner');
+  if (status.flag && status.text.includes('reached')) ok(`status banner shows goal: "${status.text.trim()}"`); else fail('no goal banner');
 
   // Selecting a state connection shows the role picker; choosing "Modifies
   // target" reveals the When/Amount controls and defaults to the simple
@@ -721,7 +722,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const canvas = document.getElementById('canvas');
     const canvasRole = canvas.getAttribute('role') === 'application' && !!canvas.getAttribute('aria-label');
     const undoLabel = document.getElementById('btn-undo').getAttribute('aria-label') === 'Undo';
-    const iconHidden = [...document.querySelectorAll('.tool-icon svg')]
+    const iconHidden = [...document.querySelectorAll('.tool-icon svg, .tool-icon .fa-solid')]
       .every(s => s.getAttribute('aria-hidden') === 'true');
     return { hasTouch, canvasRole, undoLabel, iconHidden };
   });

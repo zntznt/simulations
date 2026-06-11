@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Simulations — Economy Designer</title>
+  <link rel="stylesheet" href="vendor/fontawesome/css/fontawesome.min.css">
+  <link rel="stylesheet" href="vendor/fontawesome/css/solid.min.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -15,9 +17,9 @@
 
     <div class="sim-controls">
       <div class="sim-cluster" role="group" aria-label="Simulation controls">
-        <button class="btn btn-primary" id="btn-run" title="Run / Pause simulation">▶ Run</button>
-        <button class="btn" id="btn-step" title="Advance one step">⏭ Step</button>
-        <button class="btn" id="btn-reset" title="Reset to initial state">↺ Reset</button>
+        <button class="btn btn-primary" id="btn-run" title="Run / Pause simulation"><i class="fa-solid fa-play" aria-hidden="true"></i> Run</button>
+        <button class="btn" id="btn-step" title="Advance one step"><i class="fa-solid fa-forward-step" aria-hidden="true"></i> Step</button>
+        <button class="btn" id="btn-reset" title="Reset to initial state"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Reset</button>
       </div>
       <div class="speed-cluster" role="group" aria-label="Simulation speed">
         <input type="range" id="sim-speed" min="0.25" max="10" step="0.25" value="2" title="Simulation speed" aria-label="Simulation speed">
@@ -30,33 +32,33 @@
     <div class="analysis-controls">
       <div class="menu" id="menu-analysis">
         <button class="btn" id="btn-analysis-menu" aria-haspopup="true" aria-expanded="false"
-                title="Analysis — timeline chart &amp; Monte Carlo">📊 Analysis ▾</button>
+                title="Analysis — timeline chart &amp; Monte Carlo"><i class="fa-solid fa-chart-column" aria-hidden="true"></i> Analysis <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
         <div class="menu-popup align-left hidden" role="menu" aria-label="Analysis">
-          <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-timeline">📈 Timeline chart</button>
-          <button class="menu-item" role="menuitem" id="btn-batch">🎲 Batch (Monte Carlo)…</button>
+          <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-timeline"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Timeline chart</button>
+          <button class="menu-item" role="menuitem" id="btn-batch"><i class="fa-solid fa-dice" aria-hidden="true"></i> Batch (Monte Carlo)…</button>
         </div>
       </div>
       <span class="tb-sep" aria-hidden="true"></span>
       <div class="zoom-cluster" role="group" aria-label="Zoom controls">
-        <button class="btn zoom-btn" id="btn-zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+        <button class="btn zoom-btn" id="btn-zoom-out" title="Zoom out" aria-label="Zoom out"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>
         <button class="btn zoom-level" id="btn-zoom-level" title="Reset to 100%" aria-label="Current zoom — click to reset to 100%">100%</button>
-        <button class="btn zoom-btn" id="btn-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
-        <button class="btn" id="btn-fit" title="Fit diagram to view (Ctrl+0)">⤢ Fit</button>
+        <button class="btn zoom-btn" id="btn-zoom-in" title="Zoom in" aria-label="Zoom in"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+        <button class="btn" id="btn-fit" title="Fit diagram to view (Ctrl+0)"><i class="fa-solid fa-expand" aria-hidden="true"></i> Fit</button>
       </div>
       <span class="tb-sep" aria-hidden="true"></span>
-      <button class="btn" id="btn-snap" title="Toggle grid snap (align nodes to grid)" aria-pressed="false">⊞ Snap</button>
-      <button class="btn" id="btn-autoselect" title="After placing a node, switch back to Select" aria-pressed="false">↩ Auto</button>
+      <button class="btn" id="btn-snap" title="Toggle grid snap (align nodes to grid)" aria-pressed="false"><i class="fa-solid fa-border-all" aria-hidden="true"></i> Snap</button>
+      <button class="btn" id="btn-autoselect" title="After placing a node, switch back to Select" aria-pressed="false"><i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i> Auto</button>
     </div>
 
     <div class="file-controls">
-      <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
-      <button class="btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+      <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)" aria-label="Undo"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>
+      <button class="btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i></button>
       <button class="btn" id="btn-new" title="New diagram">New</button>
-      <button class="btn" id="btn-library" title="Templates &amp; saved diagrams">📚 Library</button>
+      <button class="btn" id="btn-library" title="Templates &amp; saved diagrams"><i class="fa-solid fa-book" aria-hidden="true"></i> Library</button>
 
       <div class="menu" id="menu-file">
         <button class="btn" id="btn-file-menu" aria-haspopup="true" aria-expanded="false"
-                title="File — open, save, export, share">File ▾</button>
+                title="File — open, save, export, share">File <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
         <div class="menu-popup hidden" role="menu" aria-label="File">
           <button class="menu-item" role="menuitem" id="btn-load">Open file…</button>
           <div class="menu-sep"></div>
@@ -82,21 +84,12 @@
         <div class="palette-items" id="pal-tools">
 
       <button data-tool="select" title="Select & Move (S)">
-        <div class="tool-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M5 3l14 9-7 2-3 7L5 3z"/>
-          </svg>
-        </div>
+        <div class="tool-icon"><i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i></div>
         Select
       </button>
 
       <button data-tool="delete" title="Delete element (Del)">
-        <div class="tool-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
-            <path d="M10 11v6M14 11v6M9 6V4h6v2"/>
-          </svg>
-        </div>
+        <div class="tool-icon"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></div>
         Delete
       </button>
 
@@ -288,55 +281,27 @@
     <!-- Far-right rail: diagram-level settings -->
     <nav id="diagram-rail" aria-label="Diagram settings">
       <button class="rail-btn" data-feature="time" title="Time mode — sync / async">
-        <div class="tool-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
-          </svg>
-        </div>
+        <div class="tool-icon"><i class="fa-solid fa-clock" aria-hidden="true"></i></div>
         Time
       </button>
       <button class="rail-btn" data-feature="params" title="Parameters — named constants">
-        <div class="tool-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2.2"/>
-            <line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2.2"/>
-            <line x1="4" y1="17" x2="20" y2="17"/><circle cx="8" cy="17" r="2.2"/>
-          </svg>
-        </div>
+        <div class="tool-icon"><i class="fa-solid fa-sliders" aria-hidden="true"></i></div>
         Params
       </button>
       <button class="rail-btn" data-feature="vars" title="Variables — random &amp; computed">
-        <div class="tool-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 4c-2 0-3 1-3 3v2c0 1-1 2-2 2 1 0 2 1 2 2v2c0 2 1 3 3 3"/>
-            <path d="M15 4c2 0 3 1 3 3v2c0 1 1 2 2 2-1 0-2 1-2 2v2c0 2-1 3-3 3"/>
-          </svg>
-        </div>
+        <div class="tool-icon"><i class="fa-solid fa-square-root-variable" aria-hidden="true"></i></div>
         Vars
       </button>
       <button class="rail-btn" data-feature="resources" title="Resource types — named, coloured resources">
-        <div class="tool-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 4h7l9 9-7 7-9-9V4z"/><circle cx="8.5" cy="8.5" r="1.6"/>
-          </svg>
-        </div>
+        <div class="tool-icon"><i class="fa-solid fa-tags" aria-hidden="true"></i></div>
         Types
       </button>
       <button class="rail-btn" data-feature="player" title="Artificial player — scripted actor">
-        <div class="tool-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="5" y="8" width="14" height="11" rx="2"/><path d="M12 8V4M9 4h6"/>
-            <circle cx="9.5" cy="13" r="1.1"/><circle cx="14.5" cy="13" r="1.1"/>
-          </svg>
-        </div>
+        <div class="tool-icon"><i class="fa-solid fa-robot" aria-hidden="true"></i></div>
         Player
       </button>
       <button class="rail-btn" data-feature="monitor" title="Live variables — runtime readout">
-        <div class="tool-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 12h4l3 8 4-16 3 8h4"/>
-          </svg>
-        </div>
+        <div class="tool-icon"><i class="fa-solid fa-eye" aria-hidden="true"></i></div>
         Watch
       </button>
     </nav>
@@ -349,7 +314,7 @@
     <div class="timeline-head">
       <span class="timeline-title">Timeline</span>
       <div id="tl-legend" class="tl-legend"></div>
-      <button class="btn" id="tl-close" title="Hide timeline" aria-label="Hide timeline">✕</button>
+      <button class="btn" id="tl-close" title="Hide timeline" aria-label="Hide timeline"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
     <canvas id="timeline-canvas"></canvas>
   </div>
@@ -359,8 +324,8 @@
 <div id="lib-overlay" class="hidden">
   <div id="lib-modal" role="dialog" aria-modal="true" aria-labelledby="lib-title">
     <div class="mc-head">
-      <span id="lib-title">📚 Library</span>
-      <button class="btn" id="lib-close" aria-label="Close library">✕</button>
+      <span id="lib-title"><i class="fa-solid fa-book" aria-hidden="true"></i> Library</span>
+      <button class="btn" id="lib-close" aria-label="Close library"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
 
     <div class="lib-section">
@@ -383,8 +348,8 @@
 <div id="mc-overlay" class="hidden">
   <div id="mc-modal" role="dialog" aria-modal="true" aria-labelledby="mc-title">
     <div class="mc-head">
-      <span id="mc-title">🎲 Monte Carlo — batch runs</span>
-      <button class="btn" id="mc-close" aria-label="Close Monte Carlo">✕</button>
+      <span id="mc-title"><i class="fa-solid fa-dice" aria-hidden="true"></i> Monte Carlo — batch runs</span>
+      <button class="btn" id="mc-close" aria-label="Close Monte Carlo"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
     <div class="mc-controls">
       <label>Runs <input type="number" id="mc-runs" value="100" min="1" max="5000"></label>

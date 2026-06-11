@@ -74,7 +74,8 @@ class App {
 
     this.engine.onEnd = (ended) => {
       const status = document.getElementById('sim-status');
-      if (status) status.textContent = `🏁 ${ended.label} reached ${ended.value} at step ${ended.step}`;
+      if (status) status.replaceChildren(this._faIcon('flag-checkered'),
+        document.createTextNode(` ${ended.label} reached ${ended.value} at step ${ended.step}`));
       this._syncRunButton();
       this.renderer.render();
     };
@@ -86,12 +87,21 @@ class App {
 
   _snapshot() { return JSON.stringify(this.diagram.toJSON()); }
 
+  // Decorative Font Awesome icon element (hidden from the accessibility tree).
+  _faIcon(name) {
+    const i = document.createElement('i');
+    i.className = `fa-solid fa-${name}`;
+    i.setAttribute('aria-hidden', 'true');
+    return i;
+  }
+
   // Run button reflects engine state: label + a visible "running" treatment.
   _syncRunButton() {
     const b = document.getElementById('btn-run');
     if (!b) return;
     const on = this.engine.running;
-    b.textContent = on ? '⏸ Pause' : '▶ Run';
+    b.replaceChildren(this._faIcon(on ? 'pause' : 'play'),
+      document.createTextNode(on ? ' Pause' : ' Run'));
     b.classList.toggle('running', on);
   }
 
@@ -421,7 +431,8 @@ class App {
         this._hideModal('lib-overlay');
       });
       const delBtn = document.createElement('button');
-      delBtn.textContent = '×';
+      delBtn.appendChild(this._faIcon('xmark'));
+      delBtn.setAttribute('aria-label', 'Delete saved diagram');
       delBtn.className = 'btn';
       delBtn.addEventListener('click', () => {
         lib.splice(i, 1);
@@ -1236,7 +1247,9 @@ class App {
     const thumbRow = document.createElement('div');
     thumbRow.className = 'sim-thumb-actions';
     const capBtn = document.createElement('button');
-    capBtn.className = 'btn'; capBtn.textContent = '📸 Capture from canvas';
+    capBtn.className = 'btn';
+    capBtn.appendChild(this._faIcon('camera'));
+    capBtn.appendChild(document.createTextNode(' Capture from canvas'));
     capBtn.addEventListener('click', () => {
       capBtn.disabled = true;
       this._captureThumbnail(url => {
@@ -1339,7 +1352,7 @@ class App {
     p.className = 'props-empty';
     p.innerHTML = 'Mechanics — <b>time mode</b>, <b>parameters</b>, <b>variables</b>, '
       + '<b>resource types</b>, the <b>artificial player</b>, and a live '
-      + '<b>variable watch</b> — are on the rail to the right <span aria-hidden="true">→</span>';
+      + '<b>variable watch</b> — are on the rail to the right <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>';
     panel.appendChild(p);
   }
 
@@ -1430,7 +1443,9 @@ class App {
         if (isFinite(n)) params[key] = n;
       });
       const delBtn = document.createElement('button');
-      delBtn.textContent = '×'; delBtn.className = 'btn';
+      delBtn.appendChild(this._faIcon('xmark'));
+      delBtn.setAttribute('aria-label', 'Delete parameter');
+      delBtn.className = 'btn';
       delBtn.style.cssText = 'padding:2px 8px;flex-shrink:0';
       delBtn.addEventListener('click', () => { delete params[key]; this._renderProps(); this._commit(); });
       row.appendChild(ki); row.appendChild(vi); row.appendChild(delBtn);
@@ -1624,7 +1639,8 @@ class App {
 
       const del = document.createElement('button');
       del.className = 'btn var-delete-btn'; del.title = 'Remove variable';
-      del.innerHTML = '&times;';
+      del.setAttribute('aria-label', 'Remove variable');
+      del.appendChild(this._faIcon('xmark'));
       del.addEventListener('click', () => { vars.splice(i, 1); this._renderProps(); this._commit(); });
 
       header.appendChild(name); header.appendChild(del);
@@ -1774,7 +1790,9 @@ class App {
       ci.addEventListener('input', () => { t.color = ci.value; this.renderer.render(); });
       ci.addEventListener('change', () => this._commit());
       const del = document.createElement('button');
-      del.textContent = '×'; del.className = 'btn';
+      del.appendChild(this._faIcon('xmark'));
+      del.setAttribute('aria-label', 'Delete resource type');
+      del.className = 'btn';
       del.style.cssText = 'padding:2px 8px;flex-shrink:0;';
       del.addEventListener('click', () => { types.splice(i, 1); this._renderProps(); this._commit(); });
       row.appendChild(ni); row.appendChild(ci); row.appendChild(del);
@@ -1935,11 +1953,11 @@ class App {
     const typeChips = document.createElement('div');
     typeChips.className = 'var-chip-group chart-type-chips';
     for (const [key, icon, label] of [
-      ['line', '〜', 'Line'], ['area', '◢', 'Area'], ['bars', '▮▮', 'Bars'], ['step', '⌐⌐', 'Step'],
+      ['line', 'chart-line', 'Line'], ['area', 'chart-area', 'Area'], ['bars', 'chart-column', 'Bars'], ['step', 'stairs', 'Step'],
     ]) {
       const chip = document.createElement('button');
       chip.className = 'var-chip' + ((chart.chartType || 'line') === key ? ' active' : '');
-      chip.innerHTML = `<span aria-hidden="true">${icon}</span> ${label}`;
+      chip.innerHTML = `<i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${label}`;
       chip.addEventListener('click', () => {
         chart.chartType = key;
         this._renderProps(); this.renderer.render(); this._commit();
@@ -1966,7 +1984,9 @@ class App {
       name.style.cssText = 'flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
       name.textContent = node.label || node.type;
       const rm = document.createElement('button');
-      rm.textContent = '×'; rm.className = 'btn';
+      rm.appendChild(this._faIcon('xmark'));
+      rm.setAttribute('aria-label', 'Stop tracking node');
+      rm.className = 'btn';
       rm.style.cssText = 'padding:2px 8px;flex-shrink:0;';
       rm.addEventListener('click', () => {
         chart.nodeIds = chart.nodeIds.filter(x => x !== id);
@@ -2061,11 +2081,12 @@ class App {
       stepRow.appendChild(document.createElement('label'));
       const stepBtns = document.createElement('div');
       stepBtns.style.cssText = 'display:flex;gap:4px;flex:1;';
-      for (const [label, delta] of [['−', -1], ['+', 1]]) {
+      for (const [icon, aria, delta] of [['minus', 'Remove one resource', -1], ['plus', 'Add one resource', 1]]) {
         const b = document.createElement('button');
-        b.textContent = label;
+        b.appendChild(this._faIcon(icon));
+        b.setAttribute('aria-label', aria);
         b.className = 'btn';
-        b.style.cssText = 'flex:1;padding:2px 0;font-size:14px;';
+        b.style.cssText = 'flex:1;padding:2px 0;font-size:12px;';
         b.addEventListener('click', () => {
           if (delta < 0 && node.resources <= 0) return;
           if (delta > 0 && node.capacity !== Infinity && node.resources >= node.capacity) return;
@@ -2110,7 +2131,8 @@ class App {
     if (node.type === NodeType.TRADER) {
       const stat = document.createElement('div');
       stat.className = 'reg-value';
-      stat.textContent = `⇄ ${node.trades || 0}`;
+      stat.replaceChildren(this._faIcon('right-left'),
+        document.createTextNode(` ${node.trades || 0}`));
       panel.appendChild(stat);
       this._info(panel, 'Completed exchanges this run. Wire A → Trader → B: '
         + 'when the trader fires, A pays the incoming connection\'s rate to B and B pays '
@@ -2221,14 +2243,15 @@ class App {
     const styleGroup = document.createElement('div');
     styleGroup.className = 'conn-style-group';
     for (const { key, icon, tip } of [
-      { key: 'straight', icon: '—', tip: 'Straight line' },
-      { key: 'curve',    icon: '⌒', tip: 'Curved — drag handle to reshape' },
-      { key: 'ortho',   icon: '⌐', tip: 'Right-angle turns — drag any segment; end segments add bends' },
+      { key: 'straight', icon: 'minus', tip: 'Straight line' },
+      { key: 'curve',    icon: 'bezier-curve', tip: 'Curved — drag handle to reshape' },
+      { key: 'ortho',   icon: 'turn-up', tip: 'Right-angle turns — drag any segment; end segments add bends' },
     ]) {
       const btn = document.createElement('button');
       btn.className = 'conn-style-btn' + ((conn.pathStyle || 'curve') === key ? ' active' : '');
       btn.title = tip;
-      btn.textContent = icon;
+      btn.setAttribute('aria-label', tip);
+      btn.appendChild(this._faIcon(icon));
       btn.addEventListener('click', () => {
         conn.pathStyle = key;
         conn.cpDx = 0; conn.cpDy = 0; conn.bendPct = 0.5; conn.waypoints = [];
@@ -2723,7 +2746,8 @@ class App {
 
     if (clearable) {
       const clear = document.createElement('button');
-      clear.textContent = '✕';
+      clear.appendChild(this._faIcon('xmark'));
+      clear.setAttribute('aria-label', 'Clear filter');
       clear.className = 'btn';
       clear.style.cssText = 'padding:2px 8px;font-size:11px;';
       clear.title = 'Clear filter (accept any color)';
