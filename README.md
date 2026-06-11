@@ -122,8 +122,12 @@ top bar for run/zoom/file controls.
 ### Analysis & data
 - **Global timeline chart** — every tracked node's value over time, with a legend.
 - **On‑canvas charts** — live line charts placed in the diagram itself, tracking chosen nodes.
-- **Monte Carlo / batch runs** — run N isolated simulations for up to M steps and report per‑node distributions (mean / min / p10 / p50 / p90 / max) plus goal reach‑rate and end‑step stats — non‑destructive to the live diagram.
+- **Monte Carlo / batch runs** — run N isolated simulations for up to M steps and report per‑node distributions (mean / min / p10 / p50 / p90 / max) plus goal reach‑rate and end‑step stats — non‑destructive to the live diagram. Batches run **chunked off the hot path** with live progress, so the UI never freezes.
+- **Seeded, reproducible randomness** — give the batch a seed and the same seed reproduces the exact same results, bit for bit. Every stochastic decision (dice, distributions, chance %, probabilistic gates, custom variables) draws from the seedable RNG.
+- **Parameter sweeps** — vary one diagram parameter across a range (e.g. 5 values from 0.5× to 1.5×) and compare per‑node means and goal reach‑rates side by side, one column per value. Runs on clones; the live diagram is untouched.
+- **Raw results export** — download the Monte Carlo batch as CSV (one row per run, one column per node) for R / pandas / spreadsheets, alongside the in‑app stats.
 - **CSV export** of the recorded run history.
+- **Full‑run history at bounded memory** — long runs are recorded with an adaptive stride (the history always spans step 0 → now at 300–600 samples) instead of silently dropping the oldest steps.
 - **Per‑type readouts** — holdings by type on each node, and live totals across the whole diagram.
 
 ### Persistence & sharing
@@ -138,9 +142,33 @@ algorithm, the one‑step variable lag, and more — see
 
 ---
 
+## Headless CLI
+
+The model and engine are DOM‑free, so diagrams can be simulated from the command
+line — for scripting, CI, or piping into other analysis tools:
+
+```bash
+# single run → per-step CSV trace on stdout
+node cli.js my-diagram.json --steps 500 > trace.csv
+
+# Monte Carlo summary stats (reproducible with --seed)
+node cli.js my-diagram.json --runs 1000 --steps 200 --seed 42
+
+# raw per-run final values as CSV, with a parameter override
+node cli.js my-diagram.json --runs 500 --csv --param mine_rate=3 > samples.csv
+```
+
+`--param name=value` (repeatable) overrides diagram parameters without editing
+the file; `--seed` makes any run or batch bit‑for‑bit reproducible. Save a
+diagram with **File → Save as JSON** (or take one from the library) to feed it
+to the CLI.
+
+---
+
 ## Keyboard shortcuts
 
-> Current bindings; some may change in the upcoming UI/UX pass.
+> Press `?` in the app (or the `?` button, top right) for the full in‑app
+> overlay, including mouse gestures.
 
 | Key | Action |
 | --- | --- |
@@ -148,6 +176,7 @@ algorithm, the one‑step variable lag, and more — see
 | `D` | Delete tool |
 | `R` | Resource‑connection tool |
 | `T` | State‑connection tool |
+| `?` | Shortcuts & gestures overlay |
 | `Ctrl/⌘ + Z` | Undo |
 | `Ctrl/⌘ + Shift + Z` / `Ctrl + Y` | Redo |
 | `Ctrl/⌘ + C` / `V` / `D` | Copy / paste / duplicate selection |
@@ -183,6 +212,7 @@ no bundler.
 | `js/editor.js` | `Editor` — pointer/keyboard/touch input, tools, selection, drag‑to‑connect. |
 | `js/charts.js` | `Sparkline` and `TimelineChart` (canvas 2D). |
 | `js/app.js` | `App` — wires everything together: toolbar, properties panel, persistence, examples, import/export. |
+| `cli.js` | Headless Node runner — simulate a diagram JSON from the terminal (traces, Monte Carlo, seeds, param overrides). |
 | `css/style.css` | All styling. |
 | `vendor/math.min.js` | Vendored [math.js](https://mathjs.org/) bundle — the formula evaluator. |
 | `index.html` | Markup + script includes. |

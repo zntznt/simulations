@@ -6,6 +6,7 @@ class SimEngine {
     this._tid = null;
     this.speed = 2;
     this.history = [];
+    this._histStride = 1; // record every Nth step; doubles as runs grow long
     // Callback: (step, firedIds, transfers[{connId, color, amount}])
     this.onStep = null;
     // Terminal state when a node's end/goal condition is met.
@@ -25,6 +26,7 @@ class SimEngine {
     this.stop();
     this.step = 0;
     this.history = [];
+    this._histStride = 1;
     this.ended = null;
     for (const n of this.diagram.nodes.values()) {
       const infiniteSource = n.type === NodeType.SOURCE && !n.limited;
@@ -718,7 +720,7 @@ class SimEngine {
             return { c, w };
           });
           if (pool <= 0) break;
-          let r = Math.random() * pool, pick = null;
+          let r = SimRandom.random() * pool, pick = null;
           for (const a of cand) { if (a.w <= 0) continue; r -= a.w; if (r <= 0) { pick = a; break; } }
           if (!pick) pick = cand.filter(a => a.w > 0).pop();
           this._give(pick.c.targetId, color, 1, pick.c.id, ctx);
@@ -1061,7 +1063,7 @@ class SimEngine {
 
   _connFires(conn, sourceNode) {
     if (conn.interval > 1 && (this.step - 1) % conn.interval !== 0) return false;
-    if (conn.chance < 100 && Math.random() * 100 >= conn.chance) return false;
+    if (conn.chance < 100 && SimRandom.random() * 100 >= conn.chance) return false;
     if (conn.condEnabled) {
       const val = (conn.condRefMode === 'variable' && conn.condVariable)
         ? (this.diagram.variables[conn.condVariable] ?? 0)
@@ -1083,7 +1085,7 @@ class SimEngine {
       if (n % every !== 0) return false;
     }
     const chance = conn.triggerChance == null ? 100 : Number(conn.triggerChance);
-    if (chance < 100 && Math.random() * 100 >= chance) return false;
+    if (chance < 100 && SimRandom.random() * 100 >= chance) return false;
     return true;
   }
 
@@ -1114,13 +1116,21 @@ class SimEngine {
   }
 
   _record() {
+    // Adaptive stride keeps the WHOLE run at bounded memory: instead of
+    // silently dropping the oldest entries, long runs are decimated — every
+    // other retained snapshot is dropped and the recording rate halves, so
+    // the history always spans step 0..now at 300-600 samples.
+    if (this.step % this._histStride !== 0) return;
     const snap = {};
     for (const n of this.diagram.nodes.values()) {
       if (n.type === NodeType.SOURCE && !n.limited) continue;
       snap[n.id] = n.chartValue;
     }
     this.history.push({ step: this.step, snap });
-    if (this.history.length > 300) this.history.shift();
+    if (this.history.length >= 600) {
+      this.history = this.history.filter((_, i) => i % 2 === 0);
+      this._histStride *= 2;
+    }
   }
 
   // ── Monte Carlo ───────────────────────────────────────────────────────────
@@ -1128,31 +1138,77 @@ class SimEngine {
   // Run the diagram `runs` times (each on an isolated clone, fresh RNG) for up
   // to `maxSteps` steps, and summarise the distribution of every tracked node's
   // final value plus goal statistics. Does not touch the live diagram.
-  runMonteCarlo(runs = 100, maxSteps = 200) {
+  // opts: { seed (string — makes the whole batch reproducible),
+  //         baseJSON (diagram JSON to simulate instead of the live one — used
+  //         by parameter sweeps to vary params without touching the diagram) }
+  runMonteCarlo(runs = 100, maxSteps = 200, opts = {}) {
+    const job = this._mcTrials(runs, maxSteps, opts);
+    let r = job.next();
+    while (!r.done) r = job.next();
+    return r.value;
+  }
+
+  // Same batch, but yields to the event loop between time-boxed chunks of
+  // trials so the UI stays responsive; reports progress via opts.onProgress.
+  runMonteCarloAsync(runs = 100, maxSteps = 200, opts = {}) {
+    return new Promise(resolve => {
+      const job = this._mcTrials(runs, maxSteps, opts);
+      const tick = () => {
+        const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        let r = job.next();
+        while (!r.done && ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) < 14) {
+          r = job.next();
+        }
+        if (r.done) { resolve(r.value); return; }
+        if (opts.onProgress) opts.onProgress(r.value.done, r.value.total);
+        setTimeout(tick, 0);
+      };
+      tick();
+    });
+  }
+
+  // Generator running one trial per yield. Shared by the sync and async paths.
+  *_mcTrials(runs, maxSteps, opts = {}) {
     runs = Math.max(1, Math.round(runs));
     maxSteps = Math.max(1, Math.round(maxSteps));
-    const base = this.diagram.toJSON();
-    const tracked = [...this.diagram.nodes.values()].filter(n => n.type !== NodeType.SOURCE || n.limited);
+    const base = opts.baseJSON || this.diagram.toJSON();
+    // Tracked-node list comes from the base JSON (it may differ from the live
+    // diagram when a sweep passes its own baseJSON).
+    const proto = new Diagram();
+    proto.loadJSON(typeof structuredClone === 'function'
+      ? structuredClone(base) : JSON.parse(JSON.stringify(base)));
+    const tracked = [...proto.nodes.values()].filter(n => n.type !== NodeType.SOURCE || n.limited);
     const samples = new Map(tracked.map(n => [n.id, []]));
     const endSteps = [];
     let endedCount = 0;
+    const seeded = opts.seed != null && opts.seed !== '';
 
-    for (let r = 0; r < runs; r++) {
-      const dg = new Diagram();
-      dg.loadJSON(JSON.parse(JSON.stringify(base)));
-      const eng = new SimEngine(dg);
-      eng.reset();
-      let s = 0;
-      while (s < maxSteps && !eng.ended) { eng.doStep(); s++; }
-      for (const [id, arr] of samples) {
-        const n = dg.nodes.get(id);
-        arr.push(n ? n.chartValue : 0);
+    try {
+      for (let r = 0; r < runs; r++) {
+        // Per-trial sub-seed: same batch seed → identical batch, while each
+        // trial inside it still gets an independent stream.
+        if (seeded) SimRandom.seed(`${opts.seed}#${r}`);
+        const dg = new Diagram();
+        // structuredClone is markedly cheaper than a JSON round-trip per trial.
+        dg.loadJSON(typeof structuredClone === 'function'
+          ? structuredClone(base) : JSON.parse(JSON.stringify(base)));
+        const eng = new SimEngine(dg);
+        eng.reset();
+        let s = 0;
+        while (s < maxSteps && !eng.ended) { eng.doStep(); s++; }
+        for (const [id, arr] of samples) {
+          const n = dg.nodes.get(id);
+          arr.push(n ? n.chartValue : 0);
+        }
+        if (eng.ended) { endedCount++; endSteps.push(eng.ended.step); }
+        yield { done: r + 1, total: runs };
       }
-      if (eng.ended) { endedCount++; endSteps.push(eng.ended.step); }
+    } finally {
+      if (seeded) SimRandom.seed(null); // never leak a seeded RNG into live runs
     }
 
     return {
-      runs, maxSteps,
+      runs, maxSteps, seed: seeded ? String(opts.seed) : null,
       nodes: tracked.map(n => ({
         id: n.id, label: n.label, type: n.type, ...this._stats(samples.get(n.id)),
         // Raw final values, one per run — lets the UI draw distributions.

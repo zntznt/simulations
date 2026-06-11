@@ -979,6 +979,7 @@ class App {
         // Tool shortcuts: S=select, D=delete, R=resource-connect, T=state-connect
         const toolKeys = { s: 'select', d: 'delete', r: 'connect-resource', t: 'connect-state' };
         if (toolKeys[k]) { e.preventDefault(); this._activateTool(toolKeys[k]); }
+        else if (e.key === '?') { e.preventDefault(); this._showModal('help-overlay'); }
       }
     });
 
@@ -990,6 +991,15 @@ class App {
     });
     this._modalize('mc-overlay');
     document.getElementById('mc-run').addEventListener('click', () => this._runMonteCarlo());
+    document.getElementById('mc-sweep-run').addEventListener('click', () => this._runSweep());
+
+    // Help / shortcuts overlay (also on the "?" key)
+    document.getElementById('btn-help').addEventListener('click', () => this._showModal('help-overlay'));
+    document.getElementById('help-close').addEventListener('click', () => this._hideModal('help-overlay'));
+    document.getElementById('help-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'help-overlay') this._hideModal('help-overlay');
+    });
+    this._modalize('help-overlay');
   }
 
   // ── Monte Carlo ─────────────────────────────────────────────────────────────
@@ -999,24 +1009,54 @@ class App {
     this._syncRunButton();
     document.getElementById('mc-results').innerHTML =
       '<p class="mc-empty">Choose runs &amp; steps, then press Run.</p>';
+    // Sweep needs a named parameter to vary — offer whatever the diagram defines.
+    const sel = document.getElementById('mc-sweep-param');
+    sel.innerHTML = '';
+    const names = Object.keys(this.diagram.params || {});
+    if (!names.length) {
+      sel.appendChild(new Option('— no parameters —', ''));
+      sel.disabled = true;
+      document.getElementById('mc-sweep-run').disabled = true;
+      sel.title = 'Define parameters in the Params rail panel to sweep them';
+    } else {
+      sel.disabled = false;
+      document.getElementById('mc-sweep-run').disabled = false;
+      for (const n of names) sel.appendChild(new Option(n, n));
+      // Seed the range around the parameter's current value.
+      const cur = this.diagram.params[names[0]];
+      document.getElementById('mc-sweep-from').value = Math.round(cur * 0.5 * 100) / 100;
+      document.getElementById('mc-sweep-to').value = Math.round(cur * 1.5 * 100) / 100;
+    }
     this._showModal('mc-overlay');
   }
 
-  _runMonteCarlo() {
+  _mcSeed() {
+    return document.getElementById('mc-seed').value.trim();
+  }
+
+  async _runMonteCarlo() {
     const runs = Math.max(1, Math.min(5000, parseInt(document.getElementById('mc-runs').value) || 100));
     const steps = Math.max(1, Math.min(5000, parseInt(document.getElementById('mc-steps').value) || 200));
     const out = document.getElementById('mc-results');
+    if (this._mcBusy) return;
+    this._mcBusy = true;
     out.innerHTML = '<p class="mc-empty">Running…</p>';
 
-    // Defer so the "Running…" message paints before the (synchronous) batch.
-    setTimeout(() => {
+    try {
       const t0 = performance.now();
-      const res = this.engine.runMonteCarlo(runs, steps);
+      const res = await this.engine.runMonteCarloAsync(runs, steps, {
+        seed: this._mcSeed() || null,
+        onProgress: (done, total) => {
+          out.innerHTML = `<p class="mc-empty">Running… ${done} / ${total}</p>`;
+        },
+      });
       const ms = Math.round(performance.now() - t0);
+      this._mcLast = res;
 
       const mcName = this.diagram.meta.name || 'Untitled';
       let html = `<p class="mc-summary">${res.runs} runs × ${res.maxSteps} steps`
         + ` — <b>${this._esc(mcName)}</b>`
+        + (res.seed ? ` — seed <b>${this._esc(res.seed)}</b>` : '')
         + ` <span style="color:var(--text-dim)">(${ms} ms)</span>`;
       if (res.endStep) {
         html += `<br>Goal reached in <b>${Math.round(res.endedRate * 100)}%</b> of runs`
@@ -1042,8 +1082,91 @@ class App {
           + `<td>${n.p50}</td><td>${n.p90}</td><td>${n.max}</td></tr>`;
       }
       html += '</tbody></table>';
+      html += '<p class="mc-actions"><button class="btn" id="mc-export-raw">'
+        + '<i class="fa-solid fa-download" aria-hidden="true"></i> Export raw results (CSV)</button></p>';
       out.innerHTML = html;
-    }, 30);
+      document.getElementById('mc-export-raw')
+        .addEventListener('click', () => this._exportMCRaw());
+    } finally {
+      this._mcBusy = false;
+    }
+  }
+
+  // One row per run, one column per tracked node's final value — ready for
+  // R / pandas / a spreadsheet. The on-screen stats are derived from this.
+  _exportMCRaw() {
+    const res = this._mcLast;
+    if (!res) return;
+    const header = ['run', ...res.nodes.map(n => this._csvCell(n.label || n.type))];
+    const lines = [header.join(',')];
+    for (let r = 0; r < res.runs; r++) {
+      lines.push([r + 1, ...res.nodes.map(n => n.samples[r] ?? '')].join(','));
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob), download: this._exportFilename('mc.csv'),
+    });
+    a.click();
+  }
+
+  // Parameter sweep: run the batch once per value of one diagram parameter
+  // (on clones — the live diagram is untouched) and tabulate per-node means
+  // so the parameter's effect is visible at a glance.
+  async _runSweep() {
+    const name = document.getElementById('mc-sweep-param').value;
+    if (!name) return;
+    const runs = Math.max(1, Math.min(1000, parseInt(document.getElementById('mc-runs').value) || 100));
+    const steps = Math.max(1, Math.min(5000, parseInt(document.getElementById('mc-steps').value) || 200));
+    const from = parseFloat(document.getElementById('mc-sweep-from').value) || 0;
+    const to = parseFloat(document.getElementById('mc-sweep-to').value) || 0;
+    const count = Math.max(2, Math.min(11, parseInt(document.getElementById('mc-sweep-count').value) || 5));
+    const out = document.getElementById('mc-results');
+    if (this._mcBusy) return;
+    this._mcBusy = true;
+    out.innerHTML = '<p class="mc-empty">Sweeping…</p>';
+
+    try {
+      const values = Array.from({ length: count },
+        (_, i) => Math.round((from + (to - from) * (i / (count - 1))) * 10000) / 10000);
+      const seed = this._mcSeed() || null;
+      const base = this.diagram.toJSON();
+      const results = [];
+      for (let i = 0; i < values.length; i++) {
+        const json = typeof structuredClone === 'function'
+          ? structuredClone(base) : JSON.parse(JSON.stringify(base));
+        json.params = { ...(json.params || {}), [name]: values[i] };
+        const res = await this.engine.runMonteCarloAsync(runs, steps, {
+          baseJSON: json,
+          // Same sub-seed per value: differences between columns come from the
+          // parameter, not from a fresh random stream.
+          seed,
+          onProgress: (done, total) => {
+            out.innerHTML = `<p class="mc-empty">Sweeping ${name} = ${values[i]}`
+              + ` (${i + 1}/${values.length}) — ${done}/${total}</p>`;
+          },
+        });
+        results.push(res);
+      }
+
+      let html = `<p class="mc-summary">Sweep <b>${this._esc(name)}</b> ∈ [${values[0]} … ${values[values.length - 1]}]`
+        + ` — ${runs} runs × ${steps} steps per value`
+        + (seed ? ` — seed <b>${this._esc(seed)}</b>` : '') + '<br>'
+        + '<span style="color:var(--text-dim)">Cells show the mean final value across runs.</span></p>';
+      html += '<table><thead><tr><th>Node</th>'
+        + values.map(v => `<th>${name}=${v}</th>`).join('') + '</tr></thead><tbody>';
+      for (let n = 0; n < results[0].nodes.length; n++) {
+        html += `<tr><td>${this._esc(results[0].nodes[n].label || results[0].nodes[n].type)}</td>`
+          + results.map(r => `<td>${r.nodes[n].mean}</td>`).join('') + '</tr>';
+      }
+      if (results.some(r => r.endStep)) {
+        html += '<tr><td>Goal reached</td>'
+          + results.map(r => `<td>${Math.round(r.endedRate * 100)}%</td>`).join('') + '</tr>';
+      }
+      html += '</tbody></table>';
+      out.innerHTML = html;
+    } finally {
+      this._mcBusy = false;
+    }
   }
 
   _esc(s) {

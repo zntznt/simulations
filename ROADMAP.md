@@ -142,6 +142,64 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 
 ---
 
+## ✅ Ultrabuff pass — analysis depth & headless power
+
+- [x] **Seeded, reproducible RNG.** A `SimRandom` source (mulberry32) feeds every
+      stochastic decision — dice, distributions, chance %, probabilistic gates,
+      custom variables. Seed a Monte Carlo batch (or a CLI run) and the same
+      seed reproduces the exact same results; unseeded it delegates to
+      `Math.random`.
+- [x] **Non-blocking Monte Carlo.** Batches run in time-boxed chunks off the
+      event loop with a live "Running… N / total" progress readout — 5000 runs
+      no longer freeze the UI. Trials clone via `structuredClone` instead of a
+      JSON round-trip per run.
+- [x] **Parameter sweep.** Vary one diagram parameter across a range from the
+      Monte Carlo modal; per-node means and goal reach-rate are tabulated one
+      column per value. Sweeps run on clones with a shared sub-seed per value,
+      so column differences come from the parameter, not RNG noise.
+- [x] **Raw Monte Carlo export.** One CSV row per run, one column per node —
+      ready for R / pandas / spreadsheets.
+- [x] **Adaptive history stride.** Long runs decimate the recorded history
+      (stride doubles when full) instead of silently dropping the oldest steps:
+      the timeline always spans the whole run at 300–600 samples. The timeline
+      x-axis labels real step numbers.
+- [x] **Headless CLI runner (`cli.js`).** Simulate any saved diagram from Node:
+      per-step CSV traces, Monte Carlo stats or raw CSV, `--seed`, repeatable
+      `--param name=value` overrides.
+- [x] **Diagram schema version.** `version: 1` marker in saved JSON plus a
+      documented migration point in `loadJSON`.
+- [x] **Shortcuts & gestures overlay.** `?` key or the topbar Help button opens
+      a reference of every keyboard shortcut and hidden mouse gesture
+      (Space-pan, label-pill drag, curve-handle reshape, interactive-node
+      firing, …).
+
+## 🔮 Council backlog — bigger ideas worth designing
+
+Ideas from a design review ("council of geniuses" pass); none are started.
+
+- **Scenario branching.** Checkpoint a run mid-flight, fork it into variant
+  timelines (tweak a parameter in one), run both forward and compare.
+- **Sensitivity dashboard.** Auto-perturb every parameter ±10% and heatmap which
+  parameters move which nodes the most — the design-space map, not one slice.
+- **Reusable subgraph components.** Define a module (e.g. a loot-drop pipeline)
+  once, instantiate it many times with different parameters via a
+  `ComponentRef` node.
+- **Run comparison overlay.** Pin a run as baseline; later runs draw over it as
+  ghost traces in the timeline.
+- **Web-worker / WASM engine.** Move the tick loop off the main thread, then
+  (much later) to WASM for 100k-step sweeps.
+- **Live collaboration.** CRDT-backed multi-user editing (Yjs/Automerge) over
+  the existing JSON model.
+- **Guided onboarding.** Interactive tour that builds the first source→pool
+  flow with the user; example gallery with live previews.
+- **Plugin hooks.** `onNodeFire` / `onTransfer` / `onStepEnd` registration so
+  domain experts can add custom node behaviours without forking the engine.
+- **Machinations.io importer.** Parse their file format into diagram JSON for
+  migration.
+- **Animated GIF / embeddable live widget export** for sharing running models.
+
+---
+
 ## ⚠️ Known limitations & intentional design notes
 
 - **Flow direction.** Push is the default; pools/drains can opt into pull mode

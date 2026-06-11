@@ -234,6 +234,71 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`analysis: timeline + Monte Carlo (${analysis.rows} rows, distribution histograms)`);
   else fail('analysis: ' + JSON.stringify(analysis));
 
+  // Ultrabuff: seeded MC reproducibility, raw export button, parameter sweep,
+  // help overlay.
+  const ultra = await page.evaluate(async () => {
+    const r = {};
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 400, 200));
+    const c = d.addConnection(new MConnection(s.id, p.id));
+    c.rateMode = RateMode.DICE; c.dice = '2d6';
+    d.params = { lvl: 4 };
+    window.app.renderer.render();
+
+    const waitFor = async (sel, ms = 3000) => {
+      const t0 = Date.now();
+      while (!document.querySelector(sel)) {
+        if (Date.now() - t0 > ms) return false;
+        await new Promise(res => setTimeout(res, 30));
+      }
+      return true;
+    };
+
+    // Seeded MC, twice — identical means; raw export button present.
+    document.getElementById('btn-batch').click();
+    r.sweepOptions = document.getElementById('mc-sweep-param').options.length;
+    document.getElementById('mc-runs').value = '15';
+    document.getElementById('mc-steps').value = '8';
+    document.getElementById('mc-seed').value = 'smoke';
+    document.getElementById('mc-run').click();
+    await waitFor('#mc-results table');
+    r.exportBtn = !!document.getElementById('mc-export-raw');
+    r.seedShown = document.querySelector('#mc-results .mc-summary').textContent.includes('smoke');
+    const mean1 = document.querySelector('#mc-results tbody tr td:nth-child(3)').textContent;
+    document.getElementById('mc-run').click();
+    await new Promise(res => setTimeout(res, 50));
+    await waitFor('#mc-results table');
+    const mean2 = document.querySelector('#mc-results tbody tr td:nth-child(3)').textContent;
+    r.reproducible = mean1 === mean2;
+
+    // Parameter sweep over `lvl`.
+    document.getElementById('mc-sweep-from').value = '1';
+    document.getElementById('mc-sweep-to').value = '3';
+    document.getElementById('mc-sweep-count').value = '3';
+    document.getElementById('mc-sweep-run').click();
+    await new Promise(res => setTimeout(res, 50));
+    await waitFor('#mc-results table');
+    const head = document.querySelector('#mc-results thead');
+    r.sweepCols = head ? head.querySelectorAll('th').length : 0; // node + 3 values
+    document.getElementById('mc-close').click();
+
+    // Help overlay: button and "?" key both open it.
+    document.getElementById('btn-help').click();
+    r.helpOpens = !document.getElementById('help-overlay').classList.contains('hidden');
+    document.getElementById('help-close').click();
+    r.helpCloses = document.getElementById('help-overlay').classList.contains('hidden');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+    r.helpKey = !document.getElementById('help-overlay').classList.contains('hidden');
+    document.getElementById('help-close').click();
+    return r;
+  });
+  if (ultra.sweepOptions === 1 && ultra.exportBtn && ultra.seedShown && ultra.reproducible
+      && ultra.sweepCols === 4 && ultra.helpOpens && ultra.helpCloses && ultra.helpKey)
+    ok('ultrabuff: seeded MC + raw export + parameter sweep + help overlay');
+  else fail('ultrabuff: ' + JSON.stringify(ultra));
+
   // UI pass: chart visualization types render, run button reflects engine
   // state, and node properties read as labelled sections.
   const uiPass = await page.evaluate(async () => {

@@ -29,6 +29,33 @@ const RateMode = {
   DISTRIBUTION: 'distribution',
 };
 
+// ── Seedable RNG ────────────────────────────────────────────────────────────
+// Every stochastic decision in the simulation (dice, distributions, chance %,
+// probabilistic gates, custom variables) draws from SimRandom rather than
+// Math.random directly, so a run can be made bit-for-bit reproducible by
+// seeding. Unseeded it delegates to Math.random (which also keeps tests that
+// stub Math.random working).
+const SimRandom = {
+  _fn: null, // null → delegate to Math.random
+  random() { return this._fn ? this._fn() : Math.random(); },
+  // Seed with any string/number; null/'' clears back to Math.random.
+  seed(s) {
+    if (s == null || s === '') { this._fn = null; return; }
+    // Hash the seed into a 32-bit state, then mulberry32 — small and fast,
+    // with distribution quality more than adequate for game-economy sampling.
+    let a = 0;
+    const str = String(s);
+    for (let i = 0; i < str.length; i++) a = ((a * 31) + str.charCodeAt(i)) >>> 0;
+    if (a === 0) a = 0x9e3779b9;
+    this._fn = function () {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  },
+};
+
 // Grey "uncolored" resource — used when a node holds resources without an
 // explicit color (e.g. resources typed directly into the properties panel).
 const DEFAULT_COLOR = '#9e9e9e';
@@ -125,23 +152,23 @@ function sampleDist(type, p1 = 1, p2 = 0) {
   const fl0 = n => (isFinite(n) ? Math.max(0, Math.round(n)) : 0);
   switch (type) {
     case 'uniform':
-      return fl0((isFinite(p1) ? p1 : 0) + Math.random() * (Math.max(p2, p1) - (isFinite(p1) ? p1 : 0)));
+      return fl0((isFinite(p1) ? p1 : 0) + SimRandom.random() * (Math.max(p2, p1) - (isFinite(p1) ? p1 : 0)));
     case 'exponential': {
       const mean = Math.max(0.001, isFinite(p1) ? p1 : 1);
-      const r = Math.max(1e-10, Math.random());
+      const r = Math.max(1e-10, SimRandom.random());
       return fl0(-mean * Math.log(r));
     }
     case 'poisson': {
       const lam = Math.max(0, isFinite(p1) ? p1 : 1);
       const L = Math.exp(-lam);
       if (!isFinite(L) || L <= 0) return Math.round(lam);
-      let k = 0, p = Math.random();
-      while (p > L && k < 10000) { p *= Math.random(); k++; }
+      let k = 0, p = SimRandom.random();
+      while (p > L && k < 10000) { p *= SimRandom.random(); k++; }
       return k;
     }
     case 'normal':
     default: {
-      const u1 = Math.max(1e-10, Math.random()), u2 = Math.random();
+      const u1 = Math.max(1e-10, SimRandom.random()), u2 = SimRandom.random();
       const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
       const mean = isFinite(p1) ? p1 : 1;
       const std = isFinite(p2) && p2 > 0 ? p2 : 1;
@@ -159,7 +186,7 @@ function rollDice(expr) {
   const count = parseInt(m[1]), sides = parseInt(m[2]);
   if (sides < 1) return 0;
   let sum = 0;
-  for (let i = 0; i < count; i++) sum += Math.floor(Math.random() * sides) + 1;
+  for (let i = 0; i < count; i++) sum += Math.floor(SimRandom.random() * sides) + 1;
   return sum;
 }
 
@@ -177,7 +204,7 @@ function rollDice(expr) {
 
 // A 0..1 sample from a clamped bell curve (mean 0.5, sd 1/6 → ±3σ spans 0..1).
 function _gauss01() {
-  const u1 = Math.max(1e-10, Math.random()), u2 = Math.random();
+  const u1 = Math.max(1e-10, SimRandom.random()), u2 = SimRandom.random();
   const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
   return Math.min(1, Math.max(0, 0.5 + z / 6));
 }
@@ -185,7 +212,7 @@ function _gauss01() {
 function sampleCustomVar(rv, vars = {}) {
   if (!rv) return 0;
   const gaussian = rv.dist === 'gaussian';
-  const u = gaussian ? _gauss01() : Math.random();
+  const u = gaussian ? _gauss01() : SimRandom.random();
   switch (rv.kind) {
     case 'math':
       return evalFormula(rv.formula, vars);
@@ -667,6 +694,9 @@ class Diagram {
 
   toJSON() {
     return {
+      // Schema version: bump when a field's meaning changes (not when fields
+      // are merely added — absent fields default safely in loadJSON).
+      version: 1,
       _idSeq,
       nodes: [...this.nodes.values()].map(n => n.toJSON()),
       connections: [...this.connections.values()].map(c => c.toJSON()),
@@ -689,6 +719,10 @@ class Diagram {
   }
 
   loadJSON(data) {
+    // Migration point: files without `version` predate the marker and parse
+    // as v1. When v2 lands, transform `data` here before loading.
+    const v = data.version || 1;
+    if (v > 1) console.warn(`Diagram file is schema v${v}; this build reads v1 — loading best-effort.`);
     this.nodes.clear();
     this.connections.clear();
     this.groups.clear();

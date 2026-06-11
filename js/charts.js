@@ -194,16 +194,18 @@ class TimelineChart {
     ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#556';
     const maxLabels = Math.max(2, Math.floor(plotW / 45));
     const xStep = Math.max(1, Math.ceil((n - 1) / maxLabels));
+    // Label with the snapshot's real step number — long runs are recorded at a
+    // stride, so history index and simulation step are not interchangeable.
     for (let i = 0; i < n; i += xStep) {
       const x = xAt(i);
-      ctx.fillText(String(i), x, padT + plotH + 5);
+      ctx.fillText(String(hist[i].step), x, padT + plotH + 5);
       ctx.strokeStyle = '#2a3550'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, padT + plotH); ctx.lineTo(x, padT + plotH + 3); ctx.stroke();
     }
     // Always label the last step if it wasn't already hit
     if ((n - 1) % xStep !== 0) {
       ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#556';
-      ctx.fillText(String(n - 1), xAt(n - 1), padT + plotH + 5);
+      ctx.fillText(String(hist[n - 1].step), xAt(n - 1), padT + plotH + 5);
     }
 
     // Series lines

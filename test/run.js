@@ -22,7 +22,7 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'model.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'engine.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
-    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula };';
+    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula, SimRandom };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -30,7 +30,7 @@ function loadEngine() {
 const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
-  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula,
+  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula, SimRandom,
 } = API;
 
 // ── Tiny test harness ───────────────────────────────────────────────────────
@@ -1917,6 +1917,78 @@ test('math var formula survives JSON round-trip (and old randomVars key loads)',
   d3.loadJSON({ nodes: [], connections: [], randomVars: [{ name: 'old', kind: 'dice', dice: '1d6', dist: 'uniform', update: 'step', value: 3 }] });
   eq(d3.customVars.length, 1, 'legacy randomVars key still loads');
   eq(d3.customVars[0].name, 'old', 'legacy var restored');
+});
+
+// ── Seeded RNG & reproducibility ────────────────────────────────────────────
+console.log('\nSeeded RNG & reproducibility');
+
+test('SimRandom: same seed yields the same sequence; clears back to Math.random', () => {
+  SimRandom.seed('hello');
+  const a = [SimRandom.random(), SimRandom.random(), SimRandom.random()];
+  SimRandom.seed('hello');
+  const b = [SimRandom.random(), SimRandom.random(), SimRandom.random()];
+  SimRandom.seed('other');
+  const c = SimRandom.random();
+  SimRandom.seed(null);
+  assert(a.every((v, i) => v === b[i]), 'reseeding replays the sequence');
+  assert(a[0] !== c, 'different seed, different stream');
+  assert(a.every(v => v >= 0 && v < 1), 'values in [0,1)');
+  // Unseeded path delegates to Math.random (so test stubs keep working).
+  withRandom(0.42, () => eq(SimRandom.random(), 0.42, 'unseeded uses Math.random'));
+});
+
+test('seeded Monte Carlo batches are bit-for-bit reproducible', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p);
+  c.rateMode = RateMode.DICE; c.dice = '2d6';
+  const r1 = e.runMonteCarlo(20, 10, { seed: 'abc' });
+  const r2 = e.runMonteCarlo(20, 10, { seed: 'abc' });
+  const r3 = e.runMonteCarlo(20, 10, { seed: 'xyz' });
+  const v1 = r1.nodes.find(n => n.id === p.id).samples;
+  const v2 = r2.nodes.find(n => n.id === p.id).samples;
+  const v3 = r3.nodes.find(n => n.id === p.id).samples;
+  assert(v1.every((v, i) => v === v2[i]), 'same seed, identical samples');
+  assert(v1.some((v, i) => v !== v3[i]), 'different seed, different samples');
+  eq(r1.seed, 'abc', 'seed echoed in the result');
+});
+
+test('Monte Carlo accepts a baseJSON override (parameter sweep path)', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p);
+  c.rateMode = RateMode.FORMULA; c.formula = 'rate';
+  d.params = { rate: 1 };
+  const json = d.toJSON();
+  json.params = { rate: 5 };
+  const res = e.runMonteCarlo(3, 4, { baseJSON: json });
+  eq(res.nodes.find(n => n.id === p.id).mean, 20, 'swept param drives the clone');
+  eq(d.params.rate, 1, 'live diagram untouched');
+});
+
+test('history uses adaptive stride: long runs keep full-range coverage, bounded size', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 1;
+  e.reset();
+  for (let i = 0; i < 2000; i++) e.doStep();
+  assert(e.history.length <= 600, `history bounded (${e.history.length})`);
+  assert(e.history.length >= 250, `history not starved (${e.history.length})`);
+  const steps = e.history.map(h => h.step);
+  assert(steps[0] <= 8, `oldest snapshot near the start (step ${steps[0]})`);
+  eq(steps[steps.length - 1], 2000, 'newest snapshot is the last step');
+  for (let i = 1; i < steps.length; i++) assert(steps[i] > steps[i - 1], 'steps strictly increasing');
+});
+
+test('diagram JSON carries a schema version and loads without one (legacy)', () => {
+  const { d } = setup();
+  eq(d.toJSON().version, 1, 'version written');
+  const d2 = new Diagram();
+  d2.loadJSON({ nodes: [], connections: [] }); // pre-version file
+  eq(d2.nodes.size, 0, 'legacy file loads');
 });
 
 // ── Results ─────────────────────────────────────────────────────────────────

@@ -71,6 +71,8 @@
           <button class="menu-item" role="menuitem" id="btn-share">Copy share link</button>
         </div>
       </div>
+
+      <button class="btn" id="btn-help" title="Shortcuts &amp; gestures (?)" aria-label="Help"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
     </div>
   </header>
 
@@ -354,9 +356,66 @@
     <div class="mc-controls">
       <label>Runs <input type="number" id="mc-runs" value="100" min="1" max="5000"></label>
       <label>Steps <input type="number" id="mc-steps" value="200" min="1" max="5000"></label>
+      <label>Seed <input type="text" id="mc-seed" placeholder="optional" title="Any text/number — the same seed reproduces the exact same batch"></label>
       <button class="btn btn-primary" id="mc-run">Run</button>
     </div>
+    <div class="mc-controls mc-sweep-controls">
+      <label>Sweep <select id="mc-sweep-param" title="Pick a diagram parameter to vary across the sweep"></select></label>
+      <label>from <input type="number" id="mc-sweep-from" value="0"></label>
+      <label>to <input type="number" id="mc-sweep-to" value="10"></label>
+      <label>values <input type="number" id="mc-sweep-count" value="5" min="2" max="11"></label>
+      <button class="btn" id="mc-sweep-run" title="Run the batch once per parameter value and compare results">Run sweep</button>
+    </div>
     <div id="mc-results"></div>
+  </div>
+</div>
+
+<!-- Help / shortcuts modal -->
+<div id="help-overlay" class="hidden">
+  <div id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <div class="mc-head">
+      <span id="help-title"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Shortcuts &amp; gestures</span>
+      <button class="btn" id="help-close" aria-label="Close help"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+    </div>
+    <div class="help-body">
+      <div class="help-col">
+        <h3>Tools</h3>
+        <dl>
+          <dt><kbd>S</kbd></dt><dd>Select &amp; move</dd>
+          <dt><kbd>D</kbd></dt><dd>Delete tool</dd>
+          <dt><kbd>R</kbd></dt><dd>Resource connection</dd>
+          <dt><kbd>T</kbd></dt><dd>State connection</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Cancel pending connection / clear selection</dd>
+          <dt><kbd>Del</kbd> / <kbd>⌫</kbd></dt><dd>Delete selection</dd>
+        </dl>
+        <h3>Editing</h3>
+        <dl>
+          <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></dt><dd>Undo / redo</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd></dt><dd>Copy / paste selection</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>D</kbd></dt><dd>Duplicate selection</dd>
+          <dt><kbd>↑↓←→</kbd></dt><dd>Nudge selection (Shift = fine)</dd>
+          <dt><kbd>Shift</kbd>+click / drag</dt><dd>Add to selection / marquee-add</dd>
+        </dl>
+      </div>
+      <div class="help-col">
+        <h3>Canvas</h3>
+        <dl>
+          <dt>Wheel</dt><dd>Zoom toward cursor</dd>
+          <dt><kbd>Shift</kbd>+wheel</dt><dd>Pan horizontally</dd>
+          <dt><kbd>Space</kbd> / <kbd>Alt</kbd> / middle-drag</dt><dd>Pan the canvas</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>0</kbd></dt><dd>Fit view to content</dd>
+          <dt>Right-click</dt><dd>Delete element (Ctrl+Z undoes)</dd>
+        </dl>
+        <h3>Connections &amp; nodes</h3>
+        <dl>
+          <dt>Drag node→node</dt><dd>Connect (with R/T tool active)</dd>
+          <dt>Double-click connection</dt><dd>Reset its shape</dd>
+          <dt>Drag label pill</dt><dd>Slide it along the connection</dd>
+          <dt>Drag curve handle</dt><dd>Reshape a selected connection</dd>
+          <dt>Click / double-click node</dt><dd>Fire an <i>interactive</i> node (during run / anytime)</dd>
+        </dl>
+      </div>
+    </div>
   </div>
 </div>
 
