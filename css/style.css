@@ -547,7 +547,21 @@ input[type="range"] {
 }
 .tl-chip:hover { background: color-mix(in srgb, var(--chip-color, #4a9eff) 15%, transparent); }
 .tl-chip-off { opacity: 0.35; text-decoration: line-through; }
+.tl-branch-chip { border-style: dashed; --chip-color: #95a3bc; }
 #timeline-canvas { flex: 1; width: 100%; min-height: 0; cursor: crosshair; }
+
+/* ── Scenario branches panel ── */
+.branch-action-btn { width: 100%; margin-bottom: 10px; }
+.branch-row {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+}
+.branch-name {
+  flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text); padding: 3px 7px; font-size: 12px;
+}
+.branch-name:focus { border-color: var(--accent); outline: none; }
+.branch-step { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+.branch-mini-btn { padding: 3px 7px; font-size: 11px; }
 
 /* ── Monte Carlo modal ── */
 #mc-overlay {

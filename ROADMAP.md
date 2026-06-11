@@ -173,12 +173,23 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       (Space-pan, label-pill drag, curve-handle reshape, interactive-node
       firing, …).
 
+## ✅ Scenario branching
+
+- [x] **Checkpoint / fork / compare.** `SimEngine.captureState()` /
+      `restoreState()` snapshot the complete simulation state — diagram
+      structure, node runtime (resources, in-flight delay/queue contents,
+      counters) plus the Reset baselines, the variable store, and the engine
+      clock/history/trigger state. A "Branch" rail panel checkpoints the run
+      mid-flight and forks back to any checkpoint; the superseded run is kept
+      automatically as a **ghost branch** — dashed, faded traces overlaid on
+      the timeline chart (same colour = same node across timelines, x-axis in
+      real step units), toggleable from the legend chips or the panel.
+      Session-only; Reset still returns to the true run start.
+
 ## 🔮 Council backlog — bigger ideas worth designing
 
 Ideas from a design review ("council of geniuses" pass); none are started.
 
-- **Scenario branching.** Checkpoint a run mid-flight, fork it into variant
-  timelines (tweak a parameter in one), run both forward and compare.
 - **Sensitivity dashboard.** Auto-perturb every parameter ±10% and heatmap which
   parameters move which nodes the most — the design-space map, not one slice.
 - **Reusable subgraph components.** Define a module (e.g. a loot-drop pipeline)

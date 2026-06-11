@@ -63,6 +63,49 @@ class SimEngine {
     if (this.onStep) this.onStep(0, [], []);
   }
 
+  // ── Scenario branching: full simulation-state checkpoints ─────────────────
+
+  // Everything needed to put the live simulation back exactly as it is right
+  // now: the diagram structure, every node's runtime fields (resources,
+  // queues, counters — and the reset baselines, so Reset still returns to the
+  // true run start), the shared variable store, and the engine's clock /
+  // history / trigger state. Deep-cloned, so the caller can hold the snapshot
+  // indefinitely and restore it any number of times.
+  captureState() {
+    const nodes = {};
+    for (const [id, n] of this.diagram.nodes) nodes[id] = { ...n };
+    return structuredClone({
+      step: this.step,
+      histStride: this._histStride,
+      ended: this.ended,
+      history: this.history,
+      vars: this.diagram.variables,
+      trigCounts: [...(this._trigCounts || new Map())],
+      prevStateVals: [...(this._prevStateVals || new Map())],
+      json: this.diagram.toJSON(),
+      nodes,
+    });
+  }
+
+  restoreState(state) {
+    this.stop();
+    const s = structuredClone(state); // the stored checkpoint stays pristine
+    this.diagram.loadJSON(s.json);
+    // Re-apply runtime fields over the freshly built nodes — including the
+    // _initial* baselines loadJSON would otherwise re-derive from live values.
+    for (const [id, fields] of Object.entries(s.nodes)) {
+      const n = this.diagram.nodes.get(id);
+      if (n) Object.assign(n, fields);
+    }
+    this.diagram.variables = s.vars;
+    this.step = s.step;
+    this._histStride = s.histStride;
+    this.history = s.history;
+    this.ended = s.ended;
+    this._trigCounts = new Map(s.trigCounts);
+    this._prevStateVals = new Map(s.prevStateVals);
+  }
+
   doStep() {
     if (this.step === 0) {
       this.saveInitial();

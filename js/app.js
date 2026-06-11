@@ -46,6 +46,15 @@ class App {
 
     this._activeFeature = null; // which diagram-rail feature occupies the props panel
 
+    // Scenario branching: checkpoints are full sim-state snapshots you can
+    // fork from; branches are finished timelines kept as ghost traces in the
+    // timeline chart for comparison. Session-only — not saved with the diagram.
+    this._checkpoints = [];  // { id, name, step, state }
+    this._branches = [];     // { id, name, history, visible }
+    this._cpSeq = 0;
+    this._branchSeq = 0;
+    this.timeline.getBranches = () => this._branches;
+
     this._bindControls();
     this._initLibrary();
     this._initMenus();
@@ -1511,6 +1520,7 @@ class App {
       vars:      { title: 'Custom Variables', render: c => this._customVarsEditor(c) },
       resources: { title: 'Resource Types',   render: c => this._resourceTypesEditor(c) },
       player:    { title: 'Artificial Player', render: c => this._diagramAI(c) },
+      branches:  { title: 'Scenario Branches', render: c => this._branchesPanel(c) },
       monitor:   { title: 'Live Variables',   render: c => this._liveVarsReadout(c) },
     };
   }
@@ -1558,6 +1568,182 @@ class App {
     this._info(panel, tm === 'async'
       ? 'Asynchronous: each automatic node fires on its own "Fire every" rhythm (set per node).'
       : 'Synchronous (turn-based): every automatic node fires once per step.');
+  }
+
+  // ── Scenario branching panel ──────────────────────────────────────────────
+
+  _branchesPanel(panel) {
+    this._info(panel, 'Checkpoint the simulation mid-run, fork back to it with tweaks, and '
+      + 'compare timelines as dashed ghost traces in the timeline chart. Kept for this '
+      + 'session only — not saved with the diagram.');
+
+    const cpBtn = document.createElement('button');
+    cpBtn.className = 'btn branch-action-btn';
+    cpBtn.append(this._faIcon('flag'), ` Checkpoint now — step ${this.engine.step}`);
+    cpBtn.addEventListener('click', () => this._addCheckpoint());
+    panel.appendChild(cpBtn);
+
+    // Checkpoints: fork restores the full sim state (the current run is kept
+    // as a ghost branch first, so nothing is lost).
+    const cpSec = document.createElement('div');
+    cpSec.className = 'props-sec'; cpSec.textContent = 'Checkpoints';
+    panel.appendChild(cpSec);
+    if (!this._checkpoints.length) {
+      const p = document.createElement('p');
+      p.className = 'props-info';
+      p.textContent = 'None yet. Run the simulation, pause where it gets interesting, and checkpoint.';
+      panel.appendChild(p);
+    }
+    for (const cp of this._checkpoints) {
+      const row = document.createElement('div');
+      row.className = 'branch-row';
+
+      const name = document.createElement('input');
+      name.type = 'text'; name.value = cp.name; name.className = 'branch-name';
+      name.setAttribute('aria-label', 'Checkpoint name');
+      name.addEventListener('blur', () => { cp.name = name.value.trim() || cp.name; name.value = cp.name; });
+
+      const step = document.createElement('span');
+      step.className = 'branch-step'; step.textContent = `step ${cp.step}`;
+
+      const fork = document.createElement('button');
+      fork.className = 'btn branch-mini-btn';
+      fork.title = 'Fork: return the simulation to this checkpoint (current run is kept as a branch)';
+      fork.setAttribute('aria-label', `Fork from ${cp.name}`);
+      fork.appendChild(this._faIcon('code-branch'));
+      fork.addEventListener('click', () => this._forkFrom(cp));
+
+      const del = document.createElement('button');
+      del.className = 'btn branch-mini-btn';
+      del.title = 'Delete checkpoint';
+      del.setAttribute('aria-label', `Delete checkpoint ${cp.name}`);
+      del.appendChild(this._faIcon('xmark'));
+      del.addEventListener('click', () => {
+        this._checkpoints = this._checkpoints.filter(c => c !== cp);
+        this._renderProps();
+      });
+
+      row.append(name, step, fork, del);
+      panel.appendChild(row);
+    }
+
+    // Branches: saved timelines overlaid on the timeline chart.
+    const brSec = document.createElement('div');
+    brSec.className = 'props-sec'; brSec.textContent = 'Branches (ghost traces)';
+    panel.appendChild(brSec);
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn branch-action-btn';
+    saveBtn.append(this._faIcon('camera'), ' Save current run as branch');
+    saveBtn.addEventListener('click', () => {
+      const br = this._saveBranch();
+      if (br) { this._toast(`Saved "${br.name}"`); this._renderProps(); }
+    });
+    panel.appendChild(saveBtn);
+
+    if (!this._branches.length) {
+      const p = document.createElement('p');
+      p.className = 'props-info';
+      p.textContent = 'Forking saves the current run here automatically.';
+      panel.appendChild(p);
+    }
+    for (const br of this._branches) {
+      const row = document.createElement('div');
+      row.className = 'branch-row';
+
+      const name = document.createElement('input');
+      name.type = 'text'; name.value = br.name; name.className = 'branch-name';
+      name.setAttribute('aria-label', 'Branch name');
+      name.addEventListener('blur', () => {
+        br.name = name.value.trim() || br.name; name.value = br.name;
+        if (this._timelineVisible) this.timeline.update();
+      });
+
+      const steps = document.createElement('span');
+      steps.className = 'branch-step';
+      steps.textContent = `→ step ${br.history[br.history.length - 1].step}`;
+
+      const eye = document.createElement('button');
+      eye.className = 'btn branch-mini-btn';
+      eye.title = br.visible ? 'Hide in timeline' : 'Show in timeline';
+      eye.setAttribute('aria-label', `${br.visible ? 'Hide' : 'Show'} branch ${br.name}`);
+      eye.setAttribute('aria-pressed', String(br.visible));
+      eye.appendChild(this._faIcon(br.visible ? 'eye' : 'eye-slash'));
+      eye.addEventListener('click', () => {
+        br.visible = !br.visible;
+        if (this._timelineVisible) this.timeline.update();
+        this._renderProps();
+      });
+
+      const del = document.createElement('button');
+      del.className = 'btn branch-mini-btn';
+      del.title = 'Delete branch';
+      del.setAttribute('aria-label', `Delete branch ${br.name}`);
+      del.appendChild(this._faIcon('xmark'));
+      del.addEventListener('click', () => {
+        this._branches = this._branches.filter(b => b !== br);
+        if (this._timelineVisible) this.timeline.update();
+        this._renderProps();
+      });
+
+      row.append(name, steps, eye, del);
+      panel.appendChild(row);
+    }
+  }
+
+  _addCheckpoint() {
+    const cp = {
+      id: 'cp' + (++this._cpSeq),
+      name: `Checkpoint ${this._cpSeq}`,
+      step: this.engine.step,
+      state: this.engine.captureState(),
+    };
+    this._checkpoints.push(cp);
+    this._toast(`Checkpointed step ${cp.step}`);
+    this._renderProps();
+  }
+
+  _saveBranch(name) {
+    if (this.engine.history.length < 2) {
+      this._toast('Run the simulation first — nothing to save yet.');
+      return null;
+    }
+    const br = {
+      id: 'br' + (++this._branchSeq),
+      name: name || `Branch ${this._branchSeq}`,
+      history: structuredClone(this.engine.history),
+      visible: true,
+    };
+    this._branches.push(br);
+    if (this._timelineVisible) this.timeline.update();
+    return br;
+  }
+
+  // Fork: keep the current run as a ghost branch, then put the simulation
+  // back exactly as it was at the checkpoint. Tweak anything and press Run —
+  // the new timeline plots over the ghosts.
+  _forkFrom(cp) {
+    this.engine.stop();
+    this._syncRunButton();
+    let kept = null;
+    if (this.engine.history.length >= 2
+        && this.engine.history[this.engine.history.length - 1].step > cp.step) {
+      kept = this._saveBranch();
+    }
+    this.engine.restoreState(cp.state);
+    document.getElementById('step-counter').textContent = `Step: ${this.engine.step}`;
+    document.getElementById('sim-status').textContent = '';
+    this.renderer.balls.clear();
+    this._clearSparklines();
+    this.renderer.render();
+    this._commit();
+    // The timeline is where the comparison lives — make sure it's on screen.
+    if (kept && !this._timelineVisible) document.getElementById('btn-timeline').click();
+    if (this._timelineVisible) this.timeline.update();
+    this._toast(kept
+      ? `Forked from "${cp.name}" — previous run kept as "${kept.name}"`
+      : `Back at "${cp.name}" (step ${cp.step})`);
+    this._renderProps();
   }
 
   // Named constants available to all formulas.

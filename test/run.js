@@ -1991,6 +1991,87 @@ test('diagram JSON carries a schema version and loads without one (legacy)', () 
   eq(d2.nodes.size, 0, 'legacy file loads');
 });
 
+// ── Scenario branching: capture / restore ───────────────────────────────────
+console.log('\nScenario branching: capture / restore');
+
+test('captureState/restoreState round-trips mid-run state and resumes correctly', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 3;
+  e.reset();
+  for (let i = 0; i < 4; i++) e.doStep();
+  eq(p.resources, 12, 'pool before capture');
+  const snap = e.captureState();
+
+  for (let i = 0; i < 4; i++) e.doStep();
+  eq(p.resources, 24, 'pool advanced past checkpoint');
+  eq(e.step, 8, 'step advanced');
+
+  e.restoreState(snap);
+  eq(e.step, 4, 'step restored');
+  eq(d.nodes.get(p.id).resources, 12, 'pool restored');
+  eq(e.history.length, 4, 'history truncated to checkpoint');
+
+  // The fork can be advanced again — and a second restore replays it.
+  e.doStep();
+  eq(e.step, 5, 'fork resumes from checkpoint step');
+  eq(d.nodes.get(p.id).resources, 15, 'flow continues from restored state');
+  e.restoreState(snap);
+  eq(d.nodes.get(p.id).resources, 12, 'snapshot restores repeatedly');
+});
+
+test('restoreState preserves the Reset baseline (reset returns to run start, not checkpoint)', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.setCount(50);
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, p, dr).rate = 5;
+  e.reset();
+  for (let i = 0; i < 3; i++) e.doStep();
+  eq(p.resources, 35, 'pool drained');
+  const snap = e.captureState();
+  e.doStep();
+  e.restoreState(snap);
+  eq(d.nodes.get(p.id).resources, 35, 'restored to checkpoint');
+  e.reset();
+  eq(d.nodes.get(p.id).resources, 50, 'Reset still returns to the true initial state');
+});
+
+test('captureState carries in-flight delay queue contents', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const dl = node(d, NodeType.DELAY); dl.delay = 3;
+  const p = node(d, NodeType.POOL);
+  conn(d, s, dl).rate = 2;
+  conn(d, dl, p).rate = 2;
+  e.reset();
+  e.doStep(); e.doStep(); // batches now in flight inside the delay
+  const inFlight = d.nodes.get(dl.id)._queue.length;
+  assert(inFlight > 0, 'delay holds in-flight batches');
+  const snap = e.captureState();
+  for (let i = 0; i < 6; i++) e.doStep();
+  e.restoreState(snap);
+  eq(d.nodes.get(dl.id)._queue.length, inFlight, 'in-flight batches restored');
+  // Releases continue on the original schedule after the fork.
+  for (let i = 0; i < 6; i++) e.doStep();
+  assert(d.nodes.get(p.id).resources > 0, 'delayed batches still release after restore');
+});
+
+test('restoreState restores structure removed after the checkpoint', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 1;
+  e.reset();
+  e.doStep();
+  const snap = e.captureState();
+  d.removeNode(p.id);
+  eq(d.nodes.size, 1, 'node removed');
+  e.restoreState(snap);
+  eq(d.nodes.size, 2, 'node restored from checkpoint');
+  eq(d.connections.size, 1, 'connection restored from checkpoint');
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed) {

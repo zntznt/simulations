@@ -299,6 +299,53 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('ultrabuff: seeded MC + raw export + parameter sweep + help overlay');
   else fail('ultrabuff: ' + JSON.stringify(ultra));
 
+  // Scenario branching: checkpoint mid-run, fork back (keeps the old run as a
+  // ghost branch, auto-opens the timeline), legend gains a branch chip.
+  const branching = await page.evaluate(async () => {
+    const r = {};
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 400, 200));
+    d.addConnection(new MConnection(s.id, p.id)).rate = 2;
+    window.app.renderer.render();
+    window.app.engine.reset();
+    for (let i = 0; i < 5; i++) window.app.engine.doStep();
+
+    // Open the Branches rail panel and checkpoint step 5.
+    document.querySelector('#diagram-rail .rail-btn[data-feature="branches"]').click();
+    const cpBtn = [...document.querySelectorAll('#props-content .branch-action-btn')]
+      .find(b => b.textContent.includes('Checkpoint'));
+    r.cpBtnLabelsStep = cpBtn.textContent.includes('step 5');
+    cpBtn.click();
+    r.checkpoints = window.app._checkpoints.length;
+
+    // Run past the checkpoint, then fork back.
+    for (let i = 0; i < 5; i++) window.app.engine.doStep();
+    const poolAt10 = d.nodes.get(p.id).resources;
+    document.querySelector('#props-content .branch-row button[aria-label^="Fork"]').click();
+    r.stepRestored = window.app.engine.step === 5;
+    r.poolRestored = d.nodes.get(p.id).resources === poolAt10 - 10;
+    r.branchKept = window.app._branches.length === 1;
+    r.timelineOpened = !document.getElementById('timeline').classList.contains('hidden');
+    r.branchChip = !!document.querySelector('#tl-legend .tl-branch-chip');
+
+    // The fork can run forward again from step 5.
+    window.app.engine.doStep();
+    r.forkAdvances = window.app.engine.step === 6;
+
+    // Branch visibility toggles from the legend chip.
+    document.querySelector('#tl-legend .tl-branch-chip').click();
+    r.chipToggles = window.app._branches[0].visible === false;
+    document.getElementById('btn-timeline').click(); // close the timeline again
+    return r;
+  });
+  if (branching.cpBtnLabelsStep && branching.checkpoints === 1 && branching.stepRestored
+      && branching.poolRestored && branching.branchKept && branching.timelineOpened
+      && branching.branchChip && branching.forkAdvances && branching.chipToggles)
+    ok('scenario branching: checkpoint + fork + ghost branch + timeline chip');
+  else fail('scenario branching: ' + JSON.stringify(branching));
+
   // UI pass: chart visualization types render, run button reflects engine
   // state, and node properties read as labelled sections.
   const uiPass = await page.evaluate(async () => {

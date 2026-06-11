@@ -114,12 +114,14 @@ corner handles).
 A far‑right icon rail holds the **diagram‑wide** settings, each opening in the
 properties panel so they're never crammed together: **time mode**,
 **parameters**, **custom variables**, **resource types**, the **artificial
-player**, and a live **variable watch** that ticks with the simulation. Clicking
+player**, **scenario branches** (checkpoint / fork / compare), and a live
+**variable watch** that ticks with the simulation. Clicking
 a rail icon shows that editor in the panel; selecting a node or connection hands
 the panel back to the selection. The left palette stays for tools/nodes and the
 top bar for run/zoom/file controls.
 
 ### Analysis & data
+- **Scenario branching** — checkpoint the simulation mid-run (full state: resources, in-flight queues, variables, history), fork back to it with any tweaks, and run forward again. The previous run is kept automatically as a **ghost branch** — dashed, faded traces overlaid on the timeline chart (same colour = same node across timelines), toggleable from the legend or the Branch rail panel. Reset still returns to the true run start. Session-only — branches aren't saved with the diagram.
 - **Global timeline chart** — every tracked node's value over time, with a legend.
 - **On‑canvas charts** — live line charts placed in the diagram itself, tracking chosen nodes.
 - **Monte Carlo / batch runs** — run N isolated simulations for up to M steps and report per‑node distributions (mean / min / p10 / p50 / p90 / max) plus goal reach‑rate and end‑step stats — non‑destructive to the live diagram. Batches run **chunked off the hot path** with live progress, so the UI never freezes.
