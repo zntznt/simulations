@@ -16,8 +16,10 @@ class Editor {
     this.selection = new Set(); // multi-selected node ids
     this._snapEnabled = false;
     this._snapSize = 20;
-    this.autoRevert = false;     // revert to Select after placing a node
+    this.autoRevert = true;      // revert to Select after placing a node
     this.onToolChange = null;    // callback(tool) when the editor changes its own tool
+    this.onHint = null;          // callback(msg) for transient user hints
+    this._dragSourceNodeId = null; // node id where a select-mode drag originated
     this._touchMode = null;      // 'single' | 'pinch'
     this._pinch = null;          // last pinch state {dist, cx, cy}
     this._specialDrag = null;    // {type:'note'|'group', id, origX, origY, nodeItems?, startX, startY, moved}
@@ -144,6 +146,7 @@ class Editor {
     this.tool = tool;
     this._connecting = null;
     this.renderer.clearTemp();
+    this.renderer.setConnectHover(null);
     this._restoreCursor();
   }
 
@@ -277,6 +280,7 @@ class Editor {
         // Clicking an unselected node selects just it; clicking one already in
         // the selection keeps the group (so you can drag them all).
         if (!this.selection.has(hit.id)) this._setSelection([hit.id], hit.id, 'node');
+        this._dragSourceNodeId = hit.id;
         this._startGroupDrag(e);
       } else if (hit && hit.type === 'conn') {
         this._setSelection([], hit.id, 'conn');
@@ -504,12 +508,20 @@ class Editor {
       return;
     }
 
-    if (this._connecting) {
+    // Temp connection line + target-hover ring while a connect tool is active.
+    // The hover ring gives a visual affordance: "clicking this node creates a connection."
+    if (this.tool === 'connect-resource' || this.tool === 'connect-state') {
       const pt = this.renderer.svgPoint(e.clientX, e.clientY);
-      const src = this.diagram.nodes.get(this._connecting.sourceId);
-      if (src) {
-        this.renderer.setTempConn(src.x, src.y, pt.x, pt.y, this._connecting.type);
+      const hit = this.renderer.hitTest(pt.x, pt.y);
+      const hoverNodeId = hit?.type === 'node' ? hit.id : null;
+      if (this._connecting) {
+        const src = this.diagram.nodes.get(this._connecting.sourceId);
+        if (src) this.renderer.setTempConn(src.x, src.y, pt.x, pt.y, this._connecting.type);
       }
+      this.renderer.setConnectHover(hoverNodeId,
+        this._connecting?.type ?? (this.tool === 'connect-state' ? ConnectionType.STATE : ConnectionType.RESOURCE));
+    } else {
+      this.renderer.setConnectHover(null);
     }
   }
 
@@ -530,9 +542,21 @@ class Editor {
 
     if (this._drag) {
       const moved = this._dragMoved;
+      const srcId = this._dragSourceNodeId;
       this._drag = null;
       this._dragMoved = false;
-      if (moved) this._changed();  // commit the move as one undo step
+      this._dragSourceNodeId = null;
+      if (moved) {
+        this._changed();  // commit the move as one undo step
+        // Hint if drag ended over a different node (user may have expected a connection).
+        if (srcId && this.onHint) {
+          const pt = this.renderer.svgPoint(e.clientX, e.clientY);
+          const hit = this.renderer.hitTest(pt.x, pt.y);
+          if (hit && hit.type === 'node' && hit.id !== srcId) {
+            this.onHint('To connect nodes, press R (resource) or T (state) then click source → target');
+          }
+        }
+      }
       return;
     }
 
@@ -633,6 +657,7 @@ class Editor {
       this._select(null, null);
       this.renderer.render();
       this._changed();
+      if (this.onHint) this.onHint('Deleted — press Ctrl+Z to undo');
     }
   }
 

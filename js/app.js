@@ -30,6 +30,7 @@ class App {
     // Keep the toolbar's active-tool highlight in sync when the editor reverts
     // its own tool (e.g. auto-revert to Select after placing a node).
     this.editor.onToolChange = (tool) => this._syncToolButtons(tool);
+    this.editor.onHint = (msg) => this._toast(msg);
 
     this._selectedId = null;
     this._selectedType = null;
@@ -132,6 +133,17 @@ class App {
     this._lastState = snap;
     this._updateUndoButtons();
     try { localStorage.setItem('sim_autosave', this._lastState); } catch {}
+    // Mark any open MC results as potentially stale since the diagram changed.
+    this._markMCStale();
+  }
+
+  _markMCStale() {
+    const results = document.getElementById('mc-results');
+    if (!results || results.querySelector('.mc-empty') || results.querySelector('.mc-stale-badge')) return;
+    const badge = document.createElement('p');
+    badge.className = 'mc-stale-badge';
+    badge.textContent = 'Diagram changed — these results may be outdated.';
+    results.prepend(badge);
   }
 
   undo() {
@@ -464,12 +476,17 @@ class App {
 
   // ── Export ────────────────────────────────────────────────────────────────
 
+  _exportFilename(ext) {
+    const raw = this.diagram.meta.name || 'diagram';
+    return raw.replace(/[^a-z0-9_\-]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') + '.' + ext;
+  }
+
   _exportSVG() {
     const svg = document.getElementById('canvas');
     const data = new XMLSerializer().serializeToString(svg);
     const blob = new Blob([data], { type: 'image/svg+xml' });
     const a = Object.assign(document.createElement('a'), {
-      href: URL.createObjectURL(blob), download: 'diagram.svg',
+      href: URL.createObjectURL(blob), download: this._exportFilename('svg'),
     });
     a.click();
   }
@@ -490,7 +507,7 @@ class App {
       ctx.fillRect(0, 0, w, h);
       ctx.drawImage(img, 0, 0, w, h);
       const a = Object.assign(document.createElement('a'), {
-        download: 'diagram.png', href: canvas.toDataURL('image/png'),
+        download: this._exportFilename('png'), href: canvas.toDataURL('image/png'),
       });
       a.click();
       URL.revokeObjectURL(url);
@@ -528,7 +545,7 @@ class App {
     }
     const blob = new Blob([this._buildCSV()], { type: 'text/csv' });
     const a = Object.assign(document.createElement('a'), {
-      href: URL.createObjectURL(blob), download: 'history.csv',
+      href: URL.createObjectURL(blob), download: this._exportFilename('csv'),
     });
     a.click();
   }
@@ -846,6 +863,9 @@ class App {
     });
 
     const autoBtn = document.getElementById('btn-autoselect');
+    // Sync button to editor's initial state (autoRevert starts true)
+    autoBtn.classList.toggle('active', this.editor.autoRevert);
+    autoBtn.setAttribute('aria-pressed', String(this.editor.autoRevert));
     autoBtn.addEventListener('click', () => {
       this.editor.autoRevert = !this.editor.autoRevert;
       autoBtn.classList.toggle('active', this.editor.autoRevert);
@@ -864,7 +884,7 @@ class App {
       const json = JSON.stringify(this.diagram.toJSON(), null, 2);
       const a = Object.assign(document.createElement('a'), {
         href: URL.createObjectURL(new Blob([json], { type: 'application/json' })),
-        download: 'diagram.json',
+        download: this._exportFilename('json'),
       });
       a.click();
     });
@@ -994,8 +1014,10 @@ class App {
       const res = this.engine.runMonteCarlo(runs, steps);
       const ms = Math.round(performance.now() - t0);
 
-      let html = `<p class="mc-summary">${res.runs} runs × up to ${res.maxSteps} steps `
-        + `<span style="color:var(--text-dim)">(${ms} ms)</span>`;
+      const mcName = this.diagram.meta.name || 'Untitled';
+      let html = `<p class="mc-summary">${res.runs} runs × ${res.maxSteps} steps`
+        + ` — <b>${this._esc(mcName)}</b>`
+        + ` <span style="color:var(--text-dim)">(${ms} ms)</span>`;
       if (res.endStep) {
         html += `<br>Goal reached in <b>${Math.round(res.endedRate * 100)}%</b> of runs`
           + ` — end step mean <b>${res.endStep.mean}</b> (min ${res.endStep.min}, max ${res.endStep.max}).`;
@@ -2434,8 +2456,14 @@ class App {
 
       if (role === 'variable') {
         this._field(panel, 'Variable name', 'text', conn.variableName || conn.label, v => {
-          conn.variableName = v; conn.label = v; this.renderer.render();
+          conn.variableName = v; conn.label = v; this._renderProps(); this.renderer.render();
         }, 'used in formulas');
+        if (!conn.variableName) {
+          const warn = document.createElement('p');
+          warn.className = 'prop-inline-warn';
+          warn.textContent = 'Give this connection a name so its value can be referenced in formulas.';
+          panel.appendChild(warn);
+        }
         this._info(panel, 'Each step this variable is set to the source\'s value (pool count, source produced, drain consumed, or register value). Use it in Register or rate formulas, or in modifier formulas on other connections.');
 
       } else if (role === 'modify') {

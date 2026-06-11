@@ -695,11 +695,10 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P3 share: diagram encodes to a URL hash and decodes back');
   else fail('P3 share: ' + JSON.stringify(p3share));
 
-  // P3: auto-revert reverts to Select after placing a node.
+  // P3: auto-revert reverts to Select after placing a node (on by default).
   const p3auto = await page.evaluate(() => {
     window.app._clearAll();
-    document.getElementById('btn-autoselect').click();     // enable auto-revert
-    const enabled = window.app.editor.autoRevert;
+    const enabled = window.app.editor.autoRevert; // true by default
     const canvas = document.getElementById('canvas');
     const r = canvas.getBoundingClientRect();
     const ev = (t, sx, sy) => canvas.dispatchEvent(
@@ -707,7 +706,6 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     window.app._activateTool('place-pool');
     ev('mousedown', 250, 250); ev('mouseup', 250, 250);
     const toolAfter = window.app.editor.tool;
-    document.getElementById('btn-autoselect').click();     // restore
     return { enabled, toolAfter, placed: window.app.diagram.nodes.size };
   });
   if (p3auto.enabled && p3auto.toolAfter === 'select' && p3auto.placed === 1)

@@ -349,9 +349,9 @@ class Renderer {
     // Lives outside the pan/zoom root so it stays centred in the viewport.
     this._emptyHint = svgEl('g', { 'pointer-events': 'none', visibility: 'hidden' });
     const hintLines = [
-      ['Empty canvas', '16', '600', '#6b7793'],
-      ['Pick a node from the left palette and click here to place it.', '12', '400', '#556070'],
-      ['Connect nodes with the Resource (R) or State (T) tools — or load a template from the Library.', '12', '400', '#556070'],
+      ['Empty canvas', '16', '600', '#8291aa'],
+      ['Pick a node from the left palette and click to place it, then switch to Resource (R) or State (T) to connect.', '12', '400', '#6b7a96'],
+      ['Or load a starter template from Library.', '12', '400', '#6b7a96'],
     ];
     hintLines.forEach(([txt, size, weight, fill], i) => {
       const t = svgEl('text', {
@@ -1155,6 +1155,7 @@ class Renderer {
 
   setTempConn(x1, y1, x2, y2, type = ConnectionType.RESOURCE) {
     this.tempLayer.innerHTML = '';
+    this._connectHoverEl = null; // cleared with innerHTML above
     const color = type === ConnectionType.RESOURCE ? '#ffa726' : '#78909c';
     this.tempLayer.appendChild(svgEl('line', {
       x1, y1, x2, y2, stroke: color, 'stroke-width': '2', 'stroke-dasharray': '8,5',
@@ -1162,7 +1163,30 @@ class Renderer {
     }));
   }
 
-  clearTemp() { this.tempLayer.innerHTML = ''; if (this._marqueeEl) this._marqueeEl = null; }
+  clearTemp() {
+    this.tempLayer.innerHTML = '';
+    this._marqueeEl = null;
+    this._connectHoverEl = null;
+  }
+
+  // Draw (or clear) a dashed ring on a node in the temp layer while a connect
+  // tool is active — shows which node the user is about to connect from/to.
+  setConnectHover(nodeId, type) {
+    // Wipe any previous hover ring (it lives in tempLayer so setTempConn also wipes it,
+    // but we keep a reference so we can remove it cheaply when the tool changes).
+    if (this._connectHoverEl) { this._connectHoverEl.remove(); this._connectHoverEl = null; }
+    if (!nodeId) return;
+    const node = this.diagram.nodes.get(nodeId);
+    if (!node) return;
+    const color = type === ConnectionType.STATE ? '#78909c' : '#ffa726';
+    const r = (NODE_R[node.type] || 32) + 7;
+    this._connectHoverEl = svgEl('circle', {
+      cx: node.x, cy: node.y, r,
+      fill: 'none', stroke: color, 'stroke-width': '2',
+      opacity: '0.7', 'stroke-dasharray': '4,3', 'pointer-events': 'none',
+    });
+    this.tempLayer.appendChild(this._connectHoverEl);
+  }
 
   // ── Marquee (rubber-band) selection rectangle ──────────────────────────────
 
