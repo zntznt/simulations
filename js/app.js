@@ -355,6 +355,8 @@ class App {
       { name: 'F2P Mobile Economy', desc: 'A sprawling free-to-play live-ops loop: energy→levels→Gold/XP, a sqrt level curve gating Elite content, a probabilistic gacha gate, and a DAU/IAP economy.', load: () => this._demoF2P() },
       { name: 'Civilization Empire', desc: 'A 4X economy in one diagram: logistic population, five yields, building converters, and a Science-gated tech tree (irrigation, drama, banking, university).', load: () => this._demoCiv() },
       { name: 'Megafactory Line', desc: 'A 4-tier auto-factory: ore → smelting → components → widgets. A tiny circuit buffer + slow assembly station back the line up — watch the bottleneck.', load: () => this._demoFactory() },
+      { name: 'Business Cycle', desc: 'A full circular-flow macroeconomy — households, firms, banks, government and a central bank. Countercyclical stimulus through a policy lag drives a boom-bust cycle.', load: () => this._demoBusinessCycle() },
+      { name: 'Food Web', desc: 'A four-trophic ecosystem: producers, grazers, carnivores, an apex predator and a nutrient-recycling loop. Ten species lock into coupled, bounded oscillations.', load: () => this._demoFoodWeb() },
     ];
 
     document.getElementById('btn-library').addEventListener('click', () => this._openLibrary());
@@ -1319,6 +1321,154 @@ class App {
       'smelters via an activator (no fuel -> no smelting). The Warehouse PULLS finished '+
       'widgets & frames on demand; Spare Parts is a competing pull on gears. The QC '+
       'Sorter is a probabilistic ~90/10 pass/scrap gate; yieldPct tracks the pass rate.');
+    this.renderer.render();
+  }
+
+  // 9 — BUSINESS CYCLE: a full circular-flow macroeconomy. Household income
+  // splits (gate) into consumption / saving / taxes; firms pay wages back —
+  // a closed money loop the engine conserves. Banks lend (accelerator),
+  // government spends, and a central bank injects countercyclical stimulus
+  // through a 6-step policy lag. The lag makes output overshoot, an inflation
+  // tax cools it, and "animal spirits" Poisson shocks sustain a boom-bust cycle.
+  _demoBusinessCycle() {
+    const b = this._demo();
+    b.d.params = {
+      mpc: 0.60, savRate: 0.22, taxRate: 0.18,   // marginal propensities (sum ~1)
+      wageShare: 0.66,            // labour share of firm revenue
+      loanRatio: 0.28,            // base fraction of deposits lent each step
+      accel: 1.6,                 // accelerator: extra lending when output is below target
+      gTarget: 175,               // central-bank output target (potential GDP)
+      govProp: 0.55,              // fraction of the treasury spent each step
+      cbGain: 3.0, cbCap: 120,    // monetary stimulus = gain*gap, hard-capped
+      inflThresh: 1020, inflCap: 120, inflGain: 0.6,  // inflation tax (overheating leak)
+      exportBase: 12, importProp: 0.06,               // foreign sector
+    };
+    b.d.resourceTypes = [
+      { name: 'Cash', color: '#43a047' }, { name: 'Deposits', color: '#1e88e5' },
+      { name: 'Credit', color: '#8e24aa' }, { name: 'Tax', color: '#fb8c00' },
+      { name: 'Capital', color: '#26a69a' }, { name: 'Bonds', color: '#ec407a' },
+    ];
+
+    // ── Groups ──
+    b.group(120, 110, 980, 600, 'Real Economy — Circular Flow', '#43a047');
+    b.group(120, 760, 1360, 320, 'Banking & Credit', '#1e88e5');
+    b.group(1140, 110, 800, 600, 'Government & Central Bank', '#fb8c00');
+    b.group(1520, 760, 420, 320, 'Foreign Sector', '#26a69a');
+
+    // ── Registers (dashboard row) ──
+    const gdp        = b.node(NodeType.REGISTER, 300, 200, 'gdp',       n => { n.formula = 'cons + inv + gov + nx'; });
+    const moneySupply= b.node(NodeType.REGISTER, 540, 200, 'money',     n => { n.formula = 'hh + fm + dep + tre + wf + ln + gm + iv + stm + go + res'; });
+    const employment = b.node(NodeType.REGISTER, 780, 200, 'employ',    n => { n.formula = 'min(100, round(gdp / 2.2))'; });
+    const confidence = b.node(NodeType.REGISTER, 1020, 200, 'confidence', n => { n.formula = 'max(0, min(100, 50 - gap * 0.25))'; });
+    const gdpGap     = b.node(NodeType.REGISTER, 1240, 200, 'gap',      n => { n.formula = 'gTarget - gdp'; });
+    const inflation  = b.node(NodeType.REGISTER, 1480, 200, 'inflation',n => { n.formula = 'max(0, (money - inflThresh) * inflGain)'; });
+    const policyRate = b.node(NodeType.REGISTER, 1720, 200, 'rate',     n => { n.formula = 'max(0, 1 + inflation * 0.05 - gap * 0.02)'; });
+
+    // ── HOUSEHOLDS / FIRMS (circular flow) ──
+    const households = b.node(NodeType.POOL, 280, 380, 'Households',   n => { n.setCount(240, '#43a047'); n.capacity = 1e7; });
+    const incomeSplit= b.node(NodeType.GATE, 520, 380, 'Income Split', n => { n.gateMode = 'deterministic'; });
+    const goodsMkt   = b.node(NodeType.POOL, 760, 380, 'Goods Market', n => { n.setCount(0, '#43a047');   n.capacity = 1e7; });
+    const production = b.node(NodeType.CONVERTER, 760, 560, 'Production', n => { n.inputAmount = 1; n.outputColor = '#43a047'; });
+    const firms      = b.node(NodeType.POOL, 980, 380, 'Firms',        n => { n.setCount(160, '#43a047'); n.capacity = 1e7; });
+    const wagePool   = b.node(NodeType.POOL, 520, 560, 'Wage Fund',    n => { n.setCount(0, '#43a047');   n.capacity = 1e7; });
+    const capital    = b.node(NodeType.POOL, 980, 560, 'Capital Stock',n => { n.setCount(50, '#26a69a');  n.capacity = 1e7; });
+    const cpiDrain   = b.node(NodeType.DRAIN, 280, 560, 'Inflation Tax');
+
+    // ── BANKING ──
+    const deposits   = b.node(NodeType.POOL, 280, 880, 'Deposits',       n => { n.setCount(90, '#1e88e5'); n.capacity = 1e7; });
+    const reserves   = b.node(NodeType.POOL, 520, 880, 'Bank Reserves',  n => { n.setCount(30, '#1e88e5'); n.capacity = 1e7; });
+    const loans      = b.node(NodeType.POOL, 760, 880, 'Loans',          n => { n.setCount(0, '#8e24aa');  n.capacity = 1e7; });
+    const invLag     = b.node(NodeType.DELAY, 1000, 880, 'Investment Lag', n => { n.delay = 3; });
+    const investment = b.node(NodeType.POOL, 1240, 880, 'Investment',    n => { n.setCount(0, '#8e24aa');  n.capacity = 1e7; });
+
+    // ── GOVERNMENT / CENTRAL BANK ──
+    const treasury   = b.node(NodeType.POOL, 1240, 380, 'Treasury',      n => { n.setCount(60, '#fb8c00'); n.capacity = 1e7; });
+    const govSpend   = b.node(NodeType.POOL, 1480, 380, 'Govt Purchases',n => { n.setCount(0, '#fb8c00');  n.capacity = 1e7; });
+    const bonds      = b.node(NodeType.POOL, 1720, 380, 'Bond Market',   n => { n.setCount(0, '#ec407a');  n.capacity = 1e7; });
+    const centralBank= b.node(NodeType.SOURCE, 1240, 560, 'Central Bank',n => { n.resourceColor = '#43a047'; });
+    const policyLag  = b.node(NodeType.DELAY, 1480, 560, 'Policy Lag',   n => { n.delay = 6; });
+    const stimulus   = b.node(NodeType.POOL, 1720, 560, 'Stimulus',      n => { n.setCount(0, '#43a047');  n.capacity = 1e7; });
+
+    // ── FOREIGN SECTOR ──
+    const rowSrc     = b.node(NodeType.SOURCE, 1600, 840, 'Rest of World', n => { n.resourceColor = '#43a047'; });
+    const exportsP   = b.node(NodeType.POOL, 1600, 980, 'Exports',  n => { n.setCount(0, '#43a047'); n.capacity = 1e7; });
+    const importsD   = b.node(NodeType.DRAIN, 1820, 980, 'Imports');
+    const nx         = b.node(NodeType.REGISTER, 1820, 840, 'nx', n => { n.formula = 'exportBase - round(importProp * hh)'; });
+    const spirits    = b.node(NodeType.SOURCE, 1340, 720, 'Animal Spirits', n => { n.resourceColor = '#8e24aa'; });
+
+    // ── CIRCULAR FLOW: income -> C/S/T; production -> revenue -> wages -> income ──
+    b.res(households, incomeSplit, c => { c.rateMode = RateMode.FORMULA; c.formula = '(mpc + savRate + taxRate) * hh'; c.label = 'income'; });
+    b.res(incomeSplit, goodsMkt,  c => { c.weight = 60; c.label = 'consume (C)'; });
+    b.res(incomeSplit, deposits,  c => { c.weight = 22; c.label = 'save (S)'; });
+    b.res(incomeSplit, treasury,  c => { c.weight = 18; c.label = 'tax (T)'; });
+    b.res(goodsMkt, production,    c => { c.rate = 1e7; c.label = 'demand'; });
+    b.res(production, firms,       c => { c.rate = 1;   c.label = 'output'; });   // 1:1 conversion (conserves money)
+    b.res(firms, wagePool,        c => { c.rateMode = RateMode.FORMULA; c.formula = 'wageShare * fm'; c.label = 'wages'; });
+    b.res(wagePool, households,    c => { c.rate = 1e7; c.label = 'pay'; });
+
+    // ── BANKING: deposits -> loans (accelerator) -> investment lag -> firms; capital builds & depreciates ──
+    b.res(deposits, reserves, c => { c.rateMode = RateMode.FORMULA; c.formula = '0.10 * dep'; c.label = 'reserve req'; });
+    b.res(reserves, deposits, c => { c.rate = 4; c.label = 'reflow'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'gap'; c.condOperator = '<'; c.condValue = 0; });
+    b.res(deposits, loans,    c => { c.rateMode = RateMode.FORMULA; c.formula = 'loanRatio * dep + accel * max(0, gap)'; c.label = 'lend'; });
+    b.res(loans, invLag,      c => { c.rate = 1e7; c.label = 'fund'; });
+    b.res(invLag, investment, c => { c.rate = 1e7; c.label = 'release'; });
+    b.res(investment, firms,  c => { c.rateMode = RateMode.FORMULA; c.formula = '0.7 * iv'; c.label = 'invest (I)'; });
+    b.res(investment, capital,c => { c.rate = 1e7; c.label = 'capex'; });
+    b.st(deposits, deposits,  c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 0.02; c.label = 'interest'; });
+    b.st(capital, capital,    c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -0.06; c.label = 'depreciation'; });
+
+    // ── GOVERNMENT: spend purchases; deficit-finance via bonds when gap>0 ──
+    b.res(treasury, govSpend, c => { c.rateMode = RateMode.FORMULA; c.formula = 'govProp * tre'; c.label = 'budget'; });
+    b.res(govSpend, firms,    c => { c.rate = 1e7; c.label = 'spend (G)'; });
+    b.res(reserves, bonds,    c => { c.rateMode = RateMode.FORMULA; c.formula = 'gap > 0 ? round(gap * 0.06) : 0'; c.label = 'bond sale'; });
+    b.res(bonds, treasury,    c => { c.rate = 1e7; c.label = 'finance'; });
+
+    // ── CENTRAL BANK: countercyclical money creation, capped, through a policy lag (overshoot -> cycle) ──
+    b.res(centralBank, policyLag, c => { c.rateMode = RateMode.FORMULA; c.formula = 'min(cbCap, max(0, gap * cbGain))'; c.label = 'QE'; });
+    b.res(policyLag, stimulus,    c => { c.rate = 1e7; c.label = 'arrive'; });
+    b.res(stimulus, households,   c => { c.rate = 1e7; c.label = 'transfer'; });
+    b.st(gdpGap, centralBank, c => { c.activator = true; c.actOperator = '>'; c.actValue = 0; });   // policy fires only while below target
+
+    // ── ANIMAL SPIRITS: random (Poisson) investment-confidence bursts, likelier in slumps — sustains the cycle ──
+    b.res(spirits, loans, c => { c.rateMode = RateMode.DISTRIBUTION; c.distType = 'poisson'; c.distParam1 = 6; c.label = 'optimism';
+      c.chance = 35; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'confidence'; c.condOperator = '<'; c.condValue = 45; });
+
+    // ── INFLATION TAX: drains household cash when the money supply overheats ──
+    b.res(households, cpiDrain, c => { c.rateMode = RateMode.FORMULA; c.formula = 'min(inflCap, inflation)'; c.label = 'erosion';
+      c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'inflation'; c.condOperator = '>'; c.condValue = 0; });
+
+    // ── FOREIGN SECTOR: exports add demand, imports leak ──
+    b.res(rowSrc, exportsP, c => { c.rateMode = RateMode.FORMULA; c.formula = 'max(0, exportBase)'; c.label = 'X'; });
+    b.res(exportsP, firms,  c => { c.rate = 1e7; c.label = 'sell abroad'; });
+    b.res(households, importsD, c => { c.rateMode = RateMode.FORMULA; c.formula = 'round(importProp * hh)'; c.label = 'M'; });
+
+    // ── STATE PUBLICATIONS (for registers / formula rates) ──
+    b.st(households, gdp, c => { c.variableName = 'hh'; });
+    b.st(firms, moneySupply, c => { c.variableName = 'fm'; });
+    b.st(deposits, gdp, c => { c.variableName = 'dep'; });
+    b.st(reserves, moneySupply, c => { c.variableName = 'res'; });
+    b.st(treasury, gdp, c => { c.variableName = 'tre'; });
+    b.st(wagePool, moneySupply, c => { c.variableName = 'wf'; });
+    b.st(loans, moneySupply, c => { c.variableName = 'ln'; });
+    b.st(goodsMkt, gdp, c => { c.variableName = 'cons'; });
+    b.st(goodsMkt, moneySupply, c => { c.variableName = 'gm'; });
+    b.st(investment, gdp, c => { c.variableName = 'inv'; });
+    b.st(investment, moneySupply, c => { c.variableName = 'iv'; });
+    b.st(govSpend, gdp, c => { c.variableName = 'gov'; });
+    b.st(govSpend, moneySupply, c => { c.variableName = 'go'; });
+    b.st(stimulus, moneySupply, c => { c.variableName = 'stm'; });
+    b.st(nx, gdp, c => { c.variableName = 'nx'; });
+
+    // ── CHARTS & NOTES ──
+    b.chart(1140, 790, 360, 270, 'GDP · Money · Employment', [gdp.id, moneySupply.id, employment.id]);
+    b.note(140, 130, 300, 150,
+      'CIRCULAR FLOW. Household income splits at the gate into Consumption (C -> firms), ' +
+      'Saving (S -> banks) and Taxes (T -> treasury). Firms pay Wages back to households — ' +
+      'a closed loop that conserves money exactly.');
+    b.note(1560, 130, 350, 150,
+      'BUSINESS CYCLE. When GDP dips below target the Central Bank injects money (QE) ' +
+      'through a 6-step Policy Lag, while banks lend more (accelerator). The lag makes ' +
+      'output OVERSHOOT, then an inflation tax cools it — a self-sustaining cycle.');
     this.renderer.render();
   }
   // ── Controls ──────────────────────────────────────────────────────────────
