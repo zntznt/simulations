@@ -352,6 +352,8 @@ class App {
       { name: 'Supply Chain', desc: 'A 2:1 smelter and a shipping delay — pipeline latency, then steady output.', load: () => this._demoSupplyChain() },
       { name: 'Barter Economy', desc: 'Two towns swap grain for timber through a Trader; watch the colours mix.', load: () => this._demoTradeNetwork() },
       { name: 'Service Desk', desc: 'A single-server queue with random arrivals — the line builds and clears.', load: () => this._demoQueue() },
+      { name: 'F2P Mobile Economy', desc: 'A sprawling free-to-play live-ops loop: energy→levels→Gold/XP, a sqrt level curve gating Elite content, a probabilistic gacha gate, and a DAU/IAP economy.', load: () => this._demoF2P() },
+      { name: 'Civilization Empire', desc: 'A 4X economy in one diagram: logistic population, five yields, building converters, and a Science-gated tech tree (irrigation, drama, banking, university).', load: () => this._demoCiv() },
     ];
 
     document.getElementById('btn-library').addEventListener('click', () => this._openLibrary());
@@ -818,6 +820,321 @@ class App {
     this.renderer.render();
   }
 
+  // 6 — F2P MOBILE GAME ECONOMY: a full free-to-play live-ops loop. Energy
+  // regenerates and is spent to clear levels (minting Gold + XP); a sqrt level
+  // curve gates Elite content via an activator; a probabilistic gacha gate
+  // splits loot boxes into rarity tiers; DAU is a birth-death process feeding
+  // an IAP gem faucet. Faucets and sinks self-balance into clean limit cycles.
+  _demoF2P() {
+    const b = this._demo();
+    b.d.params = {
+      regenRate: 5,        // energy regenerated per step
+      goldPerWin: 16,      // soft currency minted per level cleared
+      xpPerWin: 11,        // xp minted per level cleared
+      payerRate: 6,        // payers per 1000 DAU per step (IAP conversion)
+      installRate: 70,     // gross new installs per acquisition pulse
+      churnRate: 0.028,    // fraction of DAU that churns each step
+    };
+
+    // Resource palette — one distinct colour per economy type.
+    const C_ENERGY='#42a5f5', C_GOLD='#fdd835', C_GEM='#ab47bc', C_XP='#26c6da';
+    const C_COMMON='#90a4ae', C_RARE='#29b6f6', C_EPIC='#ba68c8', C_LEG='#ffa726';
+    const C_WIN='#66bb6a', C_GEAR='#7e57c2', C_PLAYER='#26a69a', C_PASS='#ec407a';
+    b.d.resourceTypes = [
+      {name:'Energy',color:C_ENERGY},{name:'Gold',color:C_GOLD},{name:'Gems',color:C_GEM},
+      {name:'XP',color:C_XP},{name:'Common',color:C_COMMON},{name:'Rare',color:C_RARE},
+      {name:'Epic',color:C_EPIC},{name:'Legendary',color:C_LEG},{name:'Players',color:C_PLAYER},
+    ];
+
+    // ── GROUPS ────────────────────────────────────────────────────────────────
+    b.group(60,   60, 900, 480, 'Core Gameplay Loop',        '#42a5f5');
+    b.group(60,  580, 900, 420, 'Gacha / Loot Boxes',        '#ab47bc');
+    b.group(1000, 60, 860, 480, 'Progression & Content',     '#26c6da');
+    b.group(1000,580, 860, 420, 'Economy · Retention · IAP', '#fdd835');
+
+    // ── CORE GAMEPLAY LOOP ──────────────────────────────────────────────────────
+    // Energy regenerates over time and is spent to clear levels. Watch-an-ad gives a
+    // stochastic energy refill (dice + chance) on top of passive regen.
+    const regen  = b.node(NodeType.SOURCE,    110, 170, 'Stamina Regen', n=>{ n.resourceColor=C_ENERGY; });
+    const adWatch= b.node(NodeType.SOURCE,    110, 320, 'Watch Ad',      n=>{ n.resourceColor=C_ENERGY; });
+    const energy = b.node(NodeType.POOL,      330, 170, 'Energy', n=>{ n.setCount(40, C_ENERGY); n.capacity=40; });
+    const play   = b.node(NodeType.CONVERTER, 540, 170, 'Play Level', n=>{ n.inputAmount=6; n.outputColor=C_WIN; });
+    const wins   = b.node(NodeType.POOL,      760, 170, 'Levels Cleared', n=>{ n.capacity=999999; });
+
+    b.res(regen,  energy, c=>{ c.rateMode=RateMode.FORMULA; c.formula='regenRate'; c.label='+regen'; });
+    b.res(adWatch,energy, c=>{ c.rateMode=RateMode.DICE; c.dice='1d6'; c.chance=40; c.label='ad 1d6 @40%'; });
+    b.res(energy, play,   c=>{ c.rate=6; c.label='6 energy'; });
+    b.res(play,   wins,   c=>{ c.rate=1; c.label='clear'; });
+
+    // Faucets: each cleared level mints Gold + XP (delta modifiers off the win count).
+    const gold = b.node(NodeType.POOL, 330, 360, 'Gold', n=>{ n.setCount(80, C_GOLD); n.capacity=999999; });
+    const xp   = b.node(NodeType.POOL, 760, 360, 'XP',   n=>{ n.setCount(0,  C_XP);   n.capacity=999999; });
+    b.st(wins, gold, c=>{ c.modifier=true; c.modMode='delta'; c.modFormula='goldPerWin'; c.label='+gold/win'; });
+    b.st(wins, xp,   c=>{ c.modifier=true; c.modMode='delta'; c.modFormula='xpPerWin';   c.label='+xp/win'; });
+
+    // Win-streak register (informational): each win adds, drives nothing harmful.
+    const streak = b.node(NodeType.REGISTER, 560, 360, 'streak', n=>{ n.formula='min(20, floor(winCount/3))'; });
+    b.st(wins, streak, c=>{ c.variableName='winCount'; c.label='winCount'; });
+
+    // ── PROGRESSION & CONTENT ───────────────────────────────────────────────────
+    // XP → Level on a rising sqrt curve. Level gates Elite content via an activator.
+    const level = b.node(NodeType.REGISTER, 1080, 160, 'level', n=>{ n.formula='floor( sqrt(xpTotal / 60) ) + 1'; });
+    b.st(xp, level, c=>{ c.variableName='xpTotal'; c.label='xpTotal'; });
+
+    // Account power: derived from rarity holdings + gear (the strength meta-metric).
+    const power = b.node(NodeType.REGISTER, 1320, 160, 'power',
+      n=>{ n.formula='cCommon + cRare*4 + cEpic*16 + cLeg*64 + gearTiers*40 + eliteHeld*8'; });
+
+    // Elite content unlocks at level >= 4: energy spills into an Elite reserve, a
+    // gated Elite converter mints high-tier loot.
+    const eliteEnergy = b.node(NodeType.POOL,      1080, 320, 'Elite Energy', n=>{ n.setCount(0,C_ENERGY); n.capacity=60; });
+    const eliteRun    = b.node(NodeType.CONVERTER, 1320, 320, 'Elite Stage',  n=>{ n.inputAmount=8; n.outputColor=C_LEG; });
+    const eliteLoot   = b.node(NodeType.POOL,      1560, 320, 'Elite Loot',   n=>{ n.capacity=999999; });
+    b.res(energy, eliteEnergy, c=>{ c.rate=3; c.condEnabled=true; c.condRefMode='variable'; c.condVariable='level'; c.condOperator='>='; c.condValue=4; c.label='if Lv>=4'; });
+    b.res(eliteEnergy, eliteRun, c=>{ c.rate=8; c.label='8 energy'; });
+    b.res(eliteRun,    eliteLoot,c=>{ c.rate=2; c.label='elite loot'; });
+    b.st(level, eliteRun, c=>{ c.activator=true; c.actOperator='>='; c.actValue=4; c.label='Lv>=4'; });
+    b.st(eliteLoot, power, c=>{ c.variableName='eliteHeld'; c.label='eliteHeld'; });
+
+    // Battle Pass: every win contributes XP to a pass tier (capped register).
+    const passXP  = b.node(NodeType.POOL,      1080, 460, 'Pass XP', n=>{ n.setCount(0,C_PASS); n.capacity=999999; });
+    const passTier= b.node(NodeType.REGISTER,  1320, 460, 'passTier', n=>{ n.formula='min(30, floor(passPts/40))'; });
+    b.st(wins, passXP, c=>{ c.modifier=true; c.modMode='delta'; c.modFactor=10; c.label='+10/win'; });
+    b.st(passXP, passTier, c=>{ c.variableName='passPts'; c.label='passPts'; });
+
+    // ── GACHA / LOOT BOXES ──────────────────────────────────────────────────────
+    // Gems buy pull tickets; a box-open DELAY then a probabilistic GATE split each
+    // box into rarity tiers (70/22/7/1%).
+    const gems     = b.node(NodeType.POOL,  110, 690, 'Gems', n=>{ n.setCount(50, C_GEM); n.capacity=9999; });
+    const pullBuf  = b.node(NodeType.POOL,  300, 690, 'Pull Tickets', n=>{ n.setCount(0, C_COMMON); n.capacity=400; });
+    const openBox  = b.node(NodeType.DELAY, 480, 690, 'Open Box', n=>{ n.delay=2; });
+    const pullGate = b.node(NodeType.GATE,  650, 690, 'Rarity Roll', n=>{ n.gateMode='probabilistic'; });
+    b.res(gems,    pullBuf, c=>{ c.rate=2; c.label='spend gems'; });
+    b.res(pullBuf, openBox, c=>{ c.rate=2; c.label='open'; });
+    b.res(openBox, pullGate,c=>{ c.rate=4; c.label='roll'; });
+
+    const common = b.node(NodeType.POOL, 820, 610, 'Common',    n=>{ n.capacity=999999; });
+    const rare   = b.node(NodeType.POOL, 820, 690, 'Rare',      n=>{ n.capacity=999999; });
+    const epic   = b.node(NodeType.POOL, 820, 770, 'Epic',      n=>{ n.capacity=999999; });
+    const legend = b.node(NodeType.POOL, 820, 900, 'Legendary', n=>{ n.setCount(0,C_LEG); n.capacity=999999; });
+    b.res(pullGate, common, c=>{ c.weight=70; c.label='70%'; });
+    b.res(pullGate, rare,   c=>{ c.weight=22; c.label='22%'; });
+    b.res(pullGate, epic,   c=>{ c.weight=7;  c.label='7%'; });
+    b.res(pullGate, legend, c=>{ c.weight=1;  c.label='1%'; });
+
+    // Publish rarity holdings to the power register.
+    b.st(common, power, c=>{ c.variableName='cCommon'; c.label='cCommon'; });
+    b.st(rare,   power, c=>{ c.variableName='cRare';   c.label='cRare'; });
+    b.st(epic,   power, c=>{ c.variableName='cEpic';   c.label='cEpic'; });
+    b.st(legend, power, c=>{ c.variableName='cLeg';    c.label='cLeg'; });
+
+    // Dust sink: duplicate Commons get salvaged (a drain) once a stockpile builds.
+    const dust = b.node(NodeType.DRAIN, 560, 900, 'Salvage Dust');
+    b.res(common, dust, c=>{ c.rate=2; c.condEnabled=true; c.condOperator='>'; c.condValue=40; c.label='if Common>40'; });
+
+    // ── ECONOMY · RETENTION · IAP ────────────────────────────────────────────────
+    // Gold sink: a crafting converter spends gold into Gear Tiers (account power).
+    const craft = b.node(NodeType.CONVERTER, 1060, 690, 'Crafting', n=>{ n.inputAmount=24; n.outputColor=C_GEAR; });
+    const gear  = b.node(NodeType.POOL,      1260, 690, 'Gear Tiers', n=>{ n.setCount(0,C_GEAR); n.capacity=999; });
+    b.res(gold,  craft, c=>{ c.rate=24; c.condEnabled=true; c.condOperator='>='; c.condValue=120; c.label='if gold>=120'; });
+    b.res(craft, gear,  c=>{ c.rate=1; c.label='+gear'; });
+    b.st(gear, power, c=>{ c.variableName='gearTiers'; c.label='gearTiers'; });
+
+    // Active players (DAU) as a birth–death process: new installs pulse in (scaled
+    // by content depth = level), churn drains a fraction each step → it stabilises.
+    const installs = b.node(NodeType.SOURCE, 1060, 840, 'New Installs', n=>{ n.resourceColor=C_PLAYER; });
+    const dau      = b.node(NodeType.POOL,   1280, 840, 'Active Players', n=>{ n.setCount(700,C_PLAYER); n.capacity=8000; });
+    const churn    = b.node(NodeType.DRAIN,  1500, 840, 'Churned');
+    b.res(installs, dau, c=>{ c.rateMode=RateMode.FORMULA; c.formula='round(installRate * (1 + level/6))'; c.interval=3; c.label='installs'; });
+    b.res(dau, churn, c=>{ c.flowMode='push'; c.rateMode=RateMode.FORMULA; c.formula='round(dauVal * churnRate)'; c.label='churn'; });
+    b.st(dau, dau, c=>{ c.variableName='dauVal'; c.label='dauVal'; });
+
+    // IAP: a small % of DAU convert and pay → buy Gems (faucet scaled by DAU).
+    const iap = b.node(NodeType.SOURCE, 1560, 690, 'IAP Shop', n=>{ n.resourceColor=C_GEM; });
+    b.res(iap, gems, c=>{ c.rateMode=RateMode.FORMULA; c.formula='round(dauVal * payerRate / 1000)'; c.label='IAP gems'; });
+
+    // Whale sink: high spenders burn surplus gems on cosmetics (a self-regulating
+    // formula drain), keeping gems cycling around a setpoint instead of exploding.
+    const skins = b.node(NodeType.DRAIN, 110, 840, 'Cosmetic Skins');
+    b.res(gems, skins, c=>{ c.rateMode=RateMode.FORMULA; c.formula='round((gemBal-30) * 0.5)'; c.condEnabled=true; c.condRefMode='variable'; c.condVariable='gemBal'; c.condOperator='>'; c.condValue=30; c.label='whale spend'; });
+    b.st(gems, skins, c=>{ c.variableName='gemBal'; c.label='gemBal'; });
+
+    // Daily login retention pulse: returning players top up gems.
+    const login = b.node(NodeType.SOURCE, 300, 840, 'Daily Login', n=>{ n.resourceColor=C_GEM; });
+    b.res(login, gems,  c=>{ c.rate=10; c.interval=7; c.label='login +10 gems'; });
+
+    // ── CHARTS & NOTES ──────────────────────────────────────────────────────────
+    b.chart(110, 420, 420, 110, 'Energy · Gold · XP', [energy.id, gold.id, xp.id]);
+    b.chart(560, 610, 240, 100, 'Rarity drops', [common.id, rare.id, epic.id, legend.id]);
+    b.chart(1620, 60, 220, 200, 'Power · DAU · Level', [power.id, dau.id, level.id]);
+    b.chart(1480, 460, 360, 70, 'Gems · Gear', [gems.id, gear.id]);
+
+    b.note(560, 80, 380, 75,
+      'A full free-to-play live-ops economy. Energy regenerates (plus stochastic ' +
+      'Watch-Ad refills) and is spent to clear levels, minting Gold and XP.');
+    b.note(1080, 80, 470, 60,
+      'XP raises Level on a rising sqrt curve; Level >= 4 unlocks the Elite Stage ' +
+      '(activator). Power aggregates rarity + gear + elite holdings.');
+    b.note(110, 920, 420, 60,
+      'Gems buy pulls; the box-open Delay + probabilistic Rarity Gate split each box ' +
+      '70/22/7/1%. Surplus Commons salvage to Dust; gems also fund cosmetics.');
+    b.note(1080, 920, 470, 60,
+      'DAU is a birth-death process: installs pulse in (scaled by Level), churn ' +
+      'drains a fraction each step. A % of DAU pays IAP, faucetting Gems.');
+    this.renderer.render();
+  }
+
+  // 7 — CIVILIZATION EMPIRE: a 4X economy in one diagram. Food sets a carrying
+  // capacity; Population grows logistically toward it (throttled by Happiness).
+  // Production builds Granaries/Libraries/Markets/Theaters; accumulated Science
+  // trips four tech activators in sequence (irrigation, drama, banking,
+  // university), each compounding a yield. Theaters stay locked until Drama.
+  _demoCiv() {
+    const b = this._demo();
+    // ───────────────────────── COLOURS & RESOURCE TYPES ─────────────────────────
+    const C = { food:'#7cb342', prod:'#ff8a3d', gold:'#fdd835', sci:'#42a5f5', cult:'#ab47bc', pop:'#e0e0e0' };
+    b.d.resourceTypes = [
+      { name:'Food', color:C.food }, { name:'Production', color:C.prod },
+      { name:'Gold', color:C.gold }, { name:'Science', color:C.sci },
+      { name:'Culture', color:C.cult }, { name:'Citizens', color:C.pop },
+    ];
+    // Tunable empire constants (edit live in the Parameters panel).
+    b.d.params = {
+      growthK: 0.12,      // logistic birth coefficient
+      famine: 0.18,       // starvation decay coefficient
+      foodPerPop: 2,      // food each citizen eats / step
+      techFarm: 110,      // Science to unlock Irrigation
+      techDramaT: 320,    // Science to unlock Drama (enables Theaters)
+      techBank: 1200,     // Science to unlock Banking
+      techUni: 3500,      // Science to unlock University
+      happyBase: 14,      // baseline happiness
+    };
+
+    // ───────────────────────── GROUPS ─────────────────────────
+    b.group(120,  60, 760, 250, 'Population & Food',  '#7cb342');
+    b.group(120, 340, 760, 360, 'Yields & Buildings', '#ff8a3d');
+    b.group(920,  60, 540, 320, 'Tech Tree',          '#42a5f5');
+    b.group(920, 410, 540, 300, 'Treasury & Culture', '#fdd835');
+
+    // ───────────────────────── POPULATION (logistic) ─────────────────────────
+    // Food surplus sets the carrying capacity the land can feed.
+    const carry = b.node(NodeType.REGISTER, 470, 120, 'capacity',
+      n => { n.formula = 'max(4, round(foodStock / foodPerPop) + 4)'; });
+    // Logistic births — grow toward capacity, gated off when happiness <= 0.
+    const births = b.node(NodeType.REGISTER, 660, 120, 'births',
+      n => { n.formula = 'happy > 0 ? round(growthK * pop * (1 - pop/capacity)) : 0'; });
+    // Famine deaths when the granary store is empty.
+    const deaths = b.node(NodeType.REGISTER, 660, 215, 'deaths',
+      n => { n.formula = 'foodStock <= 0 ? max(1, round(famine * pop)) : 0'; });
+
+    const population = b.node(NodeType.POOL, 300, 170, 'Population',
+      n => { n.setCount(6, C.pop); n.capacity = 400; });
+    const foodStore = b.node(NodeType.POOL, 300, 250, 'Granary Store',
+      n => { n.setCount(10, C.food); n.capacity = 300; });
+
+    b.st(population, carry,  c => { c.variableName = 'pop'; });
+    b.st(foodStore,  carry,  c => { c.variableName = 'foodStock'; });
+    b.st(births, population, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor =  1; c.label = 'Δ grow'; });
+    b.st(deaths, population, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -1; c.label = 'Δ famine'; });
+
+    // ───────────────────────── FOOD ECONOMY ─────────────────────────
+    const farmland = b.node(NodeType.SOURCE, 150, 200, 'Farmland', n => { n.resourceColor = C.food; });
+    // Harvest scales with workers; Irrigation tech adds a big multiplier.
+    const foodYield = b.node(NodeType.REGISTER, 150, 285, 'foodYield',
+      n => { n.formula = 'round(pop * 1.4) + irrigation * round(pop * 0.8) + 4'; });
+    b.res(farmland, foodStore, c => { c.rateMode = RateMode.FORMULA; c.formula = 'foodYield'; c.label = 'harvest'; });
+    const eat = b.node(NodeType.DRAIN, 470, 250, 'Consumption');
+    b.res(foodStore, eat, c => { c.rateMode = RateMode.FORMULA; c.formula = 'round(pop * foodPerPop)'; c.label = 'eat'; });
+
+    // ───────────────────────── PRODUCTION (hammers) ─────────────────────────
+    const workshop = b.node(NodeType.SOURCE, 150, 400, 'Workshops', n => { n.resourceColor = C.prod; });
+    const prodYield = b.node(NodeType.REGISTER, 150, 485, 'prodYield', n => { n.formula = 'round(pop * 1.0) + 2'; });
+    const hammers = b.node(NodeType.POOL, 320, 430, 'Production', n => { n.setCount(0, C.prod); n.capacity = 60; });
+    b.res(workshop, hammers, c => { c.rateMode = RateMode.FORMULA; c.formula = 'prodYield'; c.label = 'hammers'; });
+
+    // BUILDINGS — converters that turn Production into building levels. Each hammer
+    // feed is GATED by a condition on its level variable so it stops pushing once
+    // the line is maxed (no useless pile-up in the converter).
+    const buildGranary = b.node(NodeType.CONVERTER, 500, 400, 'Build Granary', n => { n.inputAmount = 14; n.outputColor = C.food; });
+    const granaryLvl   = b.node(NodeType.POOL,      660, 400, 'Granaries',     n => { n.setCount(0, C.food); n.capacity = 5; });
+    b.res(hammers, buildGranary, c => { c.rate = 4; c.label = '4 hammers'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'granaries'; c.condOperator = '<'; c.condValue = 5; });
+    b.res(buildGranary, granaryLvl, c => { c.rate = 1; });
+
+    const buildLibrary = b.node(NodeType.CONVERTER, 500, 470, 'Build Library', n => { n.inputAmount = 18; n.outputColor = C.sci; });
+    const libraryLvl   = b.node(NodeType.POOL,      660, 470, 'Libraries',     n => { n.setCount(0, C.sci); n.capacity = 5; });
+    b.res(hammers, buildLibrary, c => { c.rate = 3; c.label = '3 hammers'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'libraries'; c.condOperator = '<'; c.condValue = 5; });
+    b.res(buildLibrary, libraryLvl, c => { c.rate = 1; });
+
+    const buildMarket = b.node(NodeType.CONVERTER, 500, 540, 'Build Market', n => { n.inputAmount = 16; n.outputColor = C.gold; });
+    const marketLvl   = b.node(NodeType.POOL,      660, 540, 'Markets',      n => { n.setCount(0, C.gold); n.capacity = 5; });
+    b.res(hammers, buildMarket, c => { c.rate = 3; c.label = '3 hammers'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'markets'; c.condOperator = '<'; c.condValue = 5; });
+    b.res(buildMarket, marketLvl, c => { c.rate = 1; });
+
+    // Theaters: gated TWICE — a level cap condition AND a Drama-tech activator.
+    const buildTheater = b.node(NodeType.CONVERTER, 500, 610, 'Build Theater', n => { n.inputAmount = 20; n.outputColor = C.cult; });
+    const theaterLvl   = b.node(NodeType.POOL,      660, 610, 'Theaters',      n => { n.setCount(0, C.cult); n.capacity = 5; });
+    b.res(hammers, buildTheater, c => { c.rate = 2; c.label = '2 hammers'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'theaters'; c.condOperator = '<'; c.condValue = 5; });
+    b.res(buildTheater, theaterLvl, c => { c.rate = 1; });
+
+    // Publish building levels for the yield formulas.
+    b.st(granaryLvl, foodYield, c => { c.variableName = 'granaries'; });
+    b.st(libraryLvl, foodYield, c => { c.variableName = 'libraries'; });
+    b.st(marketLvl,  foodYield, c => { c.variableName = 'markets'; });
+    b.st(theaterLvl, foodYield, c => { c.variableName = 'theaters'; });
+
+    // ───────────────────────── SCIENCE & TECH TREE ─────────────────────────
+    const sciSource = b.node(NodeType.SOURCE, 980, 110, 'Scholars', n => { n.resourceColor = C.sci; });
+    // Science output rises with population & libraries; University tech adds a big bonus.
+    const sciRate = b.node(NodeType.REGISTER, 980, 195, 'science_rate',
+      n => { n.formula = 'round(pop * 0.6) + libraries * 3 + university * round(pop*0.5) + 1'; });
+    const research = b.node(NodeType.POOL, 1150, 150, 'Research', n => { n.setCount(0, C.sci); n.capacity = 100000; });
+    b.res(sciSource, research, c => { c.rateMode = RateMode.FORMULA; c.formula = 'science_rate'; c.label = 'science'; });
+    b.st(research, sciRate, c => { c.variableName = 'sciTotal'; });
+
+    // Four techs flip from 0->1 as accumulated Research crosses each threshold.
+    const techIrrigation = b.node(NodeType.REGISTER, 1320, 100, 'irrigation', n => { n.formula = 'sciTotal >= techFarm ? 1 : 0'; });
+    const techDrama      = b.node(NodeType.REGISTER, 1320, 175, 'drama',      n => { n.formula = 'sciTotal >= techDramaT ? 1 : 0'; });
+    const techBanking    = b.node(NodeType.REGISTER, 1320, 250, 'banking',    n => { n.formula = 'sciTotal >= techBank ? 1 : 0'; });
+    const techUniversity = b.node(NodeType.REGISTER, 1320, 325, 'university', n => { n.formula = 'sciTotal >= techUni ? 1 : 0'; });
+
+    // ───────────────────────── GOLD & TREASURY ─────────────────────────
+    const mint = b.node(NodeType.SOURCE, 980, 460, 'Trade', n => { n.resourceColor = C.gold; });
+    // Income from population & markets; Banking tech compounds market income.
+    const goldRate = b.node(NodeType.REGISTER, 980, 545, 'goldRate',
+      n => { n.formula = 'round(pop * 0.5) + markets * 4 + banking * markets * 3 + 2'; });
+    const treasury = b.node(NodeType.POOL, 1150, 490, 'Treasury', n => { n.setCount(20, C.gold); n.capacity = 600; });
+    b.res(mint, treasury, c => { c.rateMode = RateMode.FORMULA; c.formula = 'goldRate'; c.label = 'income'; });
+    const upkeep = b.node(NodeType.DRAIN, 1320, 490, 'Upkeep');
+    b.res(treasury, upkeep, c => { c.rateMode = RateMode.FORMULA; c.formula = 'round(pop * 0.3) + granaries + libraries + markets + theaters'; c.label = 'upkeep'; });
+    b.st(treasury, goldRate, c => { c.variableName = 'gold'; });
+
+    // ───────────────────────── CULTURE & HAPPINESS ─────────────────────────
+    const cultSource = b.node(NodeType.SOURCE, 980, 620, 'Artisans', n => { n.resourceColor = C.cult; });
+    const cultRate = b.node(NodeType.REGISTER, 980, 685, 'cultRate', n => { n.formula = 'theaters * 3 + round(pop*0.2) + 1'; });
+    const culture = b.node(NodeType.POOL, 1150, 640, 'Culture', n => { n.setCount(0, C.cult); n.capacity = 100000; });
+    b.res(cultSource, culture, c => { c.rateMode = RateMode.FORMULA; c.formula = 'cultRate'; c.label = 'culture'; });
+
+    // Happiness: base + theaters + food surplus − crowding. Throttles births.
+    const happiness = b.node(NodeType.REGISTER, 470, 215, 'happy',
+      n => { n.formula = 'happyBase + theaters*3 + (foodStock > pop ? 4 : 0) - round(pop * 0.18)'; });
+
+    // TECH ACTIVATOR: amphitheaters cannot be built until Drama is researched.
+    b.st(techDrama, buildTheater, c => { c.activator = true; c.actOperator = '>='; c.actValue = 1; c.label = '⊢ drama'; });
+
+    // ───────────────────────── CHARTS & NOTES ─────────────────────────
+    b.chart(150, 470, 320, 200, 'Empire — Population · Food · Culture', [population.id, foodStore.id, culture.id]);
+    b.chart(920, 730, 540, 175, 'Tech unlocks (0->1): Irrigation · Drama · Banking · University',
+      [techIrrigation.id, techDrama.id, techBanking.id, techUniversity.id]);
+    b.note(120, 720, 480, 120,
+      'A turn-based empire as one living economy. Food sets the carrying capacity; ' +
+      'Population grows LOGISTICALLY toward it and stalls when Happiness runs out. ' +
+      'Production builds Granaries, Libraries, Markets and Theaters — each boosting a yield.');
+    b.note(620, 720, 280, 120,
+      'Research accumulates and trips four TECH ACTIVATORS in sequence. Irrigation ' +
+      'lifts farms; Drama unlocks Theaters; Banking compounds gold; University ' +
+      'multiplies science. Watch the S-curve and the tech steps in the charts.');
+    this.renderer.render();
+  }
   // ── Controls ──────────────────────────────────────────────────────────────
 
   _bindControls() {
