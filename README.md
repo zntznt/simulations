@@ -193,11 +193,26 @@ to the CLI.
 Each is a self-contained systems model with emergent behaviour, shipped with an
 explanatory note and an on-canvas chart. Open the **Library** to load one.
 
+### Concept demos — one idea each, easy to read
+
 - **Predator & Prey** — coupled populations settle into a stable limit cycle (foxes peak just after rabbits). Logistic growth via a register, predation via a formula rate, starvation via a self-modifier.
 - **Epidemic (SIR)** — the textbook outbreak curve; infections crest exactly as the effective reproduction number Rₑ falls through 1, and the run halts when the outbreak fades.
 - **Supply Chain** — ore smelted 2:1 into ingots and shipped through a 3-step delay; nothing sells until the pipeline fills, then output holds steady. Speed up the mine to create a bottleneck.
 - **Barter Economy** — two towns swap grain for timber through a Trader (an atomic 2-for-2 exchange); each storehouse ends up holding both colours.
 - **Service Desk** — a single-server queue with random (Poisson) arrivals; the line builds and clears — the M/D/1 queue behind every checkout.
+
+### Sprawling demos — full systems at machinations.io scale
+
+Each is a large (~30–37 node), multi-subsystem model that exercises nearly every
+engine feature at once, designed by a panel of domain experts and tuned to
+produce rich, non-degenerate dynamics. Open the **Timeline** and press **Run**.
+
+- **F2P Mobile Economy** (32 nodes) — a free-to-play live-ops loop: energy regen → play levels → Gold/XP faucets, a sqrt XP→level curve gating an Elite stage via an activator, a probabilistic gacha gate (70/22/7/1% rarity), a battle pass, a gold→gear crafting sink, and a DAU birth-death process feeding an IAP gem faucet. Faucets and sinks self-balance into limit cycles.
+- **Civilization Empire** (34 nodes) — a 4X economy: logistic population bounded by a food-determined carrying capacity and throttled by happiness; five yields (food/production/gold/science/culture); buildings as converters; and a Science-accumulation tech tree that trips four activators in sequence (irrigation, drama, banking, university), each compounding a yield. Theaters stay locked until Drama unlocks.
+- **Megafactory Line** (35 nodes) — a 4-tier automated factory (extraction → smelting → components → assembly/shipping) with finite ore, belt delays, a serial assembly queue, a probabilistic QC gate and pull-mode dispatch. A deliberately undersized circuit buffer drained by a slow station creates classic capacity back-pressure.
+- **Business Cycle** (31 nodes) — a circular-flow macroeconomy: households↔firms money circulation, a gate splitting income into consume/save/tax, banking with interest and an accelerator, government deficit spending, and countercyclical central-bank stimulus through a policy lag that makes output overshoot — a self-sustaining boom-bust cycle.
+- **Food Web** (29 nodes) — a four-trophic ecosystem: seasonal sunlight and recycled nutrients feed logistic producers; three grazers, two carnivores and an apex predator couple through Lotka-Volterra predation; a decomposer loop closes the nutrient cycle. Ten species lock into coupled, bounded oscillations.
+- **Auction Economy** (37 nodes) — a player-driven MMO virtual economy: three gathering→refining chains (with a Forge delay and a Brew queue), a tier-2 toolsmith, an auction house built on Traders, and scarcity-driven price registers feeding price-elastic demand. Stocks and prices oscillate around a balanced gold faucet/sink loop. Exercises all nine node types.
 
 ---
 

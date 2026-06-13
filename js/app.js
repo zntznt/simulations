@@ -357,6 +357,7 @@ class App {
       { name: 'Megafactory Line', desc: 'A 4-tier auto-factory: ore → smelting → components → widgets. A tiny circuit buffer + slow assembly station back the line up — watch the bottleneck.', load: () => this._demoFactory() },
       { name: 'Business Cycle', desc: 'A full circular-flow macroeconomy — households, firms, banks, government and a central bank. Countercyclical stimulus through a policy lag drives a boom-bust cycle.', load: () => this._demoBusinessCycle() },
       { name: 'Food Web', desc: 'A four-trophic ecosystem: producers, grazers, carnivores, an apex predator and a nutrient-recycling loop. Ten species lock into coupled, bounded oscillations.', load: () => this._demoFoodWeb() },
+      { name: 'Auction Economy', desc: 'A player-driven MMO economy: gather, refine and craft goods, then watch the auction house prices and stocks oscillate as supply meets price-elastic demand.', load: () => this._demoAuction() },
     ];
 
     document.getElementById('btn-library').addEventListener('click', () => this._openLibrary());
@@ -1469,6 +1470,419 @@ class App {
       'BUSINESS CYCLE. When GDP dips below target the Central Bank injects money (QE) ' +
       'through a 6-step Policy Lag, while banks lend more (accelerator). The lag makes ' +
       'output OVERSHOOT, then an inflation tax cools it — a self-sustaining cycle.');
+    this.renderer.render();
+  }
+
+  // 10 — FOOD WEB: a four-trophic ecosystem in one diagram. Seasonal sunlight +
+  // recycled nutrients feed two producers (logistic, nutrient-limited); three
+  // grazers and a detritivore eat the base; two carnivores hunt them; Hawks are
+  // the apex; a decomposer loop returns dead biomass to nutrients. Predation is
+  // Lotka-Volterra formula rates; growth/death are register+modifier pairs. With
+  // no goal set, all ten populations settle into coupled, bounded oscillations.
+  _demoFoodWeb() {
+    const b = this._demo();
+    b.d.resourceTypes = [
+      { name: 'Sunlight', color: '#ffd54f' },
+      { name: 'Nutrients', color: '#8d6e63' },
+      { name: 'Detritus', color: '#795548' },
+      { name: 'Grass', color: '#66bb6a' },
+      { name: 'Algae', color: '#26c6da' },
+      { name: 'Rabbits', color: '#ffb74d' },
+      { name: 'Insects', color: '#9ccc65' },
+      { name: 'Zooplankton', color: '#4dd0e1' },
+      { name: 'Worms', color: '#a1887f' },
+      { name: 'Foxes', color: '#ef5350' },
+      { name: 'Birds', color: '#5c6bc0' },
+      { name: 'Hawks', color: '#ab47bc' },
+    ];
+
+    b.d.params = {
+      // producer logistic growth
+      grassGrow: 0.28, grassCap: 600,
+      algaeGrow: 0.30, algaeCap: 500,
+      // grazing coefficients (herbivore eats producer)
+      grazeR: 0.0013, grazeI: 0.0013, grazeZ: 0.0018,
+      // herbivore assimilation efficiency (grazed biomass -> births)
+      effR: 0.50, effI: 0.60, effZ: 0.52,
+      // herbivore baseline mortality
+      dieR: 0.18, dieI: 0.15, dieZ: 0.20,
+      // detritivore (worms eat detritus, eaten by birds)
+      grazeW: 0.0015, effW: 0.50, dieW: 0.12,
+      huntW: 0.0006,
+      // predation (carnivore eats herbivore)
+      huntF: 0.0042, huntB: 0.0018,
+      effF: 0.58, effB: 0.46,
+      dieF: 0.20, dieB: 0.22,
+      // apex (hawk eats foxes + birds)
+      apex: 0.006, effH: 0.42, dieH: 0.20,
+      // seasonal forcing
+      season: 0.30, period: 45, rainAmp: 0.25, rainPeriod: 30,
+    };
+
+    // ───── groups ─────
+    b.group(60, 60, 540, 990, 'Abiotic — Nutrient Cycle & Light', '#26a69a');
+    b.group(660, 60, 720, 400, 'Producers & Herbivores', '#7cb342');
+    b.group(660, 480, 720, 400, 'Carnivores & Apex', '#ef5350');
+    b.group(1440, 600, 360, 320, 'Ecosystem Diagnostics', '#78909c');
+
+    // ───── abiotic layer ─────
+    const sun = b.node(NodeType.SOURCE, 130, 150, 'Sunlight', n => { n.resourceColor = '#ffd54f'; });
+    // step clock: a pool that gains exactly +1 per step (a 'step'-mode self-modifier),
+    // published as `step`, so seasonal forcing reads a clean integer tick count.
+    const clock = b.node(NodeType.POOL, 130, 470, 'Clock', n => { n.setCount(0, '#ffd54f'); });
+    const season = b.node(NodeType.REGISTER, 350, 150, 'sunFactor',
+      n => { n.formula = '1 + season * sin(2 * pi * step / period)'; });
+    // a second, faster periodic forcing (rainfall) that modulates algae growth
+    const rain = b.node(NodeType.REGISTER, 130, 620, 'rainFactor',
+      n => { n.formula = '1 + rainAmp * sin(2 * pi * step / rainPeriod)'; });
+
+    const nutrients = b.node(NodeType.POOL, 350, 320, 'Nutrients',
+      n => { n.setCount(400, '#8d6e63'); n.capacity = 1500; });
+    const detritus = b.node(NodeType.POOL, 350, 500, 'Detritus',
+      n => { n.setCount(60, '#795548'); n.capacity = 1500; });
+    const decomposer = b.node(NodeType.CONVERTER, 350, 700, 'Decomposers',
+      n => { n.inputAmount = 2; n.outputColor = '#8d6e63'; });
+
+    // detritivores: worms graze detritus and are preyed on by birds (links the
+    // recycling loop to the living web — a "brown food chain").
+    const worms = b.node(NodeType.POOL, 350, 900, 'Worms', n => { n.setCount(40, '#a1887f'); n.capacity = 400; });
+    const wormReg = b.node(NodeType.REGISTER, 130, 900, 'wormBirths',
+      n => { n.formula = 'round(effW * grazeW * detritus * worms)'; });
+
+    // ───── producers ─────
+    const grass = b.node(NodeType.POOL, 750, 160, 'Grass',
+      n => { n.setCount(220, '#66bb6a'); n.capacity = 700; });
+    const algae = b.node(NodeType.POOL, 750, 340, 'Algae',
+      n => { n.setCount(180, '#26c6da'); n.capacity = 600; });
+    // growth gated by both logistic self-limit AND nutrient availability (min term)
+    const grassReg = b.node(NodeType.REGISTER, 950, 110, 'grassBirths',
+      n => { n.formula = 'round(grassGrow * sunFactor * grass * (1 - grass/grassCap) * min(1, nutrients/200))'; });
+    const algaeReg = b.node(NodeType.REGISTER, 950, 400, 'algaeBirths',
+      n => { n.formula = 'round(algaeGrow * sunFactor * rainFactor * algae * (1 - algae/algaeCap) * min(1, nutrients/200))'; });
+
+    // ───── herbivores ─────
+    const rabbits = b.node(NodeType.POOL, 1140, 110, 'Rabbits', n => { n.setCount(50, '#ffb74d'); n.capacity = 400; });
+    const insects = b.node(NodeType.POOL, 1140, 250, 'Insects', n => { n.setCount(60, '#9ccc65'); n.capacity = 500; });
+    const zoopl = b.node(NodeType.POOL, 1140, 390, 'Zooplankton', n => { n.setCount(60, '#4dd0e1'); n.capacity = 500; });
+    const rabReg = b.node(NodeType.REGISTER, 1320, 110, 'rabBirths',
+      n => { n.formula = 'round(effR * grazeR * grass * rabbits)'; });
+    const insReg = b.node(NodeType.REGISTER, 1320, 250, 'insBirths',
+      n => { n.formula = 'round(effI * grazeI * grass * insects)'; });
+    const zooReg = b.node(NodeType.REGISTER, 1320, 390, 'zooBirths',
+      n => { n.formula = 'round(effZ * grazeZ * algae * zoopl)'; });
+
+    // ───── carnivores ─────
+    const foxes = b.node(NodeType.POOL, 750, 580, 'Foxes', n => { n.setCount(12, '#ef5350'); n.capacity = 200; });
+    const birds = b.node(NodeType.POOL, 750, 740, 'Birds', n => { n.setCount(14, '#5c6bc0'); n.capacity = 250; });
+    const foxReg = b.node(NodeType.REGISTER, 960, 580, 'foxBirths',
+      n => { n.formula = 'round(effF * huntF * rabbits * foxes)'; });
+    const birdReg = b.node(NodeType.REGISTER, 960, 740, 'birdBirths',
+      n => { n.formula = 'round(effB * (huntB * (insects + zoopl) + huntW * worms) * birds)'; });
+
+    // ───── apex ─────
+    const hawk = b.node(NodeType.POOL, 1200, 700, 'Hawks', n => { n.setCount(3, '#ab47bc'); n.capacity = 80; });
+    const hawkReg = b.node(NodeType.REGISTER, 1200, 560, 'hawkBirths',
+      n => { n.formula = 'round(effH * apex * (foxes + birds) * hawks)'; });
+
+    // weathering input passes through a Delay (slow mineral release from bedrock),
+    // a maturation/lag pipeline before reaching the nutrient pool.
+    const bedrock = b.node(NodeType.DELAY, 130, 320, 'Bedrock lag', n => { n.delay = 4; });
+
+    // ───── ecosystem diagnostics (read-only registers) ─────
+    const totReg = b.node(NodeType.REGISTER, 1520, 660, 'totalBiomass',
+      n => { n.formula = 'grass + algae + rabbits + insects + zoopl + worms + foxes + birds + hawks'; });
+    const prodReg = b.node(NodeType.REGISTER, 1520, 740, 'producerLoad',
+      n => { n.formula = 'round(100 * (grass + algae) / (grassCap + algaeCap))'; });
+    const predReg = b.node(NodeType.REGISTER, 1520, 820, 'predatorShare',
+      n => { n.formula = 'round(100 * (foxes + birds + hawks) / max(1, grass + algae + rabbits + insects + zoopl + worms + foxes + birds + hawks))'; });
+
+    // ───── step clock ─────
+    b.st(clock, clock, c => { c.modifier = true; c.modMode = 'step'; c.modFactor = 1; c.label = 'tick'; });
+    b.st(clock, season, c => { c.variableName = 'step'; });
+
+    // ───── PUBLISH state variables (one-step lag) ─────
+    b.st(grass, grassReg, c => { c.variableName = 'grass'; });
+    b.st(algae, algaeReg, c => { c.variableName = 'algae'; });
+    b.st(nutrients, grassReg, c => { c.variableName = 'nutrients'; });
+    b.st(detritus, decomposer, c => { c.variableName = 'detritus'; });
+    b.st(rabbits, rabReg, c => { c.variableName = 'rabbits'; });
+    b.st(insects, insReg, c => { c.variableName = 'insects'; });
+    b.st(zoopl, zooReg, c => { c.variableName = 'zoopl'; });
+    b.st(foxes, foxReg, c => { c.variableName = 'foxes'; });
+    b.st(birds, birdReg, c => { c.variableName = 'birds'; });
+    b.st(hawk, hawkReg, c => { c.variableName = 'hawks'; });
+    b.st(worms, wormReg, c => { c.variableName = 'worms'; });
+
+    // ───── producer growth (register -> modifier) + nutrient uptake ─────
+    b.st(grassReg, grass, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 1; c.label = 'grow'; });
+    b.st(algaeReg, algae, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 1; c.label = 'grow'; });
+    b.st(grassReg, nutrients, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -0.35; c.label = 'uptake'; });
+    b.st(algaeReg, nutrients, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -0.35; c.label = 'uptake'; });
+
+    // ───── grazing: biomass flows producer -> herbivore (formula predation) ─────
+    b.res(grass, rabbits, c => { c.rateMode = RateMode.FORMULA; c.formula = 'grazeR * grass * rabbits'; c.label = 'graze'; });
+    b.res(grass, insects, c => { c.rateMode = RateMode.FORMULA; c.formula = 'grazeI * grass * insects'; c.label = 'graze'; });
+    b.res(algae, zoopl, c => { c.rateMode = RateMode.FORMULA; c.formula = 'grazeZ * algae * zoopl'; c.label = 'graze'; });
+
+    // ───── herbivore births + mortality ─────
+    b.st(rabReg, rabbits, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 1; c.label = 'breed'; });
+    b.st(insReg, insects, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 1; c.label = 'breed'; });
+    b.st(zooReg, zoopl, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 1; c.label = 'breed'; });
+    b.st(rabbits, rabbits, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -0.18; c.label = 'die'; });
+    b.st(insects, insects, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -0.15; c.label = 'die'; });
+    b.st(zoopl, zoopl, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -0.20; c.label = 'die'; });
+
+    // ───── detritivores: worms graze detritus, are eaten by birds ─────
+    b.res(detritus, worms, c => { c.rateMode = RateMode.FORMULA; c.formula = 'grazeW * detritus * worms'; c.label = 'feed'; });
+    b.st(wormReg, worms, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 1; c.label = 'breed'; });
+    b.st(worms, worms, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -0.12; c.label = 'die'; });
+
+    // ───── predation: herbivore -> carnivore ─────
+    b.res(rabbits, foxes, c => { c.rateMode = RateMode.FORMULA; c.formula = 'huntF * rabbits * foxes'; c.label = 'hunt'; });
+    b.res(insects, birds, c => { c.rateMode = RateMode.FORMULA; c.formula = 'huntB * insects * birds'; c.label = 'hunt'; });
+    b.res(zoopl, birds, c => { c.rateMode = RateMode.FORMULA; c.formula = 'huntB * zoopl * birds'; c.label = 'hunt'; });
+    b.res(worms, birds, c => { c.rateMode = RateMode.FORMULA; c.formula = 'huntW * worms * birds'; c.label = 'hunt'; });
+
+    // ───── carnivore births + starvation ─────
+    b.st(foxReg, foxes, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 1; c.label = 'breed'; });
+    b.st(birdReg, birds, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 1; c.label = 'breed'; });
+    b.st(foxes, foxes, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -0.20; c.label = 'starve'; });
+    b.st(birds, birds, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -0.22; c.label = 'starve'; });
+
+    // ───── apex predation: carnivore -> hawk ─────
+    b.res(foxes, hawk, c => { c.rateMode = RateMode.FORMULA; c.formula = 'apex * foxes * hawks'; c.label = 'prey'; });
+    b.res(birds, hawk, c => { c.rateMode = RateMode.FORMULA; c.formula = 'apex * birds * hawks'; c.label = 'prey'; });
+    b.st(hawkReg, hawk, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 1; c.label = 'breed'; });
+    b.st(hawk, hawk, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = -0.20; c.label = 'starve'; });
+
+    // ───── DEATH -> detritus (recycling loop) ─────
+    b.res(grass, detritus, c => { c.rateMode = RateMode.FORMULA; c.formula = '0.06 * grass'; c.label = 'litter'; });
+    b.res(algae, detritus, c => { c.rateMode = RateMode.FORMULA; c.formula = '0.06 * algae'; c.label = 'litter'; });
+    b.res(rabbits, detritus, c => { c.rateMode = RateMode.FORMULA; c.formula = '0.08 * rabbits'; c.label = 'carcass'; });
+    b.res(insects, detritus, c => { c.rateMode = RateMode.FORMULA; c.formula = '0.08 * insects'; c.label = 'carcass'; });
+    b.res(zoopl, detritus, c => { c.rateMode = RateMode.FORMULA; c.formula = '0.08 * zoopl'; c.label = 'carcass'; });
+    b.res(worms, detritus, c => { c.rateMode = RateMode.FORMULA; c.formula = '0.07 * worms'; c.label = 'carcass'; });
+    b.res(foxes, detritus, c => { c.rateMode = RateMode.FORMULA; c.formula = '0.08 * foxes'; c.label = 'carcass'; });
+    b.res(birds, detritus, c => { c.rateMode = RateMode.FORMULA; c.formula = '0.08 * birds'; c.label = 'carcass'; });
+    b.res(hawk, detritus, c => { c.rateMode = RateMode.FORMULA; c.formula = '0.08 * hawks'; c.label = 'carcass'; });
+
+    // detritus -> decomposer -> nutrients (close the loop). The Decomposer
+    // consumes 2 detritus per conversion and mineralizes 1 nutrient — a ~50%
+    // respiration loss, so the cycle is lossy and self-bounding. Weathering
+    // (below) replaces the slow leak.
+    b.res(detritus, decomposer, c => { c.rateMode = RateMode.FORMULA; c.formula = 'round(0.35 * detritus)'; c.label = 'decay'; });
+    b.res(decomposer, nutrients, c => { c.rate = 1; c.label = 'mineralize'; });
+    // sunlight drives a small seasonal weathering input that percolates through a
+    // 4-step Bedrock lag (a Delay) before reaching the nutrient pool — replacing
+    // the biomass slowly buried/lost from the lossy decomposition cycle.
+    b.res(sun, bedrock, c => { c.rateMode = RateMode.FORMULA; c.formula = 'round(4 * sunFactor)'; c.label = 'weather'; });
+    b.res(bedrock, nutrients, c => { c.rate = 999; c.label = 'release'; });
+
+    // ───── charts ─────
+    b.chart(1440, 80, 360, 230, 'Producers / Herbivores', [grass.id, algae.id, rabbits.id, insects.id, zoopl.id]);
+    b.chart(1440, 340, 360, 230, 'Carnivores / Apex', [foxes.id, birds.id, hawk.id]);
+    b.chart(660, 900, 720, 130, 'Nutrient Cycle', [nutrients.id, detritus.id, worms.id]);
+
+    // ───── notes ─────
+    b.note(660, 1060, 720, 130,
+      'A four-trophic food web. Seasonal Sunlight + recycled Nutrients feed Grass & Algae ' +
+      '(logistic, nutrient-limited). Three grazers eat the producers and Worms eat detritus; ' +
+      'Foxes & Birds hunt them; Hawks are the apex. Dead biomass → Detritus → Decomposers ' +
+      '→ Nutrients closes the loop (a respiration loss topped up by a Bedrock-lag weathering input).');
+    b.note(60, 1060, 540, 130,
+      'Predation uses Lotka-Volterra formula rates (coef·prey·pred); growth & death use ' +
+      'register+modifier pairs. Two periodic drivers (sunFactor, rainFactor) force the ' +
+      'producers. No goal is set — yet all ten populations lock into coupled, bounded ' +
+      'oscillations, predator peaks lagging prey. Press Run.');
+    this.renderer.render();
+  }
+
+  // 11 — AUCTION ECONOMY: a player-driven MMO virtual economy. Three gathering
+  // chains refine raw goods (ore→bars, wood→planks, herb→potions) through
+  // converters, a Forge delay and a Brew queue; a Toolsmith combines bars+planks
+  // into tools. Sellers list goods at an auction house (Traders) and players buy
+  // them back; scarcity drives price registers that set each trade's gold, and
+  // price-elastic demand makes stocks and prices oscillate in a live market.
+  _demoAuction() {
+    const b = this._demo();
+    // ── COLOURS / NAMED RESOURCE TYPES ─────────────────────────────────────────
+    const ORE='#90a4ae', BAR='#ffa726', WOOD='#8d6e63', PLANK='#d7a86e',
+          HERB='#66bb6a', POTION='#ab47bc', GOLD='#fdd835', TOOL='#26c6da';
+    b.d.resourceTypes = [
+      { name: 'Ore', color: ORE }, { name: 'Bar', color: BAR },
+      { name: 'Wood', color: WOOD }, { name: 'Plank', color: PLANK },
+      { name: 'Herb', color: HERB }, { name: 'Potion', color: POTION },
+      { name: 'Tool', color: TOOL }, { name: 'Gold', color: GOLD },
+    ];
+    b.d.params = { baseBar: 5, basePlank: 4, basePotion: 8, baseTool: 10, gquest: 18 };
+
+    // ── GROUPS ──────────────────────────────────────────────────────────────────
+    b.group(70, 110, 760, 700, 'Gathering & Refining', '#8d6e63');
+    b.group(870, 110, 560, 700, 'Auction House  (supply - price - gold)', '#f06292');
+    b.group(1470, 110, 470, 700, 'Players & Treasury', '#fdd835');
+
+    // ── GATHERING: SOURCE -> (yield GATE) -> RAW POOL -> REFINING CONVERTER ──────
+    const oreMine = b.node(NodeType.SOURCE, 130, 200, 'Ore Mine', n => { n.resourceColor = ORE; });
+    // Mining yield: a probabilistic gate routes most ore to the pool, the rest is
+    // worthless slag (waste) — weighted routing that also adds noise to supply.
+    const oreGate = b.node(NodeType.GATE, 220, 130, 'Ore Vein', n => { n.gateMode = 'probabilistic'; });
+    const slag = b.node(NodeType.DRAIN, 130, 80, 'Slag');
+    const orePool = b.node(NodeType.POOL, 360, 200, 'Ore', n => { n.capacity = 30; n.setCount(10, ORE); });
+    const smelter = b.node(NodeType.CONVERTER, 520, 200, 'Smelter', n => { n.inputAmount = 2; n.outputColor = BAR; n.capacity = 8; });
+
+    const forest = b.node(NodeType.SOURCE, 130, 360, 'Forest', n => { n.resourceColor = WOOD; });
+    const woodPool = b.node(NodeType.POOL, 300, 360, 'Wood', n => { n.capacity = 30; n.setCount(10, WOOD); });
+    const sawmill = b.node(NodeType.CONVERTER, 470, 360, 'Sawmill', n => { n.inputAmount = 2; n.outputColor = PLANK; n.capacity = 8; });
+
+    const garden = b.node(NodeType.SOURCE, 130, 520, 'Herb Garden', n => { n.resourceColor = HERB; });
+    const herbPool = b.node(NodeType.POOL, 300, 520, 'Herbs', n => { n.capacity = 30; n.setCount(12, HERB); });
+    const alchemy = b.node(NodeType.CONVERTER, 470, 520, 'Alchemy Lab', n => { n.inputAmount = 3; n.outputColor = POTION; n.capacity = 6; });
+
+    // gather rates: dice + Poisson for lively, slightly noisy raw supply
+    b.res(oreMine, oreGate, c => { c.rateMode = RateMode.DICE; c.dice = '1d4'; c.label = '1d4'; });
+    b.res(oreGate, orePool, c => { c.weight = 4; c.label = 'ore'; });   // ~80% usable ore
+    b.res(oreGate, slag, c => { c.weight = 1; c.label = 'slag'; });     // ~20% waste
+    b.res(forest, woodPool, c => { c.rateMode = RateMode.DICE; c.dice = '1d4'; c.label = '1d4'; });
+    b.res(garden, herbPool, c => { c.rateMode = RateMode.DISTRIBUTION; c.distType = 'poisson'; c.distParam1 = 5; c.label = 'Poisson'; });
+
+    // raw -> converter (PUSH). The feed is GATED on the finished-good stock: when
+    // the market is glutted (stock above a ceiling) refining halts at the converter
+    // input — just-in-time production that bounds every stock pool. (Conditions are
+    // honoured on resource connections, but NOT on a delay/queue's own outputs, so
+    // we throttle here, upstream of the Forge delay and Brew queue.)
+    b.res(orePool, smelter, c => { c.rate = 2; c.label = 'feed'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'bar_stock'; c.condOperator = '<'; c.condValue = 22; });
+    b.res(woodPool, sawmill, c => { c.rate = 2; c.label = 'feed'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'plank_stock'; c.condOperator = '<'; c.condValue = 22; });
+    b.res(herbPool, alchemy, c => { c.rate = 3; c.label = 'feed'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'potion_stock'; c.condOperator = '<'; c.condValue = 18; });
+
+    // ── CRAFTING LATENCY: a Forge delay and a Brew queue before stock ───────────
+    const forge = b.node(NodeType.DELAY, 470, 680, 'Forge', n => { n.delay = 3; });
+    // Brew queue is a single-server FIFO (1 potion / 2 steps). Cap it so excess
+    // potions back up into the Alchemy Lab -> Herbs instead of growing forever.
+    const brewQ = b.node(NodeType.QUEUE, 620, 520, 'Brew Queue', n => { n.processTime = 2; n.capacity = 6; });
+
+    // ── CRAFTED-GOOD STOCK POOLS — auction supply; also hold sellers' gold ───────
+    const barStock = b.node(NodeType.POOL, 900, 200, 'Bar Stock', n => { n.capacity = 400; n.setCount(14, BAR); });
+    const plankStock = b.node(NodeType.POOL, 900, 360, 'Plank Stock', n => { n.capacity = 400; n.setCount(14, PLANK); });
+    const potionStock = b.node(NodeType.POOL, 900, 520, 'Potion Stock', n => { n.capacity = 400; n.setCount(10, POTION); });
+
+    // Smelter -> Forge(delay) -> Bar Stock. Rates match release so the delay only
+    // adds latency (~3 units in flight) and never builds a runaway backlog.
+    b.res(smelter, forge, c => { c.rate = 1; });
+    b.res(forge, barStock, c => { c.rate = 2; });
+    // Sawmill -> Plank Stock direct
+    b.res(sawmill, plankStock, c => { c.rate = 1; });
+    // Alchemy -> Brew Queue -> Potion Stock ; the single-server queue serialises
+    // potion output to 1 per processTime and is capacity-capped so excess backs up.
+    b.res(alchemy, brewQ, c => { c.rate = 1; });
+    b.res(brewQ, potionStock, c => { c.rate = 1; });
+
+    // ── TIER-2 CRAFT: Bars + Planks -> Tools (a Toolsmith converter) ────────────
+    // The Toolsmith only buys raw goods when there's a SURPLUS (stock above a
+    // floor), so it can't starve the auction supply — it competes for goods.
+    const toolsmith = b.node(NodeType.CONVERTER, 470, 110, 'Toolsmith', n => { n.inputAmount = 2; n.outputColor = TOOL; n.capacity = 6; });
+    const toolStock = b.node(NodeType.POOL, 900, 110, 'Tool Stock', n => { n.capacity = 200; n.setCount(8, TOOL); });
+    b.res(barStock, toolsmith, c => { c.rate = 1; c.colorFilter = BAR; c.label = 'bar'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'bar_stock'; c.condOperator = '>'; c.condValue = 12; });
+    b.res(plankStock, toolsmith, c => { c.rate = 1; c.colorFilter = PLANK; c.label = 'plank'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'plank_stock'; c.condOperator = '>'; c.condValue = 12; });
+    b.res(toolsmith, toolStock, c => { c.rate = 1; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'tool_stock'; c.condOperator = '<'; c.condValue = 22; });
+
+    // ── PRICE REGISTERS: scarcity raises price (supply -> price feedback) ────────
+    const barPrice = b.node(NodeType.REGISTER, 1110, 200, 'bar_price',
+      n => { n.formula = 'round(baseBar * (1 + max(0, 30 - bar_stock)/12))'; });
+    const plankPrice = b.node(NodeType.REGISTER, 1110, 360, 'plank_price',
+      n => { n.formula = 'round(basePlank * (1 + max(0, 30 - plank_stock)/12))'; });
+    const potionPrice = b.node(NodeType.REGISTER, 1110, 520, 'potion_price',
+      n => { n.formula = 'round(basePotion * (1 + max(0, 24 - potion_stock)/10))'; });
+    const toolPrice = b.node(NodeType.REGISTER, 1110, 110, 'tool_price',
+      n => { n.formula = 'round(baseTool * (1 + max(0, 20 - tool_stock)/8))'; });
+
+    // publish stock counts as variables (one-step lag) for the price registers
+    b.st(barStock, barPrice, c => { c.variableName = 'bar_stock'; c.label = 'stock'; });
+    b.st(plankStock, plankPrice, c => { c.variableName = 'plank_stock'; c.label = 'stock'; });
+    b.st(potionStock, potionPrice, c => { c.variableName = 'potion_stock'; c.label = 'stock'; });
+    b.st(toolStock, toolPrice, c => { c.variableName = 'tool_stock'; c.label = 'stock'; });
+
+    // ── AUCTION HOUSE (SELL SIDE): stock pays goods, AH Vault pays gold back ──────
+    // stock -> T -> ahGold : A=stock pays goods, B=ahGold pays gold back to stock.
+    const ahGold = b.node(NodeType.POOL, 1300, 360, 'AH Vault', n => { n.capacity = 100000; n.setCount(1200, GOLD); });
+    const barAuction = b.node(NodeType.TRADER, 1110, 290, 'Bar Sale');
+    const plankAuction = b.node(NodeType.TRADER, 1110, 430, 'Plank Sale');
+    const potionAuction = b.node(NodeType.TRADER, 1110, 600, 'Potion Sale');
+    const toolAuction = b.node(NodeType.TRADER, 1110, 60, 'Tool Sale');
+
+    // Sellers only LIST goods while stock is above a floor (they hold a reserve),
+    // so a sell-off can't crash stock to zero — it relaxes, supply rebuilds.
+    b.res(barStock, barAuction, c => { c.rate = 2; c.colorFilter = BAR; c.label = '2 bars'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'bar_stock'; c.condOperator = '>'; c.condValue = 6; });
+    b.res(barAuction, ahGold, c => { c.rateMode = RateMode.FORMULA; c.formula = '2 * bar_price'; c.colorFilter = GOLD; c.label = 'gold'; });
+    b.res(plankStock, plankAuction, c => { c.rate = 2; c.colorFilter = PLANK; c.label = '2 planks'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'plank_stock'; c.condOperator = '>'; c.condValue = 6; });
+    b.res(plankAuction, ahGold, c => { c.rateMode = RateMode.FORMULA; c.formula = '2 * plank_price'; c.colorFilter = GOLD; c.label = 'gold'; });
+    b.res(potionStock, potionAuction, c => { c.rate = 1; c.colorFilter = POTION; c.label = '1 potion'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'potion_stock'; c.condOperator = '>'; c.condValue = 4; });
+    b.res(potionAuction, ahGold, c => { c.rateMode = RateMode.FORMULA; c.formula = 'potion_price'; c.colorFilter = GOLD; c.label = 'gold'; });
+    b.res(toolStock, toolAuction, c => { c.rate = 1; c.colorFilter = TOOL; c.label = '1 tool'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'tool_stock'; c.condOperator = '>'; c.condValue = 4; });
+    b.res(toolAuction, ahGold, c => { c.rateMode = RateMode.FORMULA; c.formula = 'tool_price'; c.colorFilter = GOLD; c.label = 'gold'; });
+
+    // ── GUILD BANK: pulls sellers' earned gold OUT of stock pools (keeps room) ───
+    const guildVault = b.node(NodeType.POOL, 680, 360, 'Guild Bank', n => { n.capacity = 100000; n.setCount(0, GOLD); n.flowMode = 'pull'; n.pullPolicy = 'any'; });
+    b.res(barStock, guildVault, c => { c.rate = 999; c.colorFilter = GOLD; c.label = 'profit'; });
+    b.res(plankStock, guildVault, c => { c.rate = 999; c.colorFilter = GOLD; c.label = 'profit'; });
+    b.res(potionStock, guildVault, c => { c.rate = 999; c.colorFilter = GOLD; c.label = 'profit'; });
+    b.res(toolStock, guildVault, c => { c.rate = 999; c.colorFilter = GOLD; c.label = 'profit'; });
+
+    // ── PLAYERS (BUY SIDE): players pay gold to AH Vault, take goods home ─────────
+    // ahGold -> T -> playerGold : AH pays goods, players pay gold back to AH Vault.
+    // This RECYCLES gold into the AH Vault so the sell side never runs dry.
+    const playerGold = b.node(NodeType.POOL, 1620, 200, 'Player Purse', n => { n.capacity = 100000; n.setCount(600, GOLD); });
+    const buyBars = b.node(NodeType.TRADER, 1480, 290, 'Buy Bars');
+    const buyTools = b.node(NodeType.TRADER, 1480, 110, 'Buy Tools');
+    const buyPlanks = b.node(NodeType.TRADER, 1480, 430, 'Buy Planks');
+    const buyPotions = b.node(NodeType.TRADER, 1480, 600, 'Buy Potions');
+    // AH pays goods (filtered), players pay gold (price + AH markup) back to AH.
+    // Buy-back gold per unit > sell payout per unit, so the AH Vault is never
+    // drained (the house takes a small cut on every round trip). DEMAND IS PRICE-
+    // ELASTIC: players only buy while the price sits below a threshold, so a
+    // scarcity spike (high price) cools demand and lets stock recover — the swing
+    // that makes prices and stocks oscillate instead of flat-lining.
+    b.res(ahGold, buyBars, c => { c.rate = 2; c.colorFilter = BAR; c.label = '2 bars'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'bar_price'; c.condOperator = '<'; c.condValue = 13; });
+    b.res(buyBars, playerGold, c => { c.rateMode = RateMode.FORMULA; c.formula = '2 * (bar_price + 3)'; c.colorFilter = GOLD; c.label = 'gold'; });
+    b.res(ahGold, buyTools, c => { c.rate = 1; c.colorFilter = TOOL; c.label = '1 tool'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'tool_price'; c.condOperator = '<'; c.condValue = 16; });
+    b.res(buyTools, playerGold, c => { c.rateMode = RateMode.FORMULA; c.formula = 'tool_price + 4'; c.colorFilter = GOLD; c.label = 'gold'; });
+    b.res(ahGold, buyPlanks, c => { c.rate = 2; c.colorFilter = PLANK; c.label = '2 planks'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'plank_price'; c.condOperator = '<'; c.condValue = 11; });
+    b.res(buyPlanks, playerGold, c => { c.rateMode = RateMode.FORMULA; c.formula = '2 * (plank_price + 2)'; c.colorFilter = GOLD; c.label = 'gold'; });
+    b.res(ahGold, buyPotions, c => { c.rate = 1; c.colorFilter = POTION; c.label = '1 potion'; c.condEnabled = true; c.condRefMode = 'variable'; c.condVariable = 'potion_price'; c.condOperator = '<'; c.condValue = 20; });
+    b.res(buyPotions, playerGold, c => { c.rateMode = RateMode.FORMULA; c.formula = 'potion_price + 3'; c.colorFilter = GOLD; c.label = 'gold'; });
+
+    // Goods bought are consumed by the player base (a drain on the Player Purse's
+    // goods so demand persists and the AH supply keeps cycling).
+    const playerUse = b.node(NodeType.DRAIN, 1790, 290, 'Goods Used');
+    b.res(playerGold, playerUse, c => { c.rate = 99; c.colorFilter = BAR; c.label = 'use'; });
+    b.res(playerGold, playerUse, c => { c.rate = 99; c.colorFilter = PLANK; c.label = 'use'; });
+    b.res(playerGold, playerUse, c => { c.rate = 99; c.colorFilter = TOOL; c.label = 'use'; });
+    b.res(playerGold, playerUse, c => { c.rate = 99; c.colorFilter = POTION; c.label = 'use'; });
+
+    // ── GOLD FAUCET (quests) -> Player Purse, and SINK (tax) on Guild Bank ───────
+    const questBoard = b.node(NodeType.SOURCE, 1790, 200, 'Quest Board', n => { n.resourceColor = GOLD; });
+    b.res(questBoard, playerGold, c => { c.rateMode = RateMode.FORMULA; c.formula = 'gquest'; c.colorFilter = GOLD; c.label = 'rewards'; });
+
+    const taxSink = b.node(NodeType.DRAIN, 680, 540, 'Tax & Repairs');
+    b.res(guildVault, taxSink, c => { c.rateMode = RateMode.FORMULA; c.formula = 'round(guild_gold * 0.04)'; c.colorFilter = GOLD; c.label = '4% tax'; });
+    b.st(guildVault, taxSink, c => { c.variableName = 'guild_gold'; c.label = 'gold'; });
+
+    // ── GOLD-DRIVEN PROSPECTING: a flush guild funds bonus ore (register+modifier)
+    const prospect = b.node(NodeType.REGISTER, 300, 110, 'prospect',
+      n => { n.formula = 'guild_gold > 300 ? 2 : 0'; });
+    b.st(prospect, orePool, c => { c.modifier = true; c.modMode = 'rate'; c.modFactor = 1; c.label = 'bonus ore'; });
+
+    // ── CHARTS + NOTES ──────────────────────────────────────────────────────────
+    b.chart(870, 830, 560, 170, 'Stock Levels', [barStock.id, plankStock.id, potionStock.id, toolStock.id]);
+    b.chart(1470, 830, 460, 170, 'Prices & Vault', [barPrice.id, potionPrice.id, toolPrice.id, ahGold.id]);
+
+    b.note(70, 830, 760, 170,
+      'A player-driven economy. Three gathering chains (ore->bars, wood->planks, ' +
+      'herb->potions) refine through converters, with a Forge delay and a Brew queue ' +
+      'for crafting latency; a Toolsmith combines bars+planks into Tools. Sellers list ' +
+      'goods at the Auction House; players buy them back. Scarcity drives the price ' +
+      'registers, which set how much gold each trade pays - a live supply/demand loop.');
+    b.note(1470, 70, 470, 30,
+      'Gold loops: quests -> players -> AH -> sellers -> guild -> tax sink.');
     this.renderer.render();
   }
   // ── Controls ──────────────────────────────────────────────────────────────

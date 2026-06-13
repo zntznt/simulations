@@ -186,6 +186,18 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       real step units), toggleable from the legend chips or the panel.
       Session-only; Reset still returns to the true run start.
 
+## ✅ Sprawling example library
+
+- [x] **Six large, expert-designed demos** added alongside the five concept
+      demos, to show the engine at machinations.io scale. Each is ~30-37 nodes,
+      spans multiple interacting subsystems, exercises most of the engine at
+      once, and is tuned for rich non-degenerate dynamics (verified headlessly
+      through the real `_demo*` methods — no NaN/Inf, no dead/pegged values):
+      **F2P Mobile Economy** (32), **Civilization Empire** (34), **Megafactory
+      Line** (35), **Business Cycle** (31), **Food Web** (29), **Auction
+      Economy** (37, all nine node types). Loaded from the Library like any
+      template; covered by the smoke suite.
+
 ## 🔮 Council backlog — bigger ideas worth designing
 
 Ideas from a design review ("council of geniuses" pass); none are started.
