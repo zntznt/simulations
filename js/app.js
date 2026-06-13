@@ -354,6 +354,7 @@ class App {
       { name: 'Service Desk', desc: 'A single-server queue with random arrivals — the line builds and clears.', load: () => this._demoQueue() },
       { name: 'F2P Mobile Economy', desc: 'A sprawling free-to-play live-ops loop: energy→levels→Gold/XP, a sqrt level curve gating Elite content, a probabilistic gacha gate, and a DAU/IAP economy.', load: () => this._demoF2P() },
       { name: 'Civilization Empire', desc: 'A 4X economy in one diagram: logistic population, five yields, building converters, and a Science-gated tech tree (irrigation, drama, banking, university).', load: () => this._demoCiv() },
+      { name: 'Megafactory Line', desc: 'A 4-tier auto-factory: ore → smelting → components → widgets. A tiny circuit buffer + slow assembly station back the line up — watch the bottleneck.', load: () => this._demoFactory() },
     ];
 
     document.getElementById('btn-library').addEventListener('click', () => this._openLibrary());
@@ -1133,6 +1134,191 @@ class App {
       'Research accumulates and trips four TECH ACTIVATORS in sequence. Irrigation ' +
       'lifts farms; Drama unlocks Theaters; Banking compounds gold; University ' +
       'multiplies science. Watch the S-curve and the tech steps in the charts.');
+    this.renderer.render();
+  }
+
+  // 8 — MEGAFACTORY LINE: a 4-tier automated factory (raw extraction →
+  // smelting → components → final assembly/shipping). Iron & copper mines are
+  // finite; coal fuels smelters via an activator. A deliberate bottleneck (a
+  // tiny Circuit buffer drained by a slow Assembly queue) pins at capacity and
+  // backs the line up — gears & wire pile to their caps while widgets starve.
+  _demoFactory() {
+    const b = this._demo();
+    // 4 tiers, left to right: raw extraction -> smelting -> components -> final
+    // assembly/shipping. Iron & copper ore are FINITE (mines deplete). Coal fuels
+    // the smelters through an activator. A deliberate BOTTLENECK (tiny Circuit
+    // buffer drained by a slow Assembly queue) pins at capacity and backs the line
+    // up: gears & wire pile up upstream while the widget line stays starved.
+    const C = {
+      ironOre:'#90a4ae', copperOre:'#bf6a3a', coal:'#37474f',
+      ironPlate:'#cfd8dc', copperPlate:'#ff8a65',
+      gear:'#8d6e63', wire:'#fdd835', circuit:'#66bb6a',
+      steel:'#78909c', frame:'#5c6bc0', widget:'#42a5f5', scrap:'#ef5350',
+    };
+    b.d.resourceTypes = [
+      { name:'Iron Ore', color:C.ironOre }, { name:'Copper Ore', color:C.copperOre },
+      { name:'Coal', color:C.coal }, { name:'Iron Plate', color:C.ironPlate },
+      { name:'Copper Plate', color:C.copperPlate }, { name:'Gear', color:C.gear },
+      { name:'Wire', color:C.wire }, { name:'Circuit', color:C.circuit },
+      { name:'Steel Beam', color:C.steel }, { name:'Frame', color:C.frame },
+      { name:'Widget', color:C.widget }, { name:'Scrap', color:C.scrap },
+    ];
+    b.d.params = { ironYield:9, copperYield:4 };
+
+    // ───── Tier bands ─────
+    b.group(80, 60, 520, 740, 'Tier 0 · Raw Extraction', '#78909c');
+    b.group(620, 60, 560, 740, 'Tier 1 · Smelting', '#ffa726');
+    b.group(1200, 60, 540, 740, 'Tier 2 · Component Assembly', '#66bb6a');
+    b.group(1760, 60, 900, 740, 'Tier 3 · Final Assembly & Shipping', '#42a5f5');
+
+    // ===================== TIER 0 — RAW EXTRACTION =====================
+    // Finite iron & copper mines + an infinite coal seam feeding ore buffers.
+    const ironMine = b.node(NodeType.SOURCE, 150, 170, 'Iron Mine', n=>{ n.resourceColor=C.ironOre; n.limited=true; n.setCount(1400, C.ironOre); });
+    const copperMine = b.node(NodeType.SOURCE, 150, 400, 'Copper Mine', n=>{ n.resourceColor=C.copperOre; n.limited=true; n.setCount(800, C.copperOre); });
+    const coalSeam = b.node(NodeType.SOURCE, 150, 640, 'Coal Seam', n=>{ n.resourceColor=C.coal; });
+
+    const ironOreBuf = b.node(NodeType.POOL, 380, 170, 'Iron Ore', n=>{ n.capacity=30; n.setCount(10, C.ironOre); });
+    const copperOreBuf = b.node(NodeType.POOL, 380, 400, 'Copper Ore', n=>{ n.capacity=24; n.setCount(10, C.copperOre); });
+    const coalBuf = b.node(NodeType.POOL, 380, 640, 'Coal Stock', n=>{ n.capacity=40; n.setCount(20, C.coal); });
+
+    b.res(ironMine, ironOreBuf, c=>{ c.rateMode=RateMode.FORMULA; c.formula='ironYield'; c.label='extract'; });
+    b.res(copperMine, copperOreBuf, c=>{ c.rateMode=RateMode.FORMULA; c.formula='copperYield'; c.label='extract'; });
+    b.res(coalSeam, coalBuf, c=>{ c.rate=3; c.label='dig'; });
+
+    // ===================== TIER 1 — SMELTING =====================
+    // 2 ore -> 1 plate. Smelters fire only while the burner holds fuel (activator).
+    // Belt DELAYS (conveyor transit) sit between smelter and plate buffer.
+    const burner = b.node(NodeType.POOL, 700, 640, 'Burner Fuel', n=>{ n.capacity=14; n.setCount(6, C.coal); });
+    b.res(coalBuf, burner, c=>{ c.rate=2; c.label='stoke'; });
+    // Steady fuel burn each step (the furnaces consume coal as they run).
+    b.st(burner, burner, c=>{ c.modifier=true; c.modMode='step'; c.modFactor=-1; c.label='burn'; });
+
+    // Converters carry a small working buffer (capacity) so a blocked output
+    // backs pressure UP the line instead of letting the machine hoard input.
+    const ironSmelter = b.node(NodeType.CONVERTER, 720, 170, 'Iron Smelter', n=>{ n.inputAmount=2; n.outputColor=C.ironPlate; n.capacity=8; });
+    const copperSmelter = b.node(NodeType.CONVERTER, 720, 400, 'Copper Smelter', n=>{ n.inputAmount=2; n.outputColor=C.copperPlate; n.capacity=8; });
+    b.res(ironOreBuf, ironSmelter, c=>{ c.rate=8; c.label='2 ore'; });
+    b.res(copperOreBuf, copperSmelter, c=>{ c.rate=3; c.label='2 ore'; });
+    // Activator: a smelter only runs while fuel is present.
+    b.st(burner, ironSmelter, c=>{ c.activator=true; c.actOperator='>'; c.actValue=0; c.label='fuel?'; });
+    b.st(burner, copperSmelter, c=>{ c.activator=true; c.actOperator='>'; c.actValue=0; c.label='fuel?'; });
+
+    // Belts are capacity-bounded too, so a full plate buffer backs pressure onto
+    // the smelter rather than letting the belt hoard an unbounded backlog.
+    const ironBelt = b.node(NodeType.DELAY, 920, 170, 'Iron Belt', n=>{ n.delay=3; n.capacity=12; });
+    const copperBelt = b.node(NodeType.DELAY, 920, 400, 'Copper Belt', n=>{ n.delay=3; n.capacity=12; });
+    b.res(ironSmelter, ironBelt, c=>{ c.rate=4; c.label='plate'; });
+    b.res(copperSmelter, copperBelt, c=>{ c.rate=2; c.label='plate'; });
+
+    const ironPlateBuf = b.node(NodeType.POOL, 1080, 170, 'Iron Plates', n=>{ n.capacity=28; });
+    const copperPlateBuf = b.node(NodeType.POOL, 1080, 400, 'Copper Plates', n=>{ n.capacity=24; });
+    b.res(ironBelt, ironPlateBuf, c=>{ c.rate=7; });
+    b.res(copperBelt, copperPlateBuf, c=>{ c.rate=4; });
+
+    // ===================== TIER 2 — COMPONENT ASSEMBLY =====================
+    // Gears (2 iron plate -> 1 gear) and Wire (1 copper plate -> 1 wire).
+    const gearPress = b.node(NodeType.CONVERTER, 1260, 170, 'Gear Press', n=>{ n.inputAmount=2; n.outputColor=C.gear; n.capacity=8; });
+    const wireDrawer = b.node(NodeType.CONVERTER, 1260, 400, 'Wire Drawer', n=>{ n.inputAmount=1; n.outputColor=C.wire; n.capacity=8; });
+    b.res(ironPlateBuf, gearPress, c=>{ c.rate=4; c.label='2 plate'; });
+    b.res(copperPlateBuf, wireDrawer, c=>{ c.rate=3; c.label='plate'; });
+
+    const gearBuf = b.node(NodeType.POOL, 1440, 170, 'Gears', n=>{ n.capacity=22; });
+    const wireBuf = b.node(NodeType.POOL, 1440, 400, 'Wire', n=>{ n.capacity=22; });
+    b.res(gearPress, gearBuf, c=>{ c.rate=2; });
+    b.res(wireDrawer, wireBuf, c=>{ c.rate=3; });
+
+    // Circuit Lab: a multi-ingredient recipe — gears + wire pushed into one
+    // converter (inputAmount=3 held resources per circuit).
+    const circuitLab = b.node(NodeType.CONVERTER, 1620, 290, 'Circuit Lab', n=>{ n.inputAmount=3; n.outputColor=C.circuit; n.capacity=9; });
+    b.res(gearBuf, circuitLab, c=>{ c.rate=2; c.label='gear'; });
+    b.res(wireBuf, circuitLab, c=>{ c.rate=3; c.label='wire'; });
+
+    // ── Parallel STEEL sub-line (structural frames) ──
+    // Iron plates also feed a steel furnace (2 plate -> 1 beam); beams weld into
+    // frames. This contends with the gear press for the iron plate buffer — fair
+    // allocation splits the plates between the two recipes.
+    const steelFurnace = b.node(NodeType.CONVERTER, 1260, 620, 'Steel Furnace', n=>{ n.inputAmount=2; n.outputColor=C.steel; n.capacity=8; });
+    b.res(ironPlateBuf, steelFurnace, c=>{ c.rate=3; c.label='2 plate'; });
+    const steelBuf = b.node(NodeType.POOL, 1440, 620, 'Steel Beams', n=>{ n.capacity=18; });
+    b.res(steelFurnace, steelBuf, c=>{ c.rate=2; });
+    // Frame Welder is intentionally slow (draws beams at rate 1) so Steel Beams
+    // backs up toward its cap — a second, milder back-pressure point.
+    const frameWelder = b.node(NodeType.CONVERTER, 1620, 620, 'Frame Welder', n=>{ n.inputAmount=2; n.outputColor=C.frame; n.capacity=8; });
+    b.res(steelBuf, frameWelder, c=>{ c.rate=1; c.label='beam'; });
+
+    // Maintenance depot: gears are ALSO consumed (in a small share) to keep the
+    // machines running — a competing draw on the gear buffer, drained on demand
+    // (PULL, all-or-nothing every few steps).
+    const maint = b.node(NodeType.POOL, 1620, 70, 'Spare Parts', n=>{ n.capacity=16; n.flowMode='pull'; n.pullPolicy='all'; });
+    b.res(gearBuf, maint, c=>{ c.rate=1; c.interval=3; c.label='upkeep'; });
+    const repairs = b.node(NodeType.DRAIN, 1760, 70, 'Repairs');
+    b.res(maint, repairs, c=>{ c.rate=1; c.interval=4; c.label='use'; });
+
+    // ===================== TIER 3 — FINAL ASSEMBLY & SHIPPING =====================
+    // *** BOTTLENECK: a tiny Circuit buffer (cap 6) drained by a SLOW serial
+    // Assembly queue (1 unit / 3 steps). The circuit buffer pins at 6 while the
+    // Circuit Lab idles and gears/wire pile up upstream. ***
+    const circuitBuf = b.node(NodeType.POOL, 1820, 290, 'Circuits', n=>{ n.capacity=6; n.setCount(0, C.circuit); });
+    b.res(circuitLab, circuitBuf, c=>{ c.rate=2; c.label='circuit'; });
+
+    // Capacity 4 on the queue means its intake stalls once it is holding 4
+    // units — so the slow service rate (1 / 3 steps) propagates back and pins
+    // the Circuits buffer at its cap of 6.
+    const assemblyQ = b.node(NodeType.QUEUE, 1820, 480, 'Assembly Station', n=>{ n.processTime=3; n.capacity=4; });
+    b.res(circuitBuf, assemblyQ, c=>{ c.rate=2; c.label='feed'; });
+
+    // Packer: 1 assembled circuit -> 1 widget.
+    const packer = b.node(NodeType.CONVERTER, 2000, 480, 'Widget Packer', n=>{ n.inputAmount=1; n.outputColor=C.widget; n.capacity=6; });
+    b.res(assemblyQ, packer, c=>{ c.rate=1; });
+
+    const widgetBuf = b.node(NodeType.POOL, 2000, 290, 'Widgets', n=>{ n.capacity=40; n.setCount(0, C.widget); });
+    b.res(packer, widgetBuf, c=>{ c.rate=1; });
+
+    // Frames buffer (output of the steel sub-line).
+    const frameBuf = b.node(NodeType.POOL, 2000, 620, 'Frames', n=>{ n.capacity=24; });
+    b.res(frameWelder, frameBuf, c=>{ c.rate=1; });
+
+    // WAREHOUSE — a PULL pool that draws finished widgets + frames on demand
+    // (flowMode=pull). It requests up to its incoming rates and takes what is
+    // available, decoupling production from dispatch.
+    const warehouse = b.node(NodeType.POOL, 2180, 460, 'Warehouse', n=>{ n.capacity=30; n.flowMode='pull'; n.pullPolicy='any'; });
+    b.res(widgetBuf, warehouse, c=>{ c.rate=2; c.label='draw'; });
+    b.res(frameBuf, warehouse, c=>{ c.rate=2; c.label='draw'; });
+
+    // QC GATE splitter — probabilistic ~90% pass / ~10% scrap, fed from warehouse.
+    const qcGate = b.node(NodeType.GATE, 2360, 170, 'QC Sorter', n=>{ n.gateMode='probabilistic'; });
+    b.res(warehouse, qcGate, c=>{ c.rate=3; });
+    const shipping = b.node(NodeType.DRAIN, 2520, 120, 'Shipping');
+    const scrapBin = b.node(NodeType.DRAIN, 2520, 250, 'Scrap Bin');
+    b.res(qcGate, shipping, c=>{ c.weight=9; c.label='pass'; });
+    b.res(qcGate, scrapBin, c=>{ c.weight=1; c.label='scrap'; });
+
+    // Registers: throughput (shipped tally) and a yield % efficiency metric.
+    const throughput = b.node(NodeType.REGISTER, 2520, 380, 'throughput', n=>{ n.formula='shipped'; });
+    b.st(shipping, throughput, c=>{ c.variableName='shipped'; c.label='shipped'; });
+    b.st(scrapBin, throughput, c=>{ c.variableName='scrapped'; c.label='scrapped'; });
+    const yieldPct = b.node(NodeType.REGISTER, 2520, 500, 'yieldPct', n=>{ n.formula='round(100 * shipped / max(1, shipped + scrapped))'; });
+    // wipRegister — total work-in-progress held across the component buffers
+    // (a one-step-lagged live readout of how clogged the mid-line is).
+    const wip = b.node(NodeType.REGISTER, 2520, 620, 'wip', n=>{ n.formula='gearsHeld + wireHeld + circHeld'; });
+    b.st(gearBuf, wip, c=>{ c.variableName='gearsHeld'; c.label='gears'; });
+    b.st(wireBuf, wip, c=>{ c.variableName='wireHeld'; c.label='wire'; });
+    b.st(circuitBuf, wip, c=>{ c.variableName='circHeld'; c.label='circ'; });
+
+    // ───── Charts + notes ─────
+    b.chart(120, 880, 640, 150, 'Back-pressure: Gears · Wire · Circuits(6) · Steel Beams', [gearBuf.id, wireBuf.id, circuitBuf.id, steelBuf.id]);
+    b.chart(1640, 880, 640, 150, 'Output: Shipped · Scrap · Throughput · WIP', [shipping.id, scrapBin.id, throughput.id, wip.id]);
+    b.note(800, 880, 400, 150,
+      'BOTTLENECK: the Circuits buffer holds only 6 and is drained by the slow Assembly '+
+      'Station (1 unit / 3 steps). Circuits pin at 6 while the Circuit Lab idles and '+
+      'Gears / Wire swell to their caps — classic back-pressure. The Steel Beams buffer '+
+      'is a milder second one (the Frame Welder is slow). '+
+      'FIX: raise the Circuits cap and/or lower the station processTime.');
+    b.note(1230, 880, 380, 150,
+      'Iron & Copper mines are FINITE — they deplete over a long run. Coal fuels the '+
+      'smelters via an activator (no fuel -> no smelting). The Warehouse PULLS finished '+
+      'widgets & frames on demand; Spare Parts is a competing pull on gears. The QC '+
+      'Sorter is a probabilistic ~90/10 pass/scrap gate; yieldPct tracks the pass rate.');
     this.renderer.render();
   }
   // ── Controls ──────────────────────────────────────────────────────────────
