@@ -218,7 +218,17 @@ class AppFields {
         hint.appendChild(code);
       }
     } else {
-      hint.textContent = 'No variables yet — add a Parameter, or name a State connection to publish a node’s value.';
+      // No vars yet — make "Parameter" a live link to the rail panel where they
+      // live, so the formula→Params connection is discoverable at the moment of
+      // need (a usability pass found the rail otherwise easy to miss entirely).
+      hint.appendChild(document.createTextNode('No variables yet — '));
+      const link = document.createElement('button');
+      link.type = 'button';
+      link.className = 'formula-hint-link';
+      link.textContent = 'add a Parameter';
+      link.addEventListener('click', () => this._toggleFeature('params'));
+      hint.appendChild(link);
+      hint.appendChild(document.createTextNode(', or name a State connection to publish a node’s value.'));
     }
     panel.appendChild(hint);
 

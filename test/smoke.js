@@ -967,6 +967,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   const rail = await page.evaluate(() => {
     window.app._clearAll();
     window.app.editor._select(null, null);
+    const titled = !!document.querySelector('#diagram-rail .rail-title'); // header names the rail
     const open = (f) => document.querySelector(`#diagram-rail .rail-btn[data-feature="${f}"]`).click();
     const content = () => document.getElementById('props-content').textContent;
     open('params');
@@ -978,11 +979,60 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     open('vars'); // toggle off
     const closed = window.app._activeFeature === null
       && !document.querySelector('#diagram-rail .rail-btn.active');
-    return { paramsShown, active, switched, closed };
+    return { titled, paramsShown, active, switched, closed };
   });
-  if (rail.paramsShown && rail.active && rail.switched && rail.closed)
-    ok('diagram rail: feature panels open / switch / highlight / toggle off');
+  if (rail.titled && rail.paramsShown && rail.active && rail.switched && rail.closed)
+    ok('diagram rail: header present; feature panels open / switch / highlight / toggle off');
   else fail('diagram rail: ' + JSON.stringify(rail));
+
+  // Discoverability: (a) an empty formula field links to the Params panel, and
+  // (b) running a stochastic model nudges toward Monte Carlo, once.
+  const discover = await page.evaluate(() => {
+    const t = window.app;
+    t._clearAll(); t._resetHistory(); t._closeFeature();
+    try { localStorage.removeItem('sim_seen_mc_hint'); } catch {}
+
+    // (a) Select a connection, switch its rate to Formula → the "no variables
+    // yet" hint exposes a link that opens the Params rail panel.
+    const d = t.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 420, 200));
+    const c = d.addConnection(new MConnection(s.id, p.id));
+    c.rateMode = RateMode.FORMULA; t._commit();
+    t._onSelect(c.id, 'conn');
+    const link = document.querySelector('#props-content .formula-hint-link');
+    const linkPresent = !!link;
+    if (link) link.click();
+    const openedParams = t._activeFeature === 'params';
+
+    // (b) A stochastic model: the first run (via the real Run button, which is
+    // what wires the nudge) fires the MC hint and persists the flag; a later
+    // run does not re-toast.
+    t._closeFeature();
+    const c2 = [...d.connections.values()][0];
+    c2.rateMode = RateMode.DICE; c2.dice = '1d6'; t._commit();
+    const hasRandom = t._hasRandomness();
+    const runBtn = document.getElementById('btn-run');
+    const toast = () => { const el = document.getElementById('app-toast'); return el && el.classList.contains('show') ? el.textContent : ''; };
+    if (t.engine.running) runBtn.click();          // ensure stopped
+    runBtn.click();                                 // start → should nudge
+    const firstToast = toast();
+    const flag = localStorage.getItem('sim_seen_mc_hint');
+    const el = document.getElementById('app-toast'); if (el) el.classList.remove('show');
+    runBtn.click();                                 // pause
+    runBtn.click();                                 // start again → must NOT re-toast
+    const secondToast = toast();
+    if (t.engine.running) runBtn.click();           // leave stopped
+    t.engine.reset();
+    return {
+      linkPresent, openedParams, hasRandom,
+      nudged: /Monte Carlo/.test(firstToast), flag, reNudged: /Monte Carlo/.test(secondToast),
+    };
+  });
+  if (discover.linkPresent && discover.openedParams && discover.hasRandom
+    && discover.nudged && discover.flag === '1' && !discover.reNudged)
+    ok('discoverability: formula→Params link opens the rail; first stochastic run nudges to Monte Carlo (once)');
+  else fail('discoverability: ' + JSON.stringify(discover));
 
   // Simulation panel (nothing selected): name/description edit, color scheme
   // remaps accents, background paints the canvas, font select injects a

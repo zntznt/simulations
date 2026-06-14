@@ -160,6 +160,35 @@ class App {
     this._hideModal('welcome-overlay');
   }
 
+  // Does the model contain any stochastic element? If so, a single run only
+  // shows one sample and Monte Carlo (many runs) is worth surfacing.
+  _hasRandomness() {
+    for (const c of this.diagram.connections.values()) {
+      if (c.rateMode === RateMode.DICE || c.rateMode === RateMode.DISTRIBUTION) return true;
+      if (Number(c.chance) < 100) return true;
+      if (Number(c.triggerChance) < 100) return true;
+    }
+    for (const n of this.diagram.nodes.values())
+      if (n.type === NodeType.GATE && n.gateMode === 'random') return true;
+    for (const v of (this.diagram.customVars || []))
+      if (v && v.kind && v.kind !== 'math') return true;
+    return false;
+  }
+
+  // One-time nudge: the first time a *stochastic* model is run, point at
+  // Analysis ▸ Batch (Monte Carlo) — it's otherwise buried in a menu and
+  // invisible until you know to look (a usability pass flagged it). Suppressed
+  // during the tour (so it doesn't stack on a coach-mark) and in embed mode.
+  _maybeMonteCarloHint() {
+    if (this._tour) return;
+    if (document.body.classList.contains('embed')) return;
+    let seen = false;
+    try { seen = localStorage.getItem('sim_seen_mc_hint') === '1'; } catch { /* ignore */ }
+    if (seen || !this._hasRandomness()) return;
+    try { localStorage.setItem('sim_seen_mc_hint', '1'); } catch { /* ignore */ }
+    this._toast('This model has randomness — try Analysis ▸ Batch (Monte Carlo) to run it many times and see the spread of outcomes.');
+  }
+
   // ── Interactive tour ─────────────────────────────────────────────────────────
   // Coach-marks over the real UI that teach the place → connect → Run loop by
   // having the user actually do it. Each step spotlights a control and advances
@@ -972,10 +1001,12 @@ class App {
     const runBtn = document.getElementById('btn-run');
     runBtn.addEventListener('click', () => {
       this._exitScrub();
-      if (!this.engine.running) document.getElementById('sim-status').textContent = '';
+      const starting = !this.engine.running;
+      if (starting) document.getElementById('sim-status').textContent = '';
       this.engine.run();
       this._syncRunButton();
       this._refreshScrubber();
+      if (starting && this.engine.running) this._maybeMonteCarloHint();
     });
 
     document.getElementById('btn-reset').addEventListener('click', () => {
