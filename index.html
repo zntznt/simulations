@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Simulations — Economy Designer</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="vendor/fontawesome/css/fontawesome.min.css">
   <link rel="stylesheet" href="vendor/fontawesome/css/solid.min.css">
   <link rel="stylesheet" href="css/style.css">
@@ -13,7 +14,18 @@
 
   <!-- Top bar -->
   <header id="topbar">
-    <div class="logo">Simulations<span>.</span></div>
+    <div class="logo" role="img" aria-label="Simulations">
+      <svg class="logo-mark" viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden="true" focusable="false">
+        <!-- Feedback loop: a running cycle around a node — the heart of a system. -->
+        <defs>
+          <marker id="logo-arrow" markerUnits="userSpaceOnUse" markerWidth="7.5" markerHeight="7.5" refX="3" refY="3.75" orient="auto">
+            <path d="M0,0 L7.5,3.75 L0,7.5 Z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <path d="M21.74 7.81 A10 10 0 1 1 10.26 7.81" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" marker-end="url(#logo-arrow)"/>
+        <circle cx="16" cy="16" r="3.4" fill="currentColor"/>
+      </svg>
+    </div>
 
     <div class="sim-controls">
       <div class="sim-cluster" role="group" aria-label="Simulation controls">
