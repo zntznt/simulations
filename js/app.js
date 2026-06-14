@@ -745,7 +745,7 @@ class App {
 
   _saveComponent() {
     const ids = new Set(this.editor.selection);
-    if (!ids.size) { this._toast('Select nodes first, then click Save selection.'); return; }
+    if (!ids.size) { this._toast('Select nodes first, then click Save component.'); return; }
     const name = document.getElementById('comp-name').value.trim() || 'Untitled';
     const nodes = [...ids].map(id => this.diagram.nodes.get(id)).filter(Boolean).map(n => n.toJSON());
     const conns = [...this.diagram.connections.values()]
@@ -787,7 +787,7 @@ class App {
     const el = document.getElementById('lib-components');
     el.innerHTML = '';
     if (!list.length) {
-      el.innerHTML = '<p class="mc-empty">No components yet. Select nodes on the canvas, then click Save selection.</p>';
+      el.innerHTML = '<p class="mc-empty">No components yet. Select nodes on the canvas, then click Save component.</p>';
       return;
     }
     for (let i = 0; i < list.length; i++) {
@@ -3315,7 +3315,7 @@ class App {
 
   // "Save as component…" from the context menu: open the Library and drop the
   // cursor in the component name field. The selection is untouched, so the
-  // existing Save selection flow captures exactly what was right-clicked.
+  // existing Save component flow captures exactly what was right-clicked.
   _saveComponentPrompt() {
     if (!this.editor.selection.size) { this._toast('Select nodes first to save a component.'); return; }
     this._openLibrary();
@@ -3996,7 +3996,7 @@ class App {
       const delRow = document.createElement('div'); delRow.className = 'prop-row';
       delRow.appendChild(document.createElement('label'));
       const del = document.createElement('button');
-      del.textContent = 'Remove rule'; del.className = 'btn'; del.style.flex = '1';
+      del.textContent = 'Delete rule'; del.className = 'btn'; del.style.flex = '1';
       del.addEventListener('click', () => { ai.rules.splice(i, 1); this._renderProps(); this._commit(); });
       delRow.appendChild(del); box.appendChild(delRow);
 
