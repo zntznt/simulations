@@ -21,8 +21,11 @@ const KB_ARTICLES = [
       + 'nodes and pile up until something draws them out. When several outgoing '
       + 'connections compete for a limited stock, the pool shares what it has '
       + 'fairly rather than letting the first connection drain everything. Give a '
-      + 'pool a capacity to cap how much it can hold, or set a starting amount so '
-      + 'the model begins with resources already in place.',
+      + 'pool a capacity to cap how much it can hold. A starting amount is just '
+      + 'what the pool holds when the run begins: set that count on the pool and '
+      + 'Reset returns to it — there is no separate starting-value field. A pool '
+      + 'never drops below zero, so model spending or loss by draining resources '
+      + 'out, not by letting it go negative.',
   },
   {
     id: 'node-source', category: 'Nodes', title: 'Source',
@@ -49,11 +52,15 @@ const KB_ARTICLES = [
     keywords: 'split route distribute weight deterministic probabilistic random branch',
     body: 'A gate routes incoming resources to its outputs without storing '
       + 'anything itself. Each outgoing connection carries a weight, and the gate '
-      + 'splits the flow according to those weights. In deterministic mode the '
-      + 'split is proportional, so weights of three and one send three-quarters of '
-      + 'the flow one way and one-quarter the other. In probabilistic mode the '
-      + 'gate sends each unit to a single output chosen at random, with higher '
-      + 'weights more likely to win; a weight of zero never receives anything.',
+      + 'splits the flow by those weights normalized against their sum — so weights '
+      + 'of three and one send three-quarters of the flow one way and one-quarter '
+      + 'the other, and weights of 70, 22, 7 and 1 split it into 70%, 22%, 7% and '
+      + '1%. In deterministic mode that proportional split happens every step. In '
+      + 'probabilistic mode the gate instead sends each whole unit to a single '
+      + 'output chosen at random, higher weights more likely to win and a weight of '
+      + 'zero never chosen; over many units the shares converge on the same '
+      + 'percentages. The weights are fixed numbers, not formulas or parameters, so '
+      + 'the split itself cannot be swept or computed live.',
   },
   {
     id: 'node-converter', category: 'Nodes', title: 'Converter',
@@ -61,10 +68,13 @@ const KB_ARTICLES = [
     body: 'A converter turns one resource into another, consuming a set number of '
       + 'input resources to produce each unit of output. Set the input amount to '
       + 'define the recipe — an input amount of two means every two resources that '
-      + 'arrive become one new resource in the converter’s output color. '
-      + 'Converters are how you model crafting, refining or any exchange where raw '
-      + 'materials are spent to make something else. Anything left over that '
-      + 'cannot complete a full conversion stays put until enough arrives.',
+      + 'arrive become one new resource in the converter’s output color, which then '
+      + 'flows out along its outgoing connections. There is no separate output '
+      + 'amount: each completed conversion yields one unit, so a recipe is always N '
+      + 'in for one out. Converters are how you model crafting, refining or any '
+      + 'exchange where raw materials are spent to make something else. Anything '
+      + 'left over that cannot complete a full conversion stays put until enough '
+      + 'arrives.',
   },
   {
     id: 'node-register', category: 'Nodes', title: 'Register',
@@ -187,8 +197,10 @@ const KB_ARTICLES = [
       + 'the target is allowed to fire only while the test passes. Activators are '
       + 'the gatekeepers of a model: use one to keep a process idle until a '
       + 'resource builds up, to shut a feature off once a limit is reached or to '
-      + 'model prerequisites and unlocks. When the test fails, the target simply '
-      + 'does nothing that step.',
+      + 'model prerequisites and unlocks. The source can be any node, including a '
+      + 'register, so you can gate on a computed value — unlock a stage only once a '
+      + 'level register reaches 5, say. When the test fails, the target simply does '
+      + 'nothing that step.',
   },
   {
     id: 'conditions', category: 'Logic and control', title: 'Conditions, chance and intervals',
@@ -237,20 +249,51 @@ const KB_ARTICLES = [
       + 'batch, the engine also tracks how often and how quickly the goal is '
       + 'reached.',
   },
+  {
+    id: 'feedback-loops', category: 'Logic and control', title: 'Feedback loops',
+    keywords: 'feedback loop self regulating logistic growth balancing reinforcing oscillate carrying capacity wire influence',
+    body: 'A feedback loop is where a quantity influences its own future — the heart '
+      + 'of most interesting models. To wire one, publish a value as a variable with '
+      + 'a state connection, then use that variable in a formula that feeds back into '
+      + 'the same value. The smallest example is logistic growth: a pool of rabbits '
+      + 'that publishes its count as r, with a step-mode self-modifier of '
+      + 'round(0.3 * r * (1 - r / 100)). When r is small the pool grows fast; as it '
+      + 'nears 100 the bracket falls to zero and growth stops, so the population '
+      + 'regulates itself. Couple two such loops — foxes that eat rabbits and starve '
+      + 'without them — and the one-step lag turns the coupling into boom-and-bust '
+      + 'oscillation. Reinforcing loops, where a value feeds its own growth, explode '
+      + 'or collapse; balancing loops, where growth throttles itself, settle.',
+  },
+  {
+    id: 'losses', category: 'Logic and control', title: 'Losses, debt and negative values',
+    keywords: 'negative below zero debt loss overdraft deficit floor clamp downside drain spend minimum volatile',
+    body: 'Resource counts never go below zero in this model — there is no debt or '
+      + 'negative balance. A pool asked to give more than it holds simply gives what '
+      + 'it has and stops at zero. To model spending, loss or a shrinking stock, '
+      + 'route resources into a drain or apply a negative-factor modifier, which '
+      + 'decays the pool but floors at zero. Random rates are non-negative as well, '
+      + 'so model a volatile, sometimes-falling quantity with a negative modifier or '
+      + 'a drain rather than a negative rate. If you genuinely need a value that can '
+      + 'sit below zero — a temperature, a profit-and-loss line — track it as an '
+      + 'offset from a baseline instead.',
+  },
 
   // ── Values and formulas ────────────────────────────────────────────────────
   {
     id: 'modifiers', category: 'Values and formulas', title: 'Modifiers',
     keywords: 'modifier rate step pulse delta self interest decay compounding factor',
     body: 'A modifier is a state connection that changes a target’s quantity '
-      + 'directly instead of moving resources into it. The mode sets the rhythm: a '
-      + 'rate modifier applies a percentage of the value each step, which is how '
-      + 'you model interest or decay; a step modifier adds a flat amount every '
-      + 'step; a pulse modifier adds an amount only when the source fires; and a '
-      + 'delta modifier mirrors the source’s own change, scaled by a factor. '
-      + 'Point a modifier from a node back to itself for compounding growth, and '
-      + 'use a formula in place of a fixed amount when the change should depend on '
-      + 'other values.',
+      + 'directly, in place, instead of moving resources into it. It has four '
+      + 'modes. Rate, the default, adds factor times the source value each step, '
+      + 'where factor is a fraction — enter 0.05 for 5% — which models interest, or '
+      + 'decay with a negative factor. Step adds a flat amount every step. Pulse '
+      + 'adds a flat amount only on steps when the source fires. Delta adds the '
+      + 'factor times the change in the source since the last step. The amount can '
+      + 'be a formula instead of a number. Modifiers act only on pools and '
+      + 'converters, never push a target below zero, and round their per-step '
+      + 'change to a whole number — so a tiny percentage of a small pool can round '
+      + 'to nothing until the pool grows. Point a modifier from a node back to '
+      + 'itself for compounding interest, steady decay or a homemade clock.',
   },
   {
     id: 'rate-modes', category: 'Values and formulas', title: 'Rate modes',
@@ -296,6 +339,32 @@ const KB_ARTICLES = [
       + 'by name in any formula, and index into a list when you need a particular '
       + 'entry. The editor validates a variable’s definition and warns you '
       + 'when a list is malformed.',
+  },
+  {
+    id: 'time-clocks', category: 'Values and formulas', title: 'Time, clocks and seasons',
+    keywords: 'time step tick clock counter age countdown season seasonal cycle periodic sine wave when current',
+    body: 'Formulas cannot read the current step number on their own — there is no '
+      + 'built-in time variable. When a model needs a sense of time, build a clock: '
+      + 'a pool with a step-mode self-modifier of plus one, published through a '
+      + 'state connection as a variable such as t. The pool counts up by one each '
+      + 'step, and any formula can then read t to drive an age, a countdown or a '
+      + 'schedule. For a repeating seasonal signal, feed the clock into a periodic '
+      + 'formula: 1 + 0.5 * sin(2 * pi * t / 52) rises and falls over a 52-step '
+      + 'year, which you can multiply into a growth rate so production waxes and '
+      + 'wanes with the seasons.',
+  },
+  {
+    id: 'compute-accumulate', category: 'Values and formulas', title: 'Computing vs. accumulating',
+    keywords: 'register pool accumulate cumulative running total compound remember recompute instantaneous inflation balance',
+    body: 'Registers and pools answer two different needs, and picking the wrong one '
+      + 'is a common early mistake. A register is recomputed from its formula every '
+      + 'step: it holds an instantaneous value and cannot see its own previous '
+      + 'result, so it is ideal for a derived number like a price or a score but '
+      + 'useless as a running total. To accumulate or compound a value over time — a '
+      + 'cumulative tally, an inflation index, a savings balance — use a pool with a '
+      + 'self-modifier instead: the pool carries the value forward and the modifier '
+      + 'grows or shrinks it each step. The rule of thumb: a register computes, a '
+      + 'pool remembers.',
   },
 
   // ── Running and analysis ───────────────────────────────────────────────────
