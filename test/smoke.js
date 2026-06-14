@@ -27,9 +27,15 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
 
   await page.goto(URL, { waitUntil: 'networkidle' });
 
-  // App booted with the default example.
-  const nodeCount = await page.evaluate(() => window.app.diagram.nodes.size);
-  if (nodeCount > 0) ok(`default example loaded (${nodeCount} nodes)`); else fail('no nodes on boot');
+  // Fresh session boots to an empty canvas (learn-by-doing); the demo loads on
+  // demand via the welcome's "Explore the demo" (_loadDemo).
+  const boot = await page.evaluate(() => {
+    const empty = window.app.diagram.nodes.size;
+    window.app._loadDemo();
+    return { empty, afterDemo: window.app.diagram.nodes.size };
+  });
+  if (boot.empty === 0) ok('fresh session boots to an empty canvas'); else fail(`expected empty boot, got ${boot.empty} nodes`);
+  if (boot.afterDemo > 0) ok(`"Explore the demo" loads the demo (${boot.afterDemo} nodes)`); else fail('demo did not load on demand');
 
   // Each starter template (now in the Library) loads cleanly (bypass guard modal).
   await page.evaluate(() => { window.app._confirmGuard = () => Promise.resolve(true); });

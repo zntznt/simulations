@@ -422,11 +422,30 @@ class App {
       } catch { /* corrupted save → fall through to demo */ }
     }
 
-    // No autosave (fresh session): show the default example.
-    this._demoEcosystem();
+    // No autosave (fresh session): start on an empty canvas so first-time users
+    // learn by doing — the welcome overlay and tour guide them through their own
+    // first model. The demo is one click away (welcome "Explore the demo" or the
+    // Library), and returning users still get their autosaved work above.
     this._applyMeta();
-    this.renderer.fitView();
+    this.renderer.render();
+    this.renderer.resetView();
     this._resetHistory();
+    this._renderProps();
+  }
+
+  // Load the built-in predator-prey demo on demand (welcome "Explore the demo").
+  // Undoable: Ctrl+Z returns to the empty canvas you started from.
+  _loadDemo() {
+    const t = this._templates[0]; // Predator & Prey
+    if (!t) return;
+    const prev = this._snapshot();
+    this._clearAll();
+    t.load();
+    this.diagram.meta.name = t.name;
+    this.diagram.meta.description = t.desc;
+    this._applyMeta();
+    this._commitReplace(prev);
+    this.renderer.fitView();
     this._renderProps();
   }
 
@@ -2340,7 +2359,10 @@ class App {
 
     // Welcome / getting-started overlay (first run; reopenable from Help)
     document.getElementById('welcome-close').addEventListener('click', () => this._dismissWelcome());
-    document.getElementById('welcome-explore').addEventListener('click', () => this._dismissWelcome());
+    document.getElementById('welcome-explore').addEventListener('click', () => {
+      this._dismissWelcome();
+      this._loadDemo();
+    });
     document.getElementById('welcome-templates').addEventListener('click', () => {
       this._dismissWelcome();
       this._openLibrary();
