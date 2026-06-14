@@ -27,9 +27,71 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
 
   await page.goto(URL, { waitUntil: 'networkidle' });
 
-  // App booted with the default example.
-  const nodeCount = await page.evaluate(() => window.app.diagram.nodes.size);
-  if (nodeCount > 0) ok(`default example loaded (${nodeCount} nodes)`); else fail('no nodes on boot');
+  // Fresh session boots to an empty canvas (learn-by-doing); the demo loads on
+  // demand via the welcome's "Explore the demo" (_loadDemo).
+  const boot = await page.evaluate(() => {
+    const empty = window.app.diagram.nodes.size;
+    window.app._loadDemo();
+    return { empty, afterDemo: window.app.diagram.nodes.size };
+  });
+  if (boot.empty === 0) ok('fresh session boots to an empty canvas'); else fail(`expected empty boot, got ${boot.empty} nodes`);
+  if (boot.afterDemo > 0) ok(`"Explore the demo" loads the demo (${boot.afterDemo} nodes)`); else fail('demo did not load on demand');
+
+  // Interactive tour: learn-by-doing coach-marks that advance as the user
+  // actually places nodes, connects them, and runs — then can be skipped/finished.
+  const tour = await page.evaluate(() => {
+    const t = window.app;
+    t._clearAll(); t._resetHistory();
+    t._startTour();
+    const count = () => document.getElementById('tour-count').textContent;
+    const text = () => document.getElementById('tour-text').textContent;
+    const visible = !document.getElementById('tour').classList.contains('hidden');
+    const spotOn = !document.getElementById('tour-spotlight').classList.contains('off');
+    const s1 = { c: count(), src: /Source/.test(text()) };
+
+    const d = t.diagram;
+    const src = d.addNode(new MNode(NodeType.SOURCE, 200, 200)); t._commit();
+    const s2 = { c: count(), pool: /Pool/.test(text()) };
+
+    const pool = d.addNode(new MNode(NodeType.POOL, 420, 200)); t._commit();
+    const s3 = { c: count(), conn: /Resource/.test(text()) };
+
+    d.addConnection(new MConnection(src.id, pool.id)); t._commit();
+    const s4 = { c: count(), run: /Run/.test(text()) };
+
+    t.engine.doStep();
+    const sFinal = {
+      c: count(),
+      finish: !document.getElementById('tour-next').classList.contains('hidden'),
+      skipHidden: document.getElementById('tour-skip').classList.contains('hidden'),
+    };
+
+    document.getElementById('tour-next').click();
+    const ended = t._tour === null && document.getElementById('tour').classList.contains('hidden');
+    const flag = localStorage.getItem('sim_seen_tour');
+    return { visible, spotOn, s1, s2, s3, s4, sFinal, ended, flag };
+  });
+  const tourOk = tour.visible && tour.spotOn
+    && tour.s1.c === 'Step 1 of 4' && tour.s1.src
+    && tour.s2.c === 'Step 2 of 4' && tour.s2.pool
+    && tour.s3.c === 'Step 3 of 4' && tour.s3.conn
+    && tour.s4.c === 'Step 4 of 4' && tour.s4.run
+    && tour.sFinal.c === 'All set' && tour.sFinal.finish && tour.sFinal.skipHidden
+    && tour.ended && tour.flag === '1';
+  if (tourOk) ok('tour: coach-marks advance on place→connect→Run, then finish; flag persists');
+  else fail('tour: ' + JSON.stringify(tour));
+
+  // Skipping the tour mid-way ends it immediately.
+  const tourSkip = await page.evaluate(() => {
+    const t = window.app;
+    t._clearAll(); t._resetHistory();
+    t._startTour();
+    const mid = !document.getElementById('tour').classList.contains('hidden');
+    document.getElementById('tour-skip').click();
+    return { mid, ended: t._tour === null && document.getElementById('tour').classList.contains('hidden') };
+  });
+  if (tourSkip.mid && tourSkip.ended) ok('tour: "Skip tour" ends it immediately');
+  else fail('tour skip: ' + JSON.stringify(tourSkip));
 
   // Each starter template (now in the Library) loads cleanly (bypass guard modal).
   await page.evaluate(() => { window.app._confirmGuard = () => Promise.resolve(true); });
@@ -421,6 +483,58 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (ed.zoomed && ed.afterPlace === 1 && ed.afterUndo === 0 && ed.afterRedo === 1)
     ok('editor: wheel-zoom + undo/redo of a placement');
   else fail('editor 3a: ' + JSON.stringify(ed));
+
+  // Editor 3a': double-click a node to rename it inline; Enter commits.
+  const inlineLabel = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    window.app.renderer.resetView();
+    const d = window.app.diagram;
+    const n = d.addNode(new MNode(NodeType.POOL, 200, 200)); n.label = 'Old';
+    window.app.renderer.render();
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const rr = window.app.renderer;
+    const sx = r.left + rr._panX + n.x * rr._scale;
+    const sy = r.top + rr._panY + n.y * rr._scale;
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: sx, clientY: sy, bubbles: true }));
+
+    const input = document.querySelector('.node-label-edit');
+    const opened = !!input && input.value === 'Old';
+    if (!input) return { opened, renamed: false, closed: true };
+    input.value = 'Treasury';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const renamed = d.nodes.get(n.id).label === 'Treasury';
+    const closed = !document.querySelector('.node-label-edit');
+    return { opened, renamed, closed };
+  });
+  if (inlineLabel.opened && inlineLabel.renamed && inlineLabel.closed)
+    ok('editor: double-click node opens inline label editor, Enter commits the rename');
+  else fail('editor inline label: ' + JSON.stringify(inlineLabel));
+
+  // A mistaken New / Load template is undoable: the pre-replace diagram comes
+  // back on Ctrl+Z, and redo re-applies the replacement.
+  const replaceUndo = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    d.addNode(new MNode(NodeType.POOL, 200, 200));
+    d.addNode(new MNode(NodeType.SOURCE, 400, 200));
+    const before = d.nodes.size; // 2
+
+    // Simulate the New action's body (guard bypassed).
+    const prev = window.app._snapshot();
+    window.app._clearAll();
+    window.app._commitReplace(prev);
+    const afterNew = window.app.diagram.nodes.size; // 0
+
+    window.app.undo();
+    const afterUndo = window.app.diagram.nodes.size; // back to 2
+    window.app.redo();
+    const afterRedo = window.app.diagram.nodes.size; // 0 again
+    return { before, afterNew, afterUndo, afterRedo };
+  });
+  if (replaceUndo.before === 2 && replaceUndo.afterNew === 0 && replaceUndo.afterUndo === 2 && replaceUndo.afterRedo === 0)
+    ok('editor: New / Load is undoable (Ctrl+Z restores the previous diagram)');
+  else fail('replace undo: ' + JSON.stringify(replaceUndo));
 
   // Editor 3b: marquee multi-select + copy/paste + group delete.
   const ms = await page.evaluate(() => {
@@ -938,6 +1052,130 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (p2chart.hoverHasCrosshair && p2chart.hoverHasDot && p2chart.hoverShowsStepAndValue && p2chart.hoverCleared)
     ok('P2 chart: hover draws crosshair + per-series value readout, clears on leave');
   else fail('P2 chart hover: ' + JSON.stringify(p2chart));
+
+  // Bar charts lay each step in its own slot, so hover hit-testing must be
+  // slot-based (floor), not the edge-to-edge index used by line/area. Pointing
+  // inside slot 2 should select index 2, and the crosshair lands at slot centre.
+  const barHover = await page.evaluate(() => {
+    const chart = [...window.app.diagram.charts.values()][0];
+    chart.chartType = 'bars';
+    window.app.renderer.render();
+    const el = window.app.renderer._chartEls.get(chart.id);
+    const ctx = el._chartCtx;
+    const slot = ctx.plotW / ctx.n;
+    // A cursor a little past the start of slot 2 must resolve to index 2 (a
+    // round-to-nearest mapping would wrongly pick 1 here).
+    const probeX = ctx.x0 + slot * 2 + slot * 0.15;
+    const idx = window.app.renderer._chartIndexAtX(ctx, probeX);
+    const cx = window.app.renderer._chartXAtIndex(ctx, 2);
+    const slotCentre = ctx.x0 + 2.5 * slot;
+    return { n: ctx.n, idx, crosshairAtSlotCentre: Math.abs(cx - slotCentre) < 0.5 };
+  });
+  if (barHover.idx === 2 && barHover.crosshairAtSlotCentre)
+    ok('P2 chart: bar-chart hover snaps to the correct slot (slot-based, not edge-spaced)');
+  else fail('P2 chart bar hover: ' + JSON.stringify(barHover));
+
+  // Live flow readout: a step that moves resources flashes a "+N" badge on the
+  // connection; the Flow toggle suppresses and clears it.
+  const flow = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 150, 150));
+    const p = d.addNode(new MNode(NodeType.POOL, 380, 150));
+    const c = d.addConnection(new MConnection(s.id, p.id)); c.rate = 2;
+    window.app.renderer.render();
+    const btnExists = !!document.getElementById('btn-flow');
+
+    window.app._flowReadout = true;
+    window.app.engine.reset();
+    window.app.engine.doStep();
+    const layer = window.app.renderer.flowLayer;
+    const badgeCount = layer.childElementCount;
+    const txt = [...layer.querySelectorAll('text')].map(t => t.textContent).join(',');
+
+    // Toggle off clears existing badges and suppresses future ones.
+    window.app._flowReadout = false;
+    window.app.renderer.flowFx.clear();
+    window.app.engine.doStep();
+    const afterOff = window.app.renderer.flowLayer.childElementCount;
+    return { btnExists, badgeCount, txt, afterOff };
+  });
+  if (flow.btnExists && flow.badgeCount >= 1 && /2/.test(flow.txt) && flow.afterOff === 0)
+    ok('flow readout: step flashes a flow badge on the connection; toggle suppresses it');
+  else fail('flow readout: ' + JSON.stringify(flow));
+
+  // History scrubbing: after a run, the slider previews past node values on the
+  // canvas non-destructively, and "Live" restores the latest state.
+  const scrub = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 150, 150));
+    const p = d.addNode(new MNode(NodeType.POOL, 380, 150)); p.label = 'Bank';
+    const c = d.addConnection(new MConnection(s.id, p.id)); c.rate = 2;
+    window.app.renderer.render();
+    window.app.engine.reset();
+    for (let i = 0; i < 5; i++) window.app.engine.doStep();
+    const liveVal = p.resources; // 10
+
+    window.app._refreshScrubber();
+    const range = document.getElementById('tl-range');
+    const enabled = !range.disabled;
+
+    // Preview an early step.
+    window.app._scrubTo(1);
+    const countOf = () => window.app.renderer._nodeEls.get(p.id).querySelector('.n-count').textContent;
+    const shownAtScrub = String(countOf());
+    const histVal1 = String(window.app.engine.history[1].snap[p.id]);
+    const scrubbingClass = document.getElementById('canvas').classList.contains('scrubbing');
+    const liveUntouched = p.resources === liveVal; // engine state not mutated
+
+    // Exit scrub → live value returns and the cue clears.
+    window.app._exitScrub();
+    const shownLive = String(countOf());
+    const exited = window.app._scrubIndex === null
+      && !document.getElementById('canvas').classList.contains('scrubbing');
+
+    return { liveVal, enabled, shownAtScrub, histVal1, scrubbingClass, liveUntouched, shownLive, exited };
+  });
+  if (scrub.enabled && scrub.shownAtScrub === scrub.histVal1 && scrub.shownAtScrub !== String(scrub.liveVal)
+      && scrub.scrubbingClass && scrub.liveUntouched && scrub.exited && scrub.shownLive === String(scrub.liveVal))
+    ok('scrub: slider previews past node values non-destructively; Live restores the latest state');
+  else fail('scrub: ' + JSON.stringify(scrub));
+
+  // Minimap: toggles on, maps world→minimap coords, and clicking it re-centres
+  // the main view (the viewport follows the click).
+  const minimap = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    // Spread nodes out so there's something to navigate.
+    d.addNode(new MNode(NodeType.POOL, 100, 100));
+    d.addNode(new MNode(NodeType.POOL, 1600, 1200));
+    window.app.renderer.render();
+    window.app.renderer.zoomTo(1);
+
+    document.getElementById('btn-minimap').click();
+    const mm = window.app._minimap;
+    const shown = mm.visible && !document.getElementById('minimap').classList.contains('hidden');
+    const hasMapping = !!mm._mm;
+
+    // Click the centre of the minimap → main view should re-centre near the
+    // content centre (~world (850,650)).
+    const cv = document.getElementById('minimap-canvas');
+    const r = cv.getBoundingClientRect();
+    cv.dispatchEvent(new MouseEvent('mousedown', { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    const vp = window.app.renderer._viewportWorld();
+    const cx = (vp.x0 + vp.x1) / 2, cy = (vp.y0 + vp.y1) / 2;
+    const recentred = Math.abs(cx - 850) < 250 && Math.abs(cy - 650) < 250;
+
+    // Toggle off hides it.
+    document.getElementById('btn-minimap').click();
+    const hiddenAfter = !mm.visible && document.getElementById('minimap').classList.contains('hidden');
+    return { shown, hasMapping, recentred, hiddenAfter };
+  });
+  if (minimap.shown && minimap.hasMapping && minimap.recentred && minimap.hiddenAfter)
+    ok('minimap: toggles, renders an overview, and click re-centres the main view');
+  else fail('minimap: ' + JSON.stringify(minimap));
 
   // Hit-test order matches visual stacking: an annotation painted over a node
   // is selected (not the node hidden beneath it), and a bare node is still hit.

@@ -632,8 +632,13 @@ class Editor {
     const hit = this.renderer.hitTest(pt.x, pt.y);
     if (hit && hit.type === 'node') {
       const node = this.diagram.nodes.get(hit.id);
-      if (node && node.activation === ActivationMode.INTERACTIVE) {
+      if (!node) return;
+      // While running, double-click fires an interactive node (matches the
+      // single-click behaviour). Otherwise, edit the node's label in place.
+      if (this.engine.running && node.activation === ActivationMode.INTERACTIVE) {
         this.engine.fireInteractive(hit.id);
+      } else {
+        this._editNodeLabel(node);
       }
     } else if (hit && hit.type === 'conn') {
       // Double-click a connection to reset its shape to default.
@@ -643,6 +648,64 @@ class Editor {
         this.renderer.render(); this._changed();
       }
     }
+  }
+
+  // Inline label editing: float an HTML input over the node's label so you can
+  // rename without opening the properties panel. Commits on Enter/blur, cancels
+  // on Escape. Positioned in viewport coords (the input lives on document.body),
+  // so it survives canvas re-renders and ignores any scrolling container.
+  _editNodeLabel(node) {
+    if (this._labelEditEl) this._labelEditEl.remove();
+
+    const r = this.renderer;
+    const rect = this.svg.getBoundingClientRect();
+    const scale = r._scale;
+    // The node's label text sits at local (0, 50) within the node group.
+    const cx = rect.left + r._panX + node.x * scale;
+    const cy = rect.top + r._panY + (node.y + 50) * scale;
+    const width = Math.max(80, 130 * scale);
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'node-label-edit';
+    input.value = node.label || '';
+    input.setAttribute('aria-label', 'Node label');
+    input.style.left = `${cx - width / 2}px`;
+    input.style.top = `${cy}px`;
+    input.style.width = `${width}px`;
+    input.style.fontSize = `${Math.max(10, Math.round(13 * scale))}px`;
+    document.body.appendChild(input);
+    this._labelEditEl = input;
+
+    let done = false;
+    const commit = (save) => {
+      if (done) return;
+      done = true;
+      input.remove();
+      if (this._labelEditEl === input) this._labelEditEl = null;
+      if (save) {
+        const v = input.value.trim();
+        if (v !== node.label) {
+          node.label = v;
+          this.renderer.render();
+          this._changed();
+          // Refresh the properties panel if this node is selected.
+          if (this.onSelect && this.selection.has(node.id)) {
+            this.onSelect(node.id, 'node', this.selection.size);
+          }
+        }
+      }
+    };
+
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation(); // keep canvas shortcuts (Delete, tool keys) from firing
+      if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+    });
+    input.addEventListener('blur', () => commit(true));
+
+    input.focus();
+    input.select();
   }
 
   _onRightClick(e) {

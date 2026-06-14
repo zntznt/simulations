@@ -44,10 +44,12 @@
         <button class="btn zoom-level" id="btn-zoom-level" title="Reset to 100%" aria-label="Current zoom — click to reset to 100%">100%</button>
         <button class="btn zoom-btn" id="btn-zoom-in" title="Zoom in" aria-label="Zoom in"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
         <button class="btn" id="btn-fit" title="Fit diagram to view (Ctrl+0)"><i class="fa-solid fa-expand" aria-hidden="true"></i> Fit</button>
+      <button class="btn" id="btn-minimap" title="Toggle minimap overview" aria-pressed="false"><i class="fa-solid fa-map" aria-hidden="true"></i> Map</button>
       </div>
       <span class="tb-sep" aria-hidden="true"></span>
       <button class="btn" id="btn-snap" title="Toggle grid snap (align nodes to grid)" aria-pressed="false"><i class="fa-solid fa-border-all" aria-hidden="true"></i> Snap</button>
       <button class="btn" id="btn-autoselect" title="After placing a node, switch back to Select" aria-pressed="false"><i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i> Auto</button>
+      <button class="btn" id="btn-flow" title="Show live flow amounts on connections during a run" aria-pressed="true"><i class="fa-solid fa-water" aria-hidden="true"></i> Flow</button>
     </div>
 
     <div class="file-controls">
@@ -270,6 +272,9 @@
     <!-- Canvas -->
     <div id="canvas-wrap">
       <svg id="canvas" role="application" aria-label="Diagram editing canvas" tabindex="0"></svg>
+      <div id="minimap" class="hidden" aria-hidden="true">
+        <canvas id="minimap-canvas"></canvas>
+      </div>
     </div>
 
     <!-- Properties panel -->
@@ -323,6 +328,12 @@
       <button class="btn" id="tl-close" title="Hide timeline" aria-label="Hide timeline"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
     <canvas id="timeline-canvas"></canvas>
+    <div id="tl-scrub">
+      <button class="btn" id="tl-play" title="Replay the run" aria-label="Replay the run" disabled><i class="fa-solid fa-play" aria-hidden="true"></i></button>
+      <input type="range" id="tl-range" min="0" max="0" value="0" step="1" aria-label="Scrub through run history" disabled>
+      <span id="tl-scrub-label" class="tb-chip">—</span>
+      <button class="btn" id="tl-live" title="Return to the live state" disabled>Live</button>
+    </div>
   </div>
 </div>
 
@@ -413,15 +424,17 @@
         <h3>Connections &amp; nodes</h3>
         <dl>
           <dt>Drag node→node</dt><dd>Connect (with R/T tool active)</dd>
+          <dt>Double-click node</dt><dd>Rename it inline (during a run, fires an <i>interactive</i> node)</dd>
           <dt>Double-click connection</dt><dd>Reset its shape</dd>
           <dt>Drag label pill</dt><dd>Slide it along the connection</dd>
           <dt>Drag curve handle</dt><dd>Reshape a selected connection</dd>
-          <dt>Click / double-click node</dt><dd>Fire an <i>interactive</i> node (during run / anytime)</dd>
+          <dt>Click node (during run)</dt><dd>Fire an <i>interactive</i> node</dd>
         </dl>
       </div>
     </div>
     <div class="help-footer">
       <button class="btn" id="help-getting-started"><i class="fa-solid fa-circle-play" aria-hidden="true"></i> Getting started</button>
+      <button class="btn" id="help-take-tour"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Take the tour</button>
     </div>
   </div>
 </div>
@@ -475,8 +488,22 @@
       </div>
     </div>
     <div class="welcome-actions">
-      <button class="btn btn-primary" id="welcome-explore">Explore the demo</button>
+      <button class="btn btn-primary" id="welcome-tour"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Take a quick tour</button>
+      <button class="btn" id="welcome-explore">Explore the demo</button>
       <button class="btn" id="welcome-templates"><i class="fa-solid fa-book" aria-hidden="true"></i> Browse templates</button>
+    </div>
+  </div>
+</div>
+
+<!-- Interactive tour (coach-marks over the real UI) -->
+<div id="tour" class="hidden">
+  <div id="tour-spotlight" aria-hidden="true"></div>
+  <div id="tour-coach" role="dialog" aria-modal="false" aria-labelledby="tour-text" aria-live="polite">
+    <div class="tour-count" id="tour-count"></div>
+    <p id="tour-text"></p>
+    <div class="tour-actions">
+      <button class="btn" id="tour-skip">Skip tour</button>
+      <button class="btn btn-primary hidden" id="tour-next">Next</button>
     </div>
   </div>
 </div>

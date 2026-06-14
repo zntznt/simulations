@@ -21,6 +21,11 @@ class App {
     this.diagram = new Diagram();
     this.engine = new SimEngine(this.diagram);
     this.renderer = new Renderer(document.getElementById('canvas'), this.diagram, this.engine);
+    this._minimap = new Minimap(
+      document.getElementById('minimap'), document.getElementById('minimap-canvas'),
+      this.diagram, this.renderer);
+    // Keep the minimap (content + viewport rect) in sync with renders and pans.
+    this.renderer.onRender = () => this._minimap.update();
     this.editor = new Editor(
       document.getElementById('canvas'),
       this.diagram, this.renderer, this.engine,
@@ -44,7 +49,16 @@ class App {
     this.timeline = new TimelineChart(document.getElementById('timeline-canvas'), document.getElementById('tl-legend'), this.diagram, this.engine);
     this._timelineVisible = false;
 
+    // History scrubbing: when active, _scrubIndex points at an engine.history
+    // entry being previewed (non-destructively) on the canvas and chart.
+    this._scrubIndex = null;
+    this._scrubPlayTimer = null;
+
     this._activeFeature = null; // which diagram-rail feature occupies the props panel
+    this._flowReadout = true;   // transient "+N" flow badges on connections during a run
+    this._tour = null;          // { idx, base } while the interactive tour is running
+    this._tourReposition = () => this._positionTour(); // stable ref for listeners
+    this._tourKey = (e) => { if (e.key === 'Escape') this._endTour(false); };
 
     // Scenario branching: checkpoints are full sim-state snapshots you can
     // fork from; branches are finished timelines kept as ghost traces in the
@@ -71,6 +85,26 @@ class App {
         if (pathEl) this.renderer.balls.spawn(pathEl, amount, color, ballDur);
       }
 
+      // Live flow readout: a transient "+N" badge per connection showing the
+      // actual amount that moved this step (the static label only shows the
+      // configured rate). Amounts are summed across colours; the badge takes the
+      // colour of the largest contributor.
+      if (this._flowReadout) {
+        const agg = new Map(); // connId -> { amount, color, top }
+        for (const { connId, color, amount } of transfers) {
+          if (!(amount > 0)) continue;
+          const e = agg.get(connId) || { amount: 0, color, top: 0 };
+          e.amount += amount;
+          if (amount > e.top) { e.top = amount; e.color = color; }
+          agg.set(connId, e);
+        }
+        const flowDur = Math.max(450, Math.min(1400, 900 / this.engine.speed));
+        for (const [connId, e] of agg) {
+          const pathEl = this.renderer.getConnPathEl(connId);
+          if (pathEl) this.renderer.flowFx.flash(pathEl, this._fmtFlow(e.amount), e.color, flowDur);
+        }
+      }
+
       if (fired.length) this.renderer.setFiring(fired);
       else this.renderer.render();
 
@@ -80,6 +114,8 @@ class App {
       this._refreshTypeReadouts();
       // Keep the live "Watch" panel ticking with the run.
       if (this._activeFeature === 'monitor') this._renderProps();
+      // Running the sim may complete the tour's final action step.
+      this._tourCheck();
     };
 
     this.engine.onEnd = (ended) => {
@@ -88,10 +124,18 @@ class App {
         document.createTextNode(` ${ended.label} reached ${ended.value} at step ${ended.step}`));
       this._syncRunButton();
       this.renderer.render();
+      this._refreshScrubber();
     };
 
     this._initDiagram();
     this._maybeWelcome();
+  }
+
+  // Compact number for flow badges: integers as-is, fractions to 2 sig decimals.
+  _fmtFlow(v) {
+    const n = Number(v);
+    if (!isFinite(n)) return String(v);
+    return Number.isInteger(n) ? String(n) : String(+n.toFixed(2));
   }
 
   // First-run onboarding: a one-time welcome explaining what the app is and the
@@ -113,6 +157,153 @@ class App {
   _dismissWelcome() {
     try { localStorage.setItem('sim_seen_welcome', '1'); } catch { /* ignore */ }
     this._hideModal('welcome-overlay');
+  }
+
+  // ── Interactive tour ─────────────────────────────────────────────────────────
+  // Coach-marks over the real UI that teach the place → connect → Run loop by
+  // having the user actually do it. Each step spotlights a control and advances
+  // when the corresponding action happens (detected via _commit / onStep), so
+  // it's learn-by-doing, not a slideshow. Launchable from the welcome overlay
+  // and from Help → "Take the tour"; "Skip tour" ends it at any point.
+
+  _countNodeType(type) {
+    let n = 0;
+    for (const node of this.diagram.nodes.values()) if (node.type === type) n++;
+    return n;
+  }
+
+  _countResConns() {
+    let n = 0;
+    for (const c of this.diagram.connections.values()) if (c.type === ConnectionType.RESOURCE) n++;
+    return n;
+  }
+
+  // Steps are evaluated as deltas from the baseline captured at start, so the
+  // tour works whether you begin on an empty canvas or an existing diagram.
+  _tourSteps() {
+    return [
+      {
+        target: '[data-tool="place-source"]',
+        text: 'Click <b>Source</b>, then click anywhere on the canvas to drop it. A Source <b>produces</b> resources.',
+        done: () => this._countNodeType(NodeType.SOURCE) > this._tour.base.source,
+      },
+      {
+        target: '[data-tool="place-pool"]',
+        text: 'Now place a <b>Pool</b> to the right of the Source. A Pool <b>stores</b> whatever flows into it.',
+        done: () => this._countNodeType(NodeType.POOL) > this._tour.base.pool,
+      },
+      {
+        target: '[data-tool="connect-resource"]',
+        text: 'Pick the <b>Resource</b> tool, then <b>drag from the Source to the Pool</b> to connect them.',
+        done: () => this._countResConns() > this._tour.base.conns,
+      },
+      {
+        target: '#btn-run',
+        text: 'Press <b>Run</b> — watch resources flow from the Source into the Pool, live.',
+        done: () => this.engine.running || this.engine.step > this._tour.base.step,
+      },
+      {
+        target: '#btn-run',
+        text: "That's the whole loop: <b>place → connect → Run</b>. Browse the Library for ready-made models, or keep building. You can replay this tour from <b>Help</b>.",
+        final: true,
+      },
+    ];
+  }
+
+  _startTour() {
+    // Clean slate for the Run step's baseline, and close any overlays that would
+    // sit on top of the coach-marks.
+    this.engine.stop();
+    this._syncRunButton();
+    this._hideModal('welcome-overlay');
+    this._hideModal('help-overlay');
+
+    this._tour = {
+      idx: 0,
+      base: {
+        source: this._countNodeType(NodeType.SOURCE),
+        pool: this._countNodeType(NodeType.POOL),
+        conns: this._countResConns(),
+        step: this.engine.step,
+      },
+    };
+    document.getElementById('tour').classList.remove('hidden');
+    window.addEventListener('resize', this._tourReposition);
+    window.addEventListener('keydown', this._tourKey, true);
+    this._renderTourStep();
+  }
+
+  _renderTourStep() {
+    if (!this._tour) return;
+    const steps = this._tourSteps();
+    const step = steps[this._tour.idx];
+    document.getElementById('tour-count').textContent =
+      step.final ? 'All set' : `Step ${this._tour.idx + 1} of ${steps.length - 1}`;
+    document.getElementById('tour-text').innerHTML = step.text;
+    const next = document.getElementById('tour-next');
+    next.classList.toggle('hidden', !step.final);
+    next.textContent = 'Finish';
+    document.getElementById('tour-skip').classList.toggle('hidden', !!step.final);
+    this._positionTour();
+  }
+
+  // Place the spotlight cut-out over the current target and the coach card
+  // beside it (right → below → left), clamped to the viewport.
+  _positionTour() {
+    if (!this._tour) return;
+    const step = this._tourSteps()[this._tour.idx];
+    const spot = document.getElementById('tour-spotlight');
+    const coach = document.getElementById('tour-coach');
+    const target = step.target ? document.querySelector(step.target) : null;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const cw = coach.offsetWidth || 290, ch = coach.offsetHeight || 140;
+
+    if (!target) {
+      spot.classList.add('off');
+      spot.style.cssText += ';width:0;height:0;left:-9999px;top:-9999px;';
+      coach.style.left = `${(vw - cw) / 2}px`;
+      coach.style.top = `${(vh - ch) / 2}px`;
+      return;
+    }
+    spot.classList.remove('off');
+    const r = target.getBoundingClientRect();
+    const pad = 6;
+    spot.style.left = `${r.left - pad}px`;
+    spot.style.top = `${r.top - pad}px`;
+    spot.style.width = `${r.width + pad * 2}px`;
+    spot.style.height = `${r.height + pad * 2}px`;
+
+    const gap = 14;
+    let left = r.right + gap, top = r.top;          // prefer right
+    if (left + cw > vw - 8) {                        // else left
+      left = r.left - cw - gap;
+      if (left < 8) { left = r.left; top = r.bottom + gap; } // else below
+    }
+    coach.style.left = `${Math.max(8, Math.min(left, vw - cw - 8))}px`;
+    coach.style.top = `${Math.max(8, Math.min(top, vh - ch - 8))}px`;
+  }
+
+  // Called after edits/runs: advance past any satisfied step(s).
+  _tourCheck() {
+    if (!this._tour) return;
+    let steps = this._tourSteps();
+    let step = steps[this._tour.idx];
+    while (step && !step.final && step.done && step.done()) {
+      this._tour.idx++;
+      step = steps[this._tour.idx];
+    }
+    if (this._tour.idx >= steps.length) { this._endTour(true); return; }
+    this._renderTourStep();
+  }
+
+  _endTour(completed) {
+    if (!this._tour) return;
+    this._tour = null;
+    document.getElementById('tour').classList.add('hidden');
+    window.removeEventListener('resize', this._tourReposition);
+    window.removeEventListener('keydown', this._tourKey, true);
+    try { localStorage.setItem('sim_seen_tour', '1'); } catch { /* ignore */ }
+    if (completed) this._toast('Tour complete — happy building!');
   }
 
   // ── Undo / redo ─────────────────────────────────────────────────────────────
@@ -137,12 +328,29 @@ class App {
     b.classList.toggle('running', on);
   }
 
-  // Begin a fresh history baseline (after load / new / example).
+  // Begin a fresh history baseline (after the initial boot / shared-link load).
   _resetHistory() {
     this._undoStack = [];
     this._redoStack = [];
     this._lastState = this._snapshot();
     this._updateUndoButtons();
+  }
+
+  // Make a wholesale diagram replacement (New / Load template / Load library)
+  // undoable: the pre-replace diagram (captured before the swap) goes on the
+  // undo stack and the freshly loaded one becomes the new baseline. Unlike
+  // _resetHistory(), this preserves the ability to Ctrl+Z back to what you had.
+  _commitReplace(prevSnap) {
+    const snap = this._snapshot();
+    if (snap === prevSnap) { this._lastState = snap; this._updateUndoButtons(); return; }
+    if (prevSnap != null) {
+      this._undoStack.push(prevSnap);
+      if (this._undoStack.length > 100) this._undoStack.shift();
+    }
+    this._redoStack = [];
+    this._lastState = snap;
+    this._updateUndoButtons();
+    try { localStorage.setItem('sim_autosave', this._lastState); } catch {}
   }
 
   // Record that the diagram changed (push the previous state onto the stack).
@@ -166,6 +374,9 @@ class App {
     try { localStorage.setItem('sim_autosave', this._lastState); } catch {}
     // Mark any open MC results as potentially stale since the diagram changed.
     this._markMCStale();
+    // A structural edit may satisfy the current tour step (placed a node / drew
+    // a connection).
+    this._tourCheck();
   }
 
   _markMCStale() {
@@ -200,6 +411,7 @@ class App {
     this._syncRunButton();
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
+    this.renderer.flowFx.clear();
     this._clearSparklines();
     this.editor._select(null, null);
     this.renderer.render();
@@ -211,6 +423,89 @@ class App {
     const r = document.getElementById('btn-redo');
     if (u) u.disabled = !this._undoStack.length;
     if (r) r.disabled = !this._redoStack.length;
+  }
+
+  // ── History scrubbing ───────────────────────────────────────────────────────
+  // Replay a finished run: drag the slider (or hit play) to preview any past
+  // step on the canvas and chart without disturbing the engine's live state.
+
+  // Sync the scrubber's range/labels/enabled-state to the current history.
+  _refreshScrubber() {
+    const range = document.getElementById('tl-range');
+    const play = document.getElementById('tl-play');
+    const live = document.getElementById('tl-live');
+    const label = document.getElementById('tl-scrub-label');
+    if (!range) return;
+    const hist = this.engine.history;
+    const usable = hist.length >= 2 && !this.engine.running;
+    range.disabled = play.disabled = !usable;
+    live.disabled = this._scrubIndex == null;
+    range.max = String(Math.max(0, hist.length - 1));
+    if (this._scrubIndex != null) {
+      range.value = String(this._scrubIndex);
+      label.textContent = `Step ${hist[this._scrubIndex]?.step ?? 0}`;
+    } else {
+      range.value = range.max;
+      label.textContent = usable ? 'Live' : '—';
+    }
+  }
+
+  // Preview history entry i on the canvas, chart, and properties panel.
+  _scrubTo(i) {
+    const hist = this.engine.history;
+    if (hist.length < 2) return;
+    i = Math.max(0, Math.min(hist.length - 1, i));
+    this._scrubIndex = i;
+    const entry = hist[i];
+    this.renderer.setScrub(entry.snap);
+    if (this._timelineVisible) this.timeline.setScrub(entry.step);
+    document.getElementById('step-counter').textContent = `Step: ${entry.step} (replay)`;
+    this._refreshScrubber();
+  }
+
+  // Leave scrub mode and restore the live (latest) state.
+  _exitScrub() {
+    if (this._scrubPlayTimer) { clearInterval(this._scrubPlayTimer); this._scrubPlayTimer = null; }
+    const wasScrubbing = this._scrubIndex != null;
+    this._scrubIndex = null;
+    this.renderer.setScrub(null);
+    this.timeline.setScrub(null);
+    this._syncScrubPlayButton();
+    if (wasScrubbing) {
+      document.getElementById('step-counter').textContent = `Step: ${this.engine.step}`;
+      this.renderer.render();
+      if (this._activeFeature === 'monitor') this._renderProps();
+    }
+    this._refreshScrubber();
+  }
+
+  _syncScrubPlayButton() {
+    const play = document.getElementById('tl-play');
+    if (!play) return;
+    const on = !!this._scrubPlayTimer;
+    play.replaceChildren(this._faIcon(on ? 'pause' : 'play'));
+    play.title = on ? 'Pause replay' : 'Replay the run';
+  }
+
+  // Auto-advance through history at the current sim speed; stops at the end.
+  _toggleScrubPlay() {
+    if (this._scrubPlayTimer) {
+      clearInterval(this._scrubPlayTimer); this._scrubPlayTimer = null;
+      this._syncScrubPlayButton();
+      return;
+    }
+    const hist = this.engine.history;
+    if (hist.length < 2) return;
+    // Restart from the beginning if we're at (or past) the end.
+    if (this._scrubIndex == null || this._scrubIndex >= hist.length - 1) this._scrubTo(0);
+    const interval = Math.max(60, 700 / this.engine.speed);
+    this._scrubPlayTimer = setInterval(() => {
+      const h = this.engine.history;
+      const next = (this._scrubIndex ?? 0) + 1;
+      if (next >= h.length) { clearInterval(this._scrubPlayTimer); this._scrubPlayTimer = null; this._syncScrubPlayButton(); return; }
+      this._scrubTo(next);
+    }, interval);
+    this._syncScrubPlayButton();
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -233,6 +528,7 @@ class App {
     this._syncRunButton();
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
+    this.renderer.flowFx.clear();
     this._clearSparklines();
     this.editor._select(null, null);
     if (this._timelineVisible) this.timeline.update();
@@ -270,6 +566,7 @@ class App {
         this._applyMeta();
         this.engine.reset();
         this.renderer.balls.clear();
+        this.renderer.flowFx.clear();
         this._clearSparklines();
         this.editor._select(null, null);
         this.renderer.render();
@@ -280,11 +577,30 @@ class App {
       } catch { /* corrupted save → fall through to demo */ }
     }
 
-    // No autosave (fresh session): show the default example.
-    this._demoEcosystem();
+    // No autosave (fresh session): start on an empty canvas so first-time users
+    // learn by doing — the welcome overlay and tour guide them through their own
+    // first model. The demo is one click away (welcome "Explore the demo" or the
+    // Library), and returning users still get their autosaved work above.
     this._applyMeta();
-    this.renderer.fitView();
+    this.renderer.render();
+    this.renderer.resetView();
     this._resetHistory();
+    this._renderProps();
+  }
+
+  // Load the built-in predator-prey demo on demand (welcome "Explore the demo").
+  // Undoable: Ctrl+Z returns to the empty canvas you started from.
+  _loadDemo() {
+    const t = this._templates[0]; // Predator & Prey
+    if (!t) return;
+    const prev = this._snapshot();
+    this._clearAll();
+    t.load();
+    this.diagram.meta.name = t.name;
+    this.diagram.meta.description = t.desc;
+    this._applyMeta();
+    this._commitReplace(prev);
+    this.renderer.fitView();
     this._renderProps();
   }
 
@@ -433,13 +749,14 @@ class App {
   }
 
   async _loadTemplate(t) {
-    if (!await this._confirmGuard(`Load "${t.name}"? Any unsaved work on the current diagram will be lost.`, 'Load template')) return;
+    if (!await this._confirmGuard(`Load "${t.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`, 'Load template')) return;
+    const prev = this._snapshot();
     this._clearAll();
     t.load();
     this.diagram.meta.name = t.name;
     this.diagram.meta.description = t.desc;
     this._applyMeta();
-    this._resetHistory();
+    this._commitReplace(prev);
     this.renderer.fitView();
     this._hideModal('lib-overlay');
   }
@@ -465,19 +782,21 @@ class App {
       loadBtn.textContent = 'Load';
       loadBtn.className = 'btn';
       loadBtn.addEventListener('click', async () => {
-        if (!await this._confirmGuard(`Load "${entry.name}"? Any unsaved work on the current diagram will be lost.`, 'Load from library')) return;
+        if (!await this._confirmGuard(`Load "${entry.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`, 'Load from library')) return;
+        const prev = this._snapshot();
         this._clearAll();
         try {
           this.diagram.loadJSON(JSON.parse(entry.json));
           this._applyMeta();
           this.engine.reset();
           this.renderer.balls.clear();
+          this.renderer.flowFx.clear();
           this._clearSparklines();
           this.editor._select(null, null);
           this.renderer.render();
           this.renderer.fitView();
         } catch (err) { alert('Failed to load: ' + err.message); }
-        this._resetHistory();
+        this._commitReplace(prev);
         this._hideModal('lib-overlay');
       });
       const delBtn = document.createElement('button');
@@ -1956,24 +2275,40 @@ class App {
   // ── Controls ──────────────────────────────────────────────────────────────
 
   _bindControls() {
-    document.getElementById('btn-step').addEventListener('click', () => this.engine.doStep());
+    document.getElementById('btn-step').addEventListener('click', () => {
+      this._exitScrub();
+      this.engine.doStep();
+    });
 
     const runBtn = document.getElementById('btn-run');
     runBtn.addEventListener('click', () => {
+      this._exitScrub();
       if (!this.engine.running) document.getElementById('sim-status').textContent = '';
       this.engine.run();
       this._syncRunButton();
+      this._refreshScrubber();
     });
 
     document.getElementById('btn-reset').addEventListener('click', () => {
+      this._exitScrub();
       this.engine.reset();
       this._syncRunButton();
       document.getElementById('sim-status').textContent = '';
       this.renderer.balls.clear();
+      this.renderer.flowFx.clear();
       this._clearSparklines();
       this.renderer.render();
       if (this._timelineVisible) this.timeline.update();
+      this._refreshScrubber();
     });
+
+    // History scrubber controls.
+    document.getElementById('tl-range').addEventListener('input', (e) => {
+      if (this._scrubPlayTimer) { clearInterval(this._scrubPlayTimer); this._scrubPlayTimer = null; this._syncScrubPlayButton(); }
+      this._scrubTo(parseInt(e.target.value, 10) || 0);
+    });
+    document.getElementById('tl-play').addEventListener('click', () => this._toggleScrubPlay());
+    document.getElementById('tl-live').addEventListener('click', () => this._exitScrub());
 
     const speedEl = document.getElementById('sim-speed');
     speedEl.addEventListener('input', () => {
@@ -1991,11 +2326,12 @@ class App {
     });
 
     document.getElementById('btn-new').addEventListener('click', async () => {
-      if (!await this._confirmGuard('Start a new diagram? Any unsaved work on the current diagram will be lost.', 'New diagram')) return;
+      if (!await this._confirmGuard('Start a new diagram? Your current diagram will be replaced (Ctrl+Z to undo).', 'New diagram')) return;
+      const prev = this._snapshot();
       this._clearAll();
       this.renderer.render();
       this.renderer.resetView();
-      this._resetHistory();
+      this._commitReplace(prev);
     });
 
     document.getElementById('btn-snap').addEventListener('click', () => {
@@ -2014,6 +2350,24 @@ class App {
       this.editor.autoRevert = !this.editor.autoRevert;
       autoBtn.classList.toggle('active', this.editor.autoRevert);
       autoBtn.setAttribute('aria-pressed', String(this.editor.autoRevert));
+    });
+
+    const flowBtn = document.getElementById('btn-flow');
+    flowBtn.classList.toggle('active', this._flowReadout);
+    flowBtn.setAttribute('aria-pressed', String(this._flowReadout));
+    flowBtn.addEventListener('click', () => {
+      this._flowReadout = !this._flowReadout;
+      flowBtn.classList.toggle('active', this._flowReadout);
+      flowBtn.setAttribute('aria-pressed', String(this._flowReadout));
+      if (!this._flowReadout) this.renderer.flowFx.clear();
+    });
+
+    const mapBtn = document.getElementById('btn-minimap');
+    mapBtn.addEventListener('click', () => {
+      const on = !this._minimap.visible;
+      this._minimap.setVisible(on);
+      mapBtn.classList.toggle('active', on);
+      mapBtn.setAttribute('aria-pressed', String(on));
     });
 
     document.getElementById('btn-export-svg').addEventListener('click', () => this._exportSVG());
@@ -2045,6 +2399,7 @@ class App {
             this._applyMeta();
             this.engine.reset();
             this.renderer.balls.clear();
+            this.renderer.flowFx.clear();
             this._clearSparklines();
             this.editor._select(null, null);
             this.renderer.render();
@@ -2066,11 +2421,15 @@ class App {
       tlBtn.setAttribute('aria-checked', String(show));
       // Surface the timeline state on the (collapsed) Analysis menu button too.
       document.getElementById('btn-analysis-menu')?.classList.toggle('active', show);
-      if (show) this.timeline.update();
+      if (show) { this.timeline.update(); this._refreshScrubber(); }
+      else this._exitScrub();
     };
     tlBtn.addEventListener('click', () => toggleTimeline(!this._timelineVisible));
     document.getElementById('tl-close').addEventListener('click', () => toggleTimeline(false));
-    window.addEventListener('resize', () => { if (this._timelineVisible) this.timeline.update(); });
+    window.addEventListener('resize', () => {
+      if (this._timelineVisible) this.timeline.update();
+      this._minimap.update();
+    });
 
     // Resize handle — drag up/down to change timeline panel height
     const tlPanel = document.getElementById('timeline');
@@ -2101,7 +2460,10 @@ class App {
     document.getElementById('btn-zoom-out').addEventListener('click', () => this.renderer.zoomStep(1 / 1.2));
     const zoomLabel = document.getElementById('btn-zoom-level');
     zoomLabel.addEventListener('click', () => this.renderer.zoomTo(1));
-    this.renderer.onViewChange = (scale) => { zoomLabel.textContent = `${Math.round(scale * 100)}%`; };
+    this.renderer.onViewChange = (scale) => {
+      zoomLabel.textContent = `${Math.round(scale * 100)}%`;
+      this._minimap.update();
+    };
     this.renderer.onViewChange(this.renderer._scale);
 
     // Commit a property edit as one undo step (fires on blur / enter / toggle).
@@ -2149,10 +2511,19 @@ class App {
       this._hideModal('help-overlay');
       this._showModal('welcome-overlay');
     });
+    // Help → "Take the tour" relaunches the interactive walkthrough.
+    document.getElementById('help-take-tour').addEventListener('click', () => this._startTour());
 
     // Welcome / getting-started overlay (first run; reopenable from Help)
     document.getElementById('welcome-close').addEventListener('click', () => this._dismissWelcome());
-    document.getElementById('welcome-explore').addEventListener('click', () => this._dismissWelcome());
+    document.getElementById('welcome-tour').addEventListener('click', () => {
+      this._dismissWelcome();
+      this._startTour();
+    });
+    document.getElementById('welcome-explore').addEventListener('click', () => {
+      this._dismissWelcome();
+      this._loadDemo();
+    });
     document.getElementById('welcome-templates').addEventListener('click', () => {
       this._dismissWelcome();
       this._openLibrary();
@@ -2161,6 +2532,10 @@ class App {
       if (e.target.id === 'welcome-overlay') this._dismissWelcome();
     });
     this._modalize('welcome-overlay');
+
+    // Interactive tour controls.
+    document.getElementById('tour-skip').addEventListener('click', () => this._endTour(false));
+    document.getElementById('tour-next').addEventListener('click', () => this._endTour(true));
   }
 
   // ── Monte Carlo ─────────────────────────────────────────────────────────────
@@ -2922,6 +3297,7 @@ class App {
     document.getElementById('step-counter').textContent = `Step: ${this.engine.step}`;
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
+    this.renderer.flowFx.clear();
     this._clearSparklines();
     this.renderer.render();
     this._commit();

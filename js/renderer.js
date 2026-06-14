@@ -279,6 +279,179 @@ class BallSystem {
   }
 }
 
+// ── Live flow readout ──────────────────────────────────────────────────────
+// Transient "+N" badges that pulse on a connection's midpoint each step,
+// showing the actual amount that flowed (the static label only shows the
+// configured rate). Each badge fades in, drifts off the line, and fades out.
+class FlowFx {
+  constructor(layer) {
+    this.layer = layer;
+    this._items = [];
+    this._running = false;
+    this._reduce = typeof matchMedia === 'function'
+      && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  flash(pathEl, text, color, durationMs) {
+    if (!pathEl) return;
+    let pathLen;
+    try { pathLen = pathEl.getTotalLength(); } catch { return; }
+    if (pathLen < 1) return;
+
+    // Midpoint and an upward-ish normal, so the badge sits clear of the line
+    // and the static rate label that lives at the midpoint.
+    let p, nx = 0, ny = -1;
+    try {
+      p = pathEl.getPointAtLength(pathLen * 0.5);
+      const a = pathEl.getPointAtLength(Math.max(0, pathLen * 0.5 - 2));
+      const b = pathEl.getPointAtLength(Math.min(pathLen, pathLen * 0.5 + 2));
+      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+      nx = -dy / len; ny = dx / len;
+      if (ny > 0) { nx = -nx; ny = -ny; }  // prefer the upward normal
+    } catch { return; }
+
+    const g = svgEl('g', { 'pointer-events': 'none', opacity: '0' });
+    const rect = svgEl('rect', { rx: '7', ry: '7', fill: 'rgba(12,14,20,0.9)', stroke: color, 'stroke-width': '1' });
+    const t = svgEl('text', {
+      'text-anchor': 'middle', 'dominant-baseline': 'central',
+      'font-size': '11', 'font-family': 'monospace', 'font-weight': '600', fill: color,
+    });
+    t.textContent = text;
+    g.appendChild(rect); g.appendChild(t);
+    this.layer.appendChild(g);
+    try {
+      const bb = t.getBBox(), px = 6, py = 3;
+      rect.setAttribute('x', bb.x - px); rect.setAttribute('y', bb.y - py);
+      rect.setAttribute('width', bb.width + px * 2); rect.setAttribute('height', bb.height + py * 2);
+    } catch { /* ignore */ }
+
+    const off = 13;
+    this._items.push({
+      g, nx, ny, baseX: p.x + nx * off, baseY: p.y + ny * off,
+      start: performance.now(), dur: durationMs,
+    });
+    if (!this._running) this._loop();
+  }
+
+  clear() { for (const it of this._items) it.g.remove(); this._items = []; }
+
+  _loop() {
+    this._running = true;
+    const tick = (now) => {
+      this._items = this._items.filter(it => {
+        const t = (now - it.start) / it.dur;
+        if (t >= 1) { it.g.remove(); return false; }
+        const op = t < 0.2 ? t / 0.2 : t > 0.6 ? (1 - t) / 0.4 : 1;
+        const drift = this._reduce ? 0 : t * 11;
+        it.g.setAttribute('opacity', String(Math.max(0, op)));
+        it.g.setAttribute('transform', `translate(${it.baseX + it.nx * drift},${it.baseY + it.ny * drift})`);
+        return true;
+      });
+      if (this._items.length) requestAnimationFrame(tick);
+      else this._running = false;
+    };
+    requestAnimationFrame(tick);
+  }
+}
+
+// ── Minimap ────────────────────────────────────────────────────────────────
+// A small overview of the whole diagram with a draggable viewport rectangle —
+// for navigating the large, sprawling models. Drawn on a <canvas> for cheap
+// rendering of hundreds of nodes; click/drag re-centres the main view.
+class Minimap {
+  constructor(container, canvas, diagram, renderer) {
+    this.container = container;
+    this.canvas = canvas;
+    this.diagram = diagram;
+    this.renderer = renderer;
+    this.visible = false;
+    this._mm = null;  // last { scale, offX, offY } mapping world → minimap px
+    this._bindInteraction();
+  }
+
+  setVisible(v) {
+    this.visible = v;
+    this.container.classList.toggle('hidden', !v);
+    if (v) this.update();
+  }
+
+  update() {
+    if (!this.visible) return;
+    const cv = this.canvas;
+    const W = cv.width = cv.clientWidth || 180;
+    const H = cv.height = cv.clientHeight || 120;
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(10,12,18,0.94)';
+    ctx.fillRect(0, 0, W, H);
+
+    const box = this.renderer._contentBounds();
+    const vp = this.renderer._viewportWorld();
+    if (!box) { this._mm = null; this._drawViewport(ctx, vp, 1, 0, 0); return; }
+
+    // Map the union of content + current viewport so the rectangle is always
+    // visible even after panning into empty space.
+    const minX = Math.min(box.minX, vp.x0), minY = Math.min(box.minY, vp.y0);
+    const maxX = Math.max(box.maxX, vp.x1), maxY = Math.max(box.maxY, vp.y1);
+    const pad = 14;
+    const cw = Math.max(1, maxX - minX), ch = Math.max(1, maxY - minY);
+    const scale = Math.min((W - pad * 2) / cw, (H - pad * 2) / ch);
+    const offX = (W - cw * scale) / 2 - minX * scale;
+    const offY = (H - ch * scale) / 2 - minY * scale;
+    this._mm = { scale, offX, offY };
+    const wx = x => x * scale + offX, wy = y => y * scale + offY;
+
+    // Groups as faint rects.
+    ctx.fillStyle = 'rgba(74,158,255,0.10)';
+    for (const g of this.diagram.groups.values())
+      ctx.fillRect(wx(g.x), wy(g.y), g.w * scale, g.h * scale);
+
+    // Connections as hairlines.
+    ctx.strokeStyle = 'rgba(120,140,170,0.30)'; ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    for (const c of this.diagram.connections.values()) {
+      const s = this.diagram.nodes.get(c.sourceId), t = this.diagram.nodes.get(c.targetId);
+      if (!s || !t) continue;
+      ctx.moveTo(wx(s.x), wy(s.y)); ctx.lineTo(wx(t.x), wy(t.y));
+    }
+    ctx.stroke();
+
+    // Nodes as dots, coloured by type.
+    const NS = (typeof NODE_STROKE !== 'undefined') ? NODE_STROKE : {};
+    for (const n of this.diagram.nodes.values()) {
+      ctx.fillStyle = NS[n.type] || '#4a9eff';
+      ctx.beginPath(); ctx.arc(wx(n.x), wy(n.y), 2, 0, Math.PI * 2); ctx.fill();
+    }
+
+    this._drawViewport(ctx, vp, scale, offX, offY);
+  }
+
+  _drawViewport(ctx, vp, scale, offX, offY) {
+    const x = vp.x0 * scale + offX, y = vp.y0 * scale + offY;
+    const w = (vp.x1 - vp.x0) * scale, h = (vp.y1 - vp.y0) * scale;
+    ctx.fillStyle = 'rgba(74,158,255,0.12)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 1.2;
+    ctx.strokeRect(x, y, w, h);
+  }
+
+  _panToEvent(e) {
+    if (!this._mm) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const wx = (e.clientX - rect.left - this._mm.offX) / this._mm.scale;
+    const wy = (e.clientY - rect.top - this._mm.offY) / this._mm.scale;
+    this.renderer.centerOn(wx, wy);
+    this.update();
+  }
+
+  _bindInteraction() {
+    let dragging = false;
+    this.canvas.addEventListener('mousedown', (e) => { dragging = true; this._panToEvent(e); e.preventDefault(); });
+    window.addEventListener('mousemove', (e) => { if (dragging) this._panToEvent(e); });
+    window.addEventListener('mouseup', () => { dragging = false; });
+  }
+}
+
 // ── Main Renderer ─────────────────────────────────────────────────────────
 
 class Renderer {
@@ -295,12 +468,14 @@ class Renderer {
     this._noteEls = new Map();
     this._chartEls = new Map();
     this._chartHover = null;  // { id, idx } — on-canvas chart hover readout
+    this._scrubSnap = null;   // { nodeId: value } — history preview during scrubbing
     this._panX = 0;
     this._panY = 0;
     this._scale = 1;
 
     this._setup();
     this.balls = new BallSystem(this.ballLayer);
+    this.flowFx = new FlowFx(this.flowLayer);
   }
 
   _setup() {
@@ -372,9 +547,10 @@ class Renderer {
     this.chartLayer = svgEl('g');
     this.noteLayer = svgEl('g');
     this.ballLayer = svgEl('g');
+    this.flowLayer = svgEl('g');
     this.tempLayer = svgEl('g');
     this.root.append(this.groupLayer, this.connLayer, this.nodeLayer,
-                     this.chartLayer, this.noteLayer, this.ballLayer, this.tempLayer);
+                     this.chartLayer, this.noteLayer, this.ballLayer, this.flowLayer, this.tempLayer);
     this.svg.appendChild(this.root);
 
     this._updateTransform();
@@ -484,6 +660,14 @@ class Renderer {
     setTimeout(() => { this._firing.clear(); this.render(); }, 250);
   }
 
+  // Preview a recorded history snapshot ({ nodeId: value }) on the nodes, or
+  // pass null to return to live values. Used by the timeline scrubber.
+  setScrub(snap) {
+    this._scrubSnap = snap || null;
+    this.svg.classList.toggle('scrubbing', !!this._scrubSnap);
+    this.render();
+  }
+
   render() {
     this._renderGroups();
     this._renderConns();
@@ -494,6 +678,26 @@ class Renderer {
     const d = this.diagram;
     const empty = !d.nodes.size && !d.groups.size && !d.notes.size && !d.charts.size;
     this._emptyHint.setAttribute('visibility', empty ? 'visible' : 'hidden');
+    if (this.onRender) this.onRender();
+  }
+
+  // World-coordinate rectangle currently visible in the viewport.
+  _viewportWorld() {
+    const r = this.svg.getBoundingClientRect();
+    return {
+      x0: -this._panX / this._scale,
+      y0: -this._panY / this._scale,
+      x1: (r.width - this._panX) / this._scale,
+      y1: (r.height - this._panY) / this._scale,
+    };
+  }
+
+  // Pan so that the world point (wx, wy) sits at the viewport centre (zoom kept).
+  centerOn(wx, wy) {
+    const r = this.svg.getBoundingClientRect();
+    this._panX = r.width / 2 - wx * this._scale;
+    this._panY = r.height / 2 - wy * this._scale;
+    this._updateTransform();
   }
 
   // ── Groups ───────────────────────────────────────────────────────────────
@@ -668,8 +872,7 @@ class Renderer {
       const ctx = g._chartCtx;
       if (!ctx || ctx.n < 2) return;
       const p = this.svgPoint(e.clientX, e.clientY);
-      const i = Math.round(((p.x - ctx.x0) / ctx.plotW) * (ctx.n - 1));
-      this._chartHover = { id: cid, idx: Math.max(0, Math.min(ctx.n - 1, i)) };
+      this._chartHover = { id: cid, idx: this._chartIndexAtX(ctx, p.x) };
       this._drawChartHover(g);
     });
     g.addEventListener('mouseleave', () => {
@@ -804,8 +1007,24 @@ class Renderer {
     // Stash the plot geometry so the hover handler can map cursor → step and
     // read values without recomputing, then refresh the overlay in case this
     // chart is the one currently hovered.
-    el._chartCtx = { x0, y0, plotW, plotH, max, n: hist.length, ids, palette, hist, chart };
+    el._chartCtx = { x0, y0, plotW, plotH, max, n: hist.length, ids, palette, hist, chart, type };
     this._drawChartHover(el);
+  }
+
+  // Map between a hovered step index and its x position. Bars lay each step in
+  // its own slot (centre at the slot middle); line/area/step space points
+  // edge-to-edge across the plot. Both hover hit-testing and the crosshair use
+  // these so the readout lands on what you're pointing at.
+  _chartIndexAtX(ctx, worldX) {
+    let i;
+    if (ctx.type === 'bars') i = Math.floor((worldX - ctx.x0) / (ctx.plotW / ctx.n));
+    else i = Math.round(((worldX - ctx.x0) / ctx.plotW) * (ctx.n - 1));
+    return Math.max(0, Math.min(ctx.n - 1, i));
+  }
+
+  _chartXAtIndex(ctx, i) {
+    if (ctx.type === 'bars') return ctx.x0 + (i + 0.5) * (ctx.plotW / ctx.n);
+    return ctx.x0 + (ctx.n <= 1 ? 0 : (i / (ctx.n - 1)) * ctx.plotW);
   }
 
   // Crosshair + per-series value readout for the on-canvas chart at the hovered
@@ -821,7 +1040,7 @@ class Renderer {
     const i = Math.max(0, Math.min(ctx.n - 1, hover.idx));
     const snap = ctx.hist[i];
     if (!snap) return;
-    const cx = ctx.x0 + (i / (ctx.n - 1)) * ctx.plotW;
+    const cx = this._chartXAtIndex(ctx, i);
     const yAt = v => ctx.y0 + ctx.plotH - (v / ctx.max) * ctx.plotH;
     const fmt = v => String(+Number(v).toFixed(ctx.max < 10 ? 1 : 0));
 
@@ -1207,7 +1426,16 @@ class Renderer {
       }
     }
 
-    el.querySelector('.n-count').textContent = node.displayCount;
+    // During history scrubbing, show the recorded value for this step instead
+    // of the live count (falls back to the live count for nodes not recorded,
+    // e.g. unlimited sources).
+    const countEl = el.querySelector('.n-count');
+    if (this._scrubSnap && node.id in this._scrubSnap) {
+      const v = this._scrubSnap[node.id];
+      countEl.textContent = Number.isInteger(v) ? v : +Number(v).toFixed(2);
+    } else {
+      countEl.textContent = node.displayCount;
+    }
 
     const lbl = el.querySelector('.n-label');
     lbl.textContent = node.label;

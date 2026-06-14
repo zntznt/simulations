@@ -76,6 +76,7 @@ class TimelineChart {
     this.engine = engine;
     this._hidden = new Set();
     this._hoverX = null;
+    this._scrubStep = null;  // solid playhead drawn while scrubbing history
     this._cachedNodeIds = '';
     this._cachedNodes = [];
     // Supplied by the app: () => [{ id, name, history, visible }] — saved
@@ -98,6 +99,12 @@ class TimelineChart {
       this._hoverX = null;
       this.update();
     });
+  }
+
+  // Position of the scrub playhead (real step number), or null to hide it.
+  setScrub(step) {
+    this._scrubStep = step;
+    this.update();
   }
 
   toggleNode(id) {
@@ -270,6 +277,17 @@ class TimelineChart {
 
     // Live series on top
     if (hist.length >= 2) for (const node of nodes) drawSeries(hist, node, 1.5);
+
+    // Scrub playhead: a solid accent line marking the step being previewed.
+    if (this._scrubStep != null) {
+      const px = xAt(Math.max(0, Math.min(maxStep, this._scrubStep)));
+      ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, padT + plotH); ctx.stroke();
+      ctx.fillStyle = '#4a9eff';
+      ctx.beginPath();
+      ctx.moveTo(px - 4, padT); ctx.lineTo(px + 4, padT); ctx.lineTo(px, padT + 5);
+      ctx.closePath(); ctx.fill();
+    }
 
     // Hover crosshair + tooltip (live run only; ghosts are visual context)
     if (this._hoverX !== null && hist.length >= 2) {
