@@ -831,6 +831,45 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P1 gate UI: weight accepts a formula and round-trips');
   else fail('P1 gate UI: ' + JSON.stringify(gw));
 
+  // Queue: a Servers field exists; multiple servers serialize; the live metrics
+  // readout reports throughput after a short run.
+  const queueUI = await page.evaluate(async () => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 80, 200));
+    const q = d.addNode(new MNode(NodeType.QUEUE, 260, 200));
+    q.processTime = 1;
+    const dr = d.addNode(new MNode(NodeType.DRAIN, 440, 200));
+    d.addConnection(new MConnection(s.id, q.id)).rate = 2;
+    d.addConnection(new MConnection(q.id, dr.id)).rate = 1;
+    window.app.renderer.render();
+    window.app._onSelect(q.id, 'node');
+
+    const serversRow = [...document.querySelectorAll('#props-content .prop-row')]
+      .find(r => r.querySelector('label') && r.querySelector('label').textContent.trim() === 'Servers');
+    const hasServers = !!serversRow;
+    if (serversRow) {
+      const inp = serversRow.querySelector('input');
+      inp.value = '2';
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // Run a handful of steps, then read the live metrics readout.
+    window.app.engine.reset();
+    for (let i = 0; i < 8; i++) window.app.engine.doStep();
+    window.app._refreshTypeReadouts();
+    const metricsText = (document.getElementById('queue-metrics') || {}).textContent || '';
+    const hasMetrics = metricsText.includes('Processed') && metricsText.includes('Avg wait');
+
+    const json = JSON.parse(JSON.stringify(d.toJSON()));
+    const cj = json.nodes.find(n => n.id === q.id);
+    return { hasServers, servers: q.servers, hasMetrics, processed: q.processed, savedServers: cj && cj.servers };
+  });
+  if (queueUI.hasServers && queueUI.servers === 2 && queueUI.hasMetrics
+    && queueUI.processed > 0 && queueUI.savedServers === 2)
+    ok('P1 queue UI: Servers field + live metrics readout + serialization');
+  else fail('P1 queue UI: ' + JSON.stringify(queueUI));
+
   // Accessibility: dialog semantics + focus trap + Escape on modals, label
   // association in the props panel, aria-pressed toggles, status live region,
   // and arrow-key nudging of a selected node.

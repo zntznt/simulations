@@ -34,9 +34,11 @@ class SimEngine {
       n.colorMap = { ...(n._initialColorMap || {}) };
       if (n.type === NodeType.DELAY) n._queue = [];
       if (n.type === NodeType.QUEUE) {
-        n._proc = null;
-        // Rebuild the FIFO from any pre-loaded starting resources.
-        n._fifo = Object.entries(n.colorMap).filter(([, a]) => a > 0).map(([color, amount]) => ({ amount, color }));
+        n._procs = [];
+        n.processed = 0; n.totalWait = 0; n.maxWait = 0; n.maxLen = 0;
+        // Rebuild the FIFO from any pre-loaded starting resources (treated as
+        // enqueued at the run start, step 0).
+        n._fifo = Object.entries(n.colorMap).filter(([, a]) => a > 0).map(([color, amount]) => ({ amount, color, enq: 0 }));
       }
       if (n.type === NodeType.SOURCE) n.produced = 0;
       if (n.type === NodeType.DRAIN) n.drained = 0;
@@ -912,56 +914,73 @@ class SimEngine {
     }
   }
 
-  // Queue: a single-server FIFO. One unit is "in service" at a time and takes
-  // `processTime` steps; finished units are released to an output with room.
-  // This serializes throughput (1 unit / processTime) and adds per-item latency
-  // — distinct from a Delay (which releases a whole batch together).
+  // Queue: a FIFO with one or more parallel servers. Up to `servers` units are
+  // "in service" at once, each taking `processTime` steps; finished units are
+  // released to an output with room. One server serializes throughput to
+  // 1 unit / processTime (an M/D/1 queue); c servers give c× that (M/D/c),
+  // sharing a single waiting line — distinct from a Delay (whole-batch release).
+  // Live metrics accrue as units flow: throughput, waiting time, peak length.
   _advanceQueues(ctx) {
     const d = this.diagram;
     for (const n of d.nodes.values()) {
       if (n.type !== NodeType.QUEUE) continue;
       const pt = Math.max(1, Math.round(n.processTime || 1));
+      const servers = Math.max(1, Math.round(n.servers || 1));
       const outs = d.outgoing(n.id).filter(c => c.type === ConnectionType.RESOURCE);
+      n._procs = n._procs || [];
 
-      // Progress the unit currently in service; release it when finished.
-      if (n._proc) {
-        if (n._proc.stepsLeft > 0) n._proc.stepsLeft--;
-        if (n._proc.stepsLeft <= 0) {
-          const color = n._proc.color;
-          let released = false;
-          for (const c of outs) {
-            if (this._acceptable(c.targetId, 1, ctx) >= 1) {
-              this._give(c.targetId, color, 1, c.id, ctx);
-              this._reserve(c.targetId, 1, ctx);
-              n.resources = Math.max(0, n.resources - 1);
-              if (n.colorMap[color]) n.colorMap[color] = Math.max(0, n.colorMap[color] - 1);
-              released = true;
-              break;
-            }
+      // Progress each busy server; release a finished unit to an output with
+      // room. A finished unit with nowhere to go holds its server (retried next
+      // step) rather than vanishing.
+      const stillBusy = [];
+      for (const proc of n._procs) {
+        if (proc.stepsLeft > 0) proc.stepsLeft--;
+        if (proc.stepsLeft > 0) { stillBusy.push(proc); continue; }
+        let released = false;
+        for (const c of outs) {
+          if (this._acceptable(c.targetId, 1, ctx) >= 1) {
+            this._give(c.targetId, proc.color, 1, c.id, ctx);
+            this._reserve(c.targetId, 1, ctx);
+            n.resources = Math.max(0, n.resources - 1);
+            if (n.colorMap[proc.color]) n.colorMap[proc.color] = Math.max(0, n.colorMap[proc.color] - 1);
+            n.processed = (n.processed || 0) + 1;
+            released = true;
+            break;
           }
-          if (released) n._proc = null; // else hold (output full); retry next step
         }
+        if (!released) { proc.stepsLeft = 0; stillBusy.push(proc); } // output full; hold
+      }
+      n._procs = stillBusy;
+
+      // Fill idle servers from the head of the line (up to `servers` busy).
+      while (n._procs.length < servers) {
+        const unit = this._dequeueUnit(n);
+        if (!unit) break;
+        const wait = Math.max(0, this.step - (unit.enq ?? this.step));
+        n.totalWait = (n.totalWait || 0) + wait;
+        if (wait > (n.maxWait || 0)) n.maxWait = wait;
+        n._procs.push({ color: unit.color, stepsLeft: pt });
       }
 
-      // Start the next waiting unit if the server is idle.
-      if (!n._proc) {
-        const color = this._dequeueUnit(n);
-        if (color != null) n._proc = { color, stepsLeft: pt };
-      }
+      // Track the peak waiting-line length (units still in the FIFO buffer).
+      const lineLen = (n._fifo || []).reduce((s, it) => s + it.amount, 0);
+      if (lineLen > (n.maxLen || 0)) n.maxLen = lineLen;
 
       for (const k of Object.keys(n.colorMap)) if (n.colorMap[k] <= 0) delete n.colorMap[k];
     }
   }
 
   // Remove one unit from the front of a queue's FIFO buffer (keeps it counted
-  // in node.resources until it is actually released).
+  // in node.resources until it is actually released). Returns {color, enq} —
+  // the unit's colour and the step it joined the line (for waiting-time stats).
   _dequeueUnit(n) {
     while (n._fifo && n._fifo.length) {
       const head = n._fifo[0];
       if (head.amount <= 0) { n._fifo.shift(); continue; }
       head.amount -= 1;
+      const out = { color: head.color, enq: head.enq ?? 0 };
       if (head.amount <= 0) n._fifo.shift();
-      return head.color;
+      return out;
     }
     return null;
   }
@@ -1081,8 +1100,9 @@ class SimEngine {
       }
       for (const [color, amount] of Object.entries(colorAmounts)) {
         n.addResources(amount, color);
-        // Queues line incoming resources up in arrival order (FIFO buffer).
-        if (n.type === NodeType.QUEUE) { n._fifo = n._fifo || []; n._fifo.push({ amount, color }); }
+        // Queues line incoming resources up in arrival order (FIFO buffer),
+        // tagged with the step they arrived so waiting time can be measured.
+        if (n.type === NodeType.QUEUE) { n._fifo = n._fifo || []; n._fifo.push({ amount, color, enq: this.step }); }
       }
     }
 

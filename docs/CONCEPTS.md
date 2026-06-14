@@ -42,7 +42,7 @@ optional **end/goal condition**. Resource‑holding nodes track a `colorMap`
 | **Converter** | Consumes `inputAmount` held resources per conversion, emits an output. | `inputAmount`, `outputColor`, `capacity` |
 | **Register** | Computed value from a formula over variables. | `formula`, `value` |
 | **Delay** | Holds a batch for `delay` steps, then releases it together. | `delay` |
-| **Queue** | Single‑server FIFO: one unit in service at a time for `processTime` steps. | `processTime` |
+| **Queue** | FIFO line feeding `servers` parallel servers; each unit takes `processTime` steps, so throughput is `servers ÷ processTime`. Tracks live metrics (throughput, waiting time, peak line). | `processTime`, `servers` |
 | **Trader** | Atomic exchange between two partners: `A → T → B` means A pays the in‑rate to B and B pays the out‑rate back to A — all or nothing. Extra in/out pairs trade in wiring order. | `trades` |
 
 **Display vs. chart value.** A node's `chartValue` (used by history, charts, and

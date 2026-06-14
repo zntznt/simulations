@@ -103,14 +103,19 @@ const KB_ARTICLES = [
   },
   {
     id: 'node-queue', category: 'Nodes', title: 'Queue',
-    keywords: 'fifo line single server process time bottleneck wait contention',
-    body: 'A queue serves one item at a time in the order it arrived, first in, '
-      + 'first out. Its process time sets how long each item takes, which caps '
-      + 'throughput: with a process time of three, the queue releases roughly one '
-      + 'item every three steps no matter how fast items arrive. Anything waiting '
-      + 'backs up behind the item in service, so a queue is the tool for modeling '
-      + 'bottlenecks, single-server lines and contention for a scarce resource. It '
-      + 'is the difference between a crowd and an orderly line.',
+    keywords: 'fifo line server servers parallel process time bottleneck wait waiting throughput metrics contention lane',
+    body: 'A queue is a single waiting line that feeds one or more servers, first '
+      + 'in, first out. Its process time sets how long each server takes per item '
+      + 'and the server count sets how many it works at once, so throughput is '
+      + 'servers divided by process time — one server with a process time of three '
+      + 'releases about one item every three steps, while three servers triple '
+      + 'that. Items that arrive faster than the servers can clear them back up in '
+      + 'the line, so a queue is the tool for modeling bottlenecks, checkout lanes '
+      + 'and contention for a scarce resource; one server is the classic '
+      + 'single-lane bottleneck. As the run unfolds the properties panel reports '
+      + 'live metrics: how many items are in service, how many wait in line, total '
+      + 'throughput, the average and longest wait before service, and the peak line '
+      + 'length. It is the difference between a crowd and an orderly line.',
   },
   {
     id: 'node-trader', category: 'Nodes', title: 'Trader',

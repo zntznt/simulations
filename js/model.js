@@ -301,9 +301,16 @@ class MNode {
       this.delay = 2;
       this._queue = [];         // [{amount, color, stepsLeft}]
     } else if (type === NodeType.QUEUE) {
-      this.processTime = 2;     // steps to process one unit (single-server FIFO)
-      this._fifo = [];          // [{amount, color}] waiting, in arrival order
-      this._proc = null;        // {color, stepsLeft} unit currently in service
+      this.processTime = 2;     // steps to process one unit (per server)
+      this.servers = 1;         // parallel servers (units processed concurrently)
+      this._fifo = [];          // [{amount, color, enq}] waiting, in arrival order
+      this._procs = [];         // [{color, stepsLeft}] units currently in service
+      // Live run metrics (not serialized; reset each run): throughput, the
+      // summed/peak waiting time before service, and the peak line length.
+      this.processed = 0;
+      this.totalWait = 0;
+      this.maxWait = 0;
+      this.maxLen = 0;
     } else if (type === NodeType.GATE) {
       this.gateMode = 'deterministic';
     } else if (type === NodeType.TRADER) {
@@ -421,7 +428,10 @@ class MNode {
     if (this.type === NodeType.REGISTER) { d.value = this.value; d.formula = this.formula; }
     if (this.type === NodeType.CONVERTER) { d.inputAmount = this.inputAmount; d.outputColor = this.outputColor; }
     if (this.type === NodeType.DELAY) d.delay = this.delay;
-    if (this.type === NodeType.QUEUE) d.processTime = this.processTime;
+    if (this.type === NodeType.QUEUE) {
+      d.processTime = this.processTime;
+      if (this.servers !== 1) d.servers = this.servers;
+    }
     return d;
   }
 
@@ -436,7 +446,10 @@ class MNode {
     if (this.type === NodeType.SOURCE) this.produced = 0;
     if (this.type === NodeType.DRAIN) this.drained = 0;
     if (this.type === NodeType.DELAY) this._queue = [];
-    if (this.type === NodeType.QUEUE) { this._fifo = []; this._proc = null; }
+    if (this.type === NodeType.QUEUE) {
+      this._fifo = []; this._procs = [];
+      this.processed = 0; this.totalWait = 0; this.maxWait = 0; this.maxLen = 0;
+    }
     if (this.type === NodeType.TRADER) this.trades = 0;
     return this;
   }

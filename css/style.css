@@ -956,6 +956,15 @@ input[type="range"] {
 }
 .type-count { font-family: monospace; font-size: 12px; color: var(--accent); }
 
+/* Live queue metrics readout (throughput / waiting time / peak line). */
+.queue-metrics { margin-top: 6px; }
+.queue-stat-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 8px; padding: 2px 0; font-size: 12px;
+}
+.queue-stat-label { color: var(--text-dim); }
+.queue-stat-val { font-family: monospace; color: var(--text); }
+
 /* ── Embed mode (clean, shareable view) ── */
 body.embed #palette,
 body.embed #props-panel,

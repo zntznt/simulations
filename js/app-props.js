@@ -975,6 +975,32 @@ class AppProps {
     }
   }
 
+  // Live queue metrics (throughput, waiting time, peak line). Refreshed each
+  // step from the queue's runtime fields; "—" until the first unit is served.
+  _fillQueueMetrics(container, node) {
+    const inService = (node._procs || []).length;
+    const waiting = (node._fifo || []).reduce((s, it) => s + (it.amount || 0), 0);
+    const processed = node.processed || 0;
+    const avgWait = processed > 0 ? Math.round((node.totalWait || 0) / processed * 100) / 100 : 0;
+    const rows = [
+      ['In service', String(inService)],
+      ['Waiting in line', String(waiting)],
+      ['Processed', String(processed)],
+      ['Avg wait', processed > 0 ? `${avgWait} steps` : '—'],
+      ['Max wait', processed > 0 ? `${node.maxWait || 0} steps` : '—'],
+      ['Peak line', String(node.maxLen || 0)],
+    ];
+    container.innerHTML = '';
+    for (const [label, val] of rows) {
+      const row = document.createElement('div');
+      row.className = 'queue-stat-row';
+      const l = document.createElement('span'); l.className = 'queue-stat-label'; l.textContent = label;
+      const v = document.createElement('span'); v.className = 'queue-stat-val'; v.textContent = val;
+      row.appendChild(l); row.appendChild(v);
+      container.appendChild(row);
+    }
+  }
+
   // Diagram-wide totals per resource type (defined types first, then any
   // untyped colors actually present). Infinite sources are not counted.
   _fillTotals(container) {
@@ -1003,6 +1029,11 @@ class AppProps {
     if (nodeEl && this._selectedType === 'node') {
       const node = this.diagram.nodes.get(this._selectedId);
       if (node) this._fillHoldings(nodeEl, node);
+    }
+    const qmEl = document.getElementById('queue-metrics');
+    if (qmEl && this._selectedType === 'node') {
+      const node = this.diagram.nodes.get(this._selectedId);
+      if (node && node.type === NodeType.QUEUE) this._fillQueueMetrics(qmEl, node);
     }
     const totEl = document.getElementById('diagram-totals');
     if (totEl) this._fillTotals(totEl);
@@ -1266,8 +1297,14 @@ class AppProps {
 
     if (node.type === NodeType.QUEUE) {
       this._field(panel, 'Process time', 'number', node.processTime,
-        v => { node.processTime = Math.max(1, parseInt(v) || 1); });
-      this._info(panel, 'Steps to process one unit. Units are served one at a time (FIFO) — a throughput bottleneck of one per process-time, with per-item latency.');
+        v => { node.processTime = Math.max(1, parseInt(v) || 1); }, 'steps per unit, per server');
+      this._field(panel, 'Servers', 'number', node.servers || 1,
+        v => { node.servers = Math.max(1, parseInt(v) || 1); this.renderer.render(); }, 'units served at once');
+      this._info(panel, 'A single FIFO line feeding one or more servers. Each server takes "Process time" steps per unit, so throughput is servers ÷ process-time. One server is the classic single-lane bottleneck; add servers for parallel lanes that share the one line.');
+      const qm = document.createElement('div');
+      qm.className = 'type-readout queue-metrics'; qm.id = 'queue-metrics';
+      panel.appendChild(qm);
+      this._fillQueueMetrics(qm, node);
     }
 
     if (node.type === NodeType.GATE) {

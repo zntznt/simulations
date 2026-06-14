@@ -580,7 +580,7 @@ test('an unlimited source is unaffected (regression)', () => {
   eq(p.resources, 20, 'unlimited source keeps emitting');
 });
 
-console.log('\nQueue (single-server FIFO)');
+console.log('\nQueue (FIFO + parallel servers)');
 
 test('queue serializes throughput to ~1 per process-time', () => {
   const { d, e } = setup();
@@ -607,6 +607,55 @@ test('queue adds per-item latency before the first release', () => {
   eq(dr.drained, 0, 'nothing released yet during the processing latency');
   e.doStep();
   eq(dr.drained, 1, 'first unit released after latency');
+});
+
+test('parallel servers multiply queue throughput', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE); q.processTime = 3; q.servers = 3;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, s, q).rate = 3;     // 3 units in per step
+  conn(d, q, dr).rate = 1;
+  steps(e, 30);
+  // 3 servers × (1 unit / 3 steps) ≈ 1 unit/step — roughly 3× a single server's
+  // ~9-10 over the same run.
+  assert(dr.drained >= 24 && dr.drained <= 30, `~3× single-server throughput (got ${dr.drained})`);
+});
+
+test('an uncongested queue reports the minimum one-step wait', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE); q.processTime = 1; q.servers = 2;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, s, q).rate = 1;
+  conn(d, q, dr).rate = 1;
+  steps(e, 8);
+  assert(q.processed >= 5, `units served (got ${q.processed})`);
+  eq(q.maxWait, 1, 'no unit waits more than one step when servers keep up');
+});
+
+test('queue records waiting time and peak line under congestion', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE); q.processTime = 2; q.servers = 1;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, s, q).rate = 3;     // arrivals outpace the single server
+  conn(d, q, dr).rate = 1;
+  steps(e, 20);
+  assert(q.processed >= 8 && q.processed <= 11, `~20/2 served (got ${q.processed})`);
+  assert(q.maxLen >= 10, `the line builds up under congestion (got ${q.maxLen})`);
+  assert(q.maxWait > 1, `later units wait many steps (got ${q.maxWait})`);
+  assert(q.totalWait / q.processed > 1, 'average wait exceeds the uncongested minimum');
+});
+
+test('queue servers round-trip through JSON', () => {
+  const { d } = setup();
+  const q = node(d, NodeType.QUEUE); q.processTime = 4; q.servers = 3;
+  const json = JSON.parse(JSON.stringify(d.toJSON()));
+  const d2 = new Diagram(); d2.loadJSON(json);
+  const q2 = [...d2.nodes.values()][0];
+  eq(q2.servers, 3, 'servers preserved');
+  eq(q2.processTime, 4, 'process time preserved');
 });
 
 console.log('\nState modifiers');
