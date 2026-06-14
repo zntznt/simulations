@@ -50,6 +50,11 @@ goals) is its resource count for pools/converters/queues/delays, `drained` for
 drains, `value` for registers, the remaining stock for a limited source (0 for
 an infinite one), and the completed-exchange count for a trader.
 
+**Starting amount.** A resource‑holding node's starting stock is simply what it holds
+when the run begins — you set it on the node (a pool can start holding 50, say). There
+is no separate "initial value" field: whatever a node holds at step 0 *is* its starting
+amount, and `reset()` restores every node to it. Resource counts never go below 0 (§14).
+
 **Trader details.** The trader never holds resources — its connections are trade
 routes that only the trader itself drives when it fires (pools won't push into
 one). A trade executes only if both sides can pay their full rate *and* receive
@@ -114,10 +119,23 @@ combination of these roles:
   step (e.g. an empty pool, a dry limited source). The opposite of a trigger.
 - **Activator (`⊢`)** — the target may only fire while the source value satisfies a
   condition.
-- **Modifier (`Δ`)** — each step, add `factor × sourceValue` to the target's
-  resources (negative = decay). Targets pools and converters, respects their
-  capacity, and reads the **committed, post‑flow** state. Self‑connections are
-  allowed, which gives interest/decay in place.
+- **Modifier (`Δ`)** — adjusts the target's resources **in place** each step (no
+  resource flows), in one of four **modes**:
+
+  | Mode | Effect each step |
+  | --- | --- |
+  | `rate` *(default)* | add `factor × sourceValue`. `factor` is a *fraction*, so `0.05` means **+5%** — this is interest/growth; a negative factor decays. |
+  | `step` | add a flat `factor` every step. |
+  | `pulse` | add a flat `factor` only on steps when the source **fired**. |
+  | `delta` | add `factor × (change in sourceValue since last step)`. |
+
+  The amount can be a **formula** (over the shared variables) instead of a constant.
+  Modifiers target only **pools and converters**, respect capacity, never push a
+  target below 0, and read the **committed, post‑flow** state. The per‑step delta is
+  **rounded to an integer** (§14), so a tiny percentage of a small pool can round to 0
+  and appear "stuck" — scale the numbers up if a slow drift isn't moving.
+  Self‑connections are allowed: a node modifying itself is how you do in‑place
+  interest, decay, or a homemade **clock** (`step` mode, `+1` per step).
 
 ---
 
@@ -190,6 +208,19 @@ tick, regardless of creation order.
 condition or rate formula reads the value from the **previous** step. This is by
 design and is consistent across the model (the unit tests encode it explicitly).
 
+**Computing vs. accumulating.** A register is **recomputed from its formula every
+tick** — it holds an *instantaneous* value, not a running total, and cannot read its
+own previous result. To **accumulate or compound** a value over time (a cumulative
+total, an inflation index, a savings balance), use a **pool with a self‑modifier**
+instead: the pool carries the value forward and the self‑modifier grows or decays it
+each step. Rule of thumb: *a register computes, a pool remembers.*
+
+**There is no built‑in time variable.** A formula can't read the current step number
+directly. When you need time — a countdown, an age, a seasonal cycle — build a
+**clock**: a pool with a `step`‑mode self‑modifier of `+1`, published as a variable
+(say `t`). Any formula can then use `t`; for example a seasonal multiplier
+`1 + 0.5 * sin(2 * pi * t / 52)` rises and falls on a 52‑step year.
+
 ---
 
 ## 9. Time modes
@@ -250,8 +281,12 @@ live diagram.
 
 ## 14. Known limitations & intentional choices
 
-- **Integer granularity.** One time granularity (integer steps); rates round to
-  integers.
+- **Integer granularity & non‑negative values.** Time advances in whole steps;
+  connection rates *and* modifier deltas round to integers, and resource counts never
+  fall below 0. There is no concept of debt or a negative balance: model a loss by
+  **draining** resources out or applying a **negative‑`factor` modifier** (which stops
+  at 0), not a negative quantity. Random draws on a *rate* are non‑negative too, so
+  model downside with a drain or a negative modifier rather than a negative rate.
 - **Goals are terminal on Run.** Reaching a goal stops the engine; Run clears and
   resumes.
 - **Place tool stays active** after placing (for rapid placement) unless auto‑revert
@@ -269,3 +304,36 @@ live diagram.
   supported; connection‑rate modulation is done with formula rates instead.
 
 These mirror the notes in [ROADMAP.md](../ROADMAP.md).
+
+---
+
+## 15. Worked example: a feedback loop
+
+The pieces above combine into feedback loops, which is where the model gets its life.
+Here is the smallest complete one — a population that grows fast when small and levels
+off near a carrying capacity (logistic growth, the classic *negative* feedback loop).
+
+**Build it:**
+
+1. Add a **Pool** named `Rabbits` and set its starting amount to `10` (§2).
+2. Draw a **state connection from `Rabbits` back to `Rabbits`**, role **Variable**,
+   name `r`. This publishes the population count as `r` so formulas can read it (§5, §8).
+3. Draw a **second state connection from `Rabbits` to itself**, role **Modifier**,
+   mode `step`, with a **formula** amount: `round(0.3 * r * (1 - r / 100))`.
+
+That formula *is* the loop. When `r` is small, `(1 - r / 100)` is near 1, so the pool
+grows quickly. As `r` climbs toward 100, the term shrinks toward 0 and growth stops —
+the population regulates itself. Cross 100 and the term goes negative, nudging it back
+down. There's your negative feedback.
+
+**Run it** and the count traces an S‑curve: a slow start, a fast middle, a plateau
+near 100. Two model rules from above are visible here — the **one‑step lag** (the
+modifier reads the previous step's `r`, §8) and **integer rounding** (the increment is
+whole rabbits, so growth stalls cleanly at the cap rather than wobbling on fractions,
+§14).
+
+**Make it a predator‑prey loop** by adding a second pool, `Foxes`, publishing its
+count as `f`, then: a modifier on `Rabbits` of `round(-0.01 * r * f)` (foxes eat
+rabbits) and a modifier on `Foxes` of `round(0.005 * r * f - 0.1 * f)` (foxes grow by
+eating, starve otherwise). Two coupled loops with a lag produce the boom‑and‑bust
+oscillation of a real ecosystem.
