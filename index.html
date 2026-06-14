@@ -46,7 +46,7 @@
         <button class="btn" id="btn-analysis-menu" aria-haspopup="true" aria-expanded="false"
                 title="Analysis — timeline chart &amp; Monte Carlo"><i class="fa-solid fa-chart-column" aria-hidden="true"></i> Analysis <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
         <div class="menu-popup align-left hidden" role="menu" aria-label="Analysis">
-          <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-timeline"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Timeline chart</button>
+          <button class="menu-item menu-item-toggle" role="menuitemcheckbox" aria-checked="false" id="btn-timeline"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Timeline chart</button>
           <button class="menu-item" role="menuitem" id="btn-batch"><i class="fa-solid fa-dice" aria-hidden="true"></i> Batch (Monte Carlo)…</button>
         </div>
       </div>
@@ -81,13 +81,13 @@
                 title="File — open, save, export, share">File <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
         <div class="menu-popup hidden" role="menu" aria-label="File">
           <button class="menu-item" role="menuitem" id="btn-load">Open file…</button>
-          <div class="menu-sep"></div>
+          <div class="menu-sep" role="separator"></div>
           <button class="menu-item" role="menuitem" id="btn-save">Save as JSON</button>
-          <div class="menu-sep"></div>
+          <div class="menu-sep" role="separator"></div>
           <button class="menu-item" role="menuitem" id="btn-export-svg">Export as SVG</button>
           <button class="menu-item" role="menuitem" id="btn-export-png">Export as PNG</button>
           <button class="menu-item" role="menuitem" id="btn-export-csv">Export data as CSV</button>
-          <div class="menu-sep"></div>
+          <div class="menu-sep" role="separator"></div>
           <button class="menu-item" role="menuitem" id="btn-share">Copy share link</button>
         </div>
       </div>
@@ -107,12 +107,12 @@
 
       <button data-tool="select" title="Select & Move (S)">
         <div class="tool-icon"><i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i></div>
-        Select<kbd class="pal-kbd">S</kbd>
+        Select<kbd class="pal-kbd" aria-hidden="true">S</kbd>
       </button>
 
       <button data-tool="delete" title="Delete element (Del)">
         <div class="tool-icon"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></div>
-        Delete<kbd class="pal-kbd">Del</kbd>
+        Delete<kbd class="pal-kbd" aria-hidden="true">Del</kbd>
       </button>
 
         </div>
@@ -129,7 +129,7 @@
             <polygon points="16,8 20,12 16,16" fill="#ffa726"/>
           </svg>
         </div>
-        Resource<kbd class="pal-kbd">R</kbd>
+        Resource<kbd class="pal-kbd" aria-hidden="true">R</kbd>
       </button>
 
       <button data-tool="connect-state" title="Draw State Connection (T)">
@@ -139,7 +139,7 @@
             <polygon points="16,8 20,12 16,16" fill="#78909c"/>
           </svg>
         </div>
-        State<kbd class="pal-kbd">T</kbd>
+        State<kbd class="pal-kbd" aria-hidden="true">T</kbd>
       </button>
 
         </div>
@@ -369,6 +369,15 @@
     </div>
 
     <div class="lib-section">
+      <div class="lib-section-title">Components</div>
+      <div class="mc-controls">
+        <label style="flex:1">Name <input type="text" id="comp-name" placeholder="My component"></label>
+        <button class="btn btn-primary" id="comp-save" title="Save selected nodes as a reusable component">Save selection</button>
+      </div>
+      <div id="lib-components"></div>
+    </div>
+
+    <div class="lib-section">
       <div class="lib-section-title">Your diagrams</div>
       <div class="mc-controls">
         <label style="flex:1">Name <input type="text" id="lib-name" placeholder="My diagram"></label>
@@ -398,6 +407,10 @@
       <label>to <input type="number" id="mc-sweep-to" value="10"></label>
       <label>values <input type="number" id="mc-sweep-count" value="5" min="2" max="11"></label>
       <button class="btn" id="mc-sweep-run" title="Run the batch once per parameter value and compare results">Run sweep</button>
+    </div>
+    <div class="mc-controls mc-sweep-controls">
+      <label title="Perturb every diagram parameter by ±this percent and measure each node's response">Sensitivity ±<input type="number" id="mc-sens-pct" value="10" min="1" max="50">%</label>
+      <button class="btn" id="mc-sens-run" title="Perturb each parameter ±10% and heatmap which parameters move which nodes the most">Run sensitivity</button>
     </div>
     <div id="mc-results"></div>
   </div>
@@ -437,7 +450,7 @@
           <dt><kbd>Shift</kbd>+wheel</dt><dd>Pan horizontally</dd>
           <dt><kbd>Space</kbd> / <kbd>Alt</kbd> / middle-drag</dt><dd>Pan the canvas</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>0</kbd></dt><dd>Fit view to content</dd>
-          <dt>Right-click</dt><dd>Delete element (Ctrl+Z undoes)</dd>
+          <dt>Right-click</dt><dd>Context menu (copy, save component, delete…)</dd>
         </dl>
         <h3>Connections &amp; nodes</h3>
         <dl>
@@ -452,7 +465,7 @@
     </div>
     <div class="help-footer">
       <button class="btn" id="help-getting-started"><i class="fa-solid fa-circle-play" aria-hidden="true"></i> Getting started</button>
-      <button class="btn" id="help-take-tour"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Take the tour</button>
+      <button class="btn btn-primary" id="help-take-tour"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Take the tour</button>
       <button class="btn" id="help-guide"><i class="fa-solid fa-book-open" aria-hidden="true"></i> Concept guide</button>
     </div>
   </div>
@@ -486,8 +499,8 @@
       <p id="guard-message"></p>
     </div>
     <div class="guard-actions">
-      <button class="btn btn-danger" id="guard-confirm">Discard &amp; continue</button>
       <button class="btn" id="guard-cancel">Cancel</button>
+      <button class="btn" id="guard-confirm">Discard &amp; continue</button>
     </div>
   </div>
 </div>
@@ -544,6 +557,12 @@
     </div>
   </div>
 </div>
+
+<!-- Toast notification (static so screen readers register the live region on page load) -->
+<div id="app-toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+<!-- Right-click context menu (populated and positioned by app.js) -->
+<div id="ctx-menu" class="ctx-menu hidden" role="menu" aria-label="Context menu"></div>
 
 <script src="vendor/math.min.js"></script>
 <script src="js/model.js"></script>

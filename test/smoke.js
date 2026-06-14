@@ -200,7 +200,9 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('property inputs accept 0 for rate / chance / capacity');
   else fail('input parse: ' + JSON.stringify(parse));
 
-  // Editor: place, drag-connect, and right-click delete via synthetic events.
+  // Editor: place, drag-connect, and the right-click context menu (which
+  // replaced the old instant-delete gesture). Right-click opens a menu and
+  // nothing is removed until you choose Delete from it.
   const editor = await page.evaluate(() => {
     window.app._clearAll();
     const canvas = document.getElementById('canvas');
@@ -215,13 +217,59 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ev('mousedown', 200, 200); ev('mousemove', 300, 200); ev('mouseup', 420, 200);
     const conns = window.app.diagram.connections.size;
     window.app.editor.setTool('select');
+    // Right-click the pool: menu opens, no instant delete.
     canvas.dispatchEvent(new MouseEvent('contextmenu',
       { clientX: r.left + 200, clientY: r.top + 200, bubbles: true }));
-    return { placed, conns, after: window.app.diagram.nodes.size };
+    const menu = document.getElementById('ctx-menu');
+    const menuOpen = !menu.classList.contains('hidden');
+    const items = [...menu.querySelectorAll('.menu-item')].map(b => b.textContent.trim());
+    const afterRightClick = window.app.diagram.nodes.size;
+    // Choose Delete from the menu: removes the node and its connection.
+    const del = [...menu.querySelectorAll('.menu-item')].find(b => /Delete/.test(b.textContent));
+    if (del) del.click();
+    return { placed, conns, menuOpen, items, afterRightClick,
+      afterDelete: window.app.diagram.nodes.size,
+      connsAfter: window.app.diagram.connections.size,
+      menuClosed: menu.classList.contains('hidden') };
   });
-  if (editor.placed === 2 && editor.conns === 1 && editor.after === 1)
-    ok('editor place / drag-connect / right-click-delete work');
+  if (editor.placed === 2 && editor.conns === 1 && editor.menuOpen && editor.afterRightClick === 2
+      && editor.items.some(t => /Duplicate/.test(t)) && editor.items.some(t => /Save as component/.test(t))
+      && editor.afterDelete === 1 && editor.connsAfter === 0 && editor.menuClosed)
+    ok('editor: place / drag-connect / right-click context menu (opens, no instant-delete, Delete acts)');
   else fail('editor ops: ' + JSON.stringify(editor));
+
+  // Context menu: empty-canvas variant (Paste disabled with an empty clipboard,
+  // Select all present) and "Save as component…" opening the Library focused.
+  const ctxMenu = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._clipboard = null;
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const menu = document.getElementById('ctx-menu');
+    // Right-click empty canvas.
+    canvas.dispatchEvent(new MouseEvent('contextmenu', { clientX: r.left + 600, clientY: r.top + 360, bubbles: true }));
+    const canvasItems = [...menu.querySelectorAll('.menu-item')].map(b => ({ t: b.textContent.trim(), disabled: b.disabled }));
+    const pasteDisabled = canvasItems.some(i => /Paste/.test(i.t) && i.disabled);
+    const hasSelectAll = canvasItems.some(i => /Select all/.test(i.t));
+    window.app._hideContextMenu();
+    // Place + select a node, right-click it, then click "Save as component…".
+    const n = window.app.diagram.addNode(new MNode(NodeType.POOL, 300, 300));
+    window.app.renderer.render();
+    window.app.editor._setSelection([n.id], n.id, 'node');
+    const rd = window.app.renderer;
+    const sx = 300 * rd._scale + rd._panX, sy = 300 * rd._scale + rd._panY;
+    canvas.dispatchEvent(new MouseEvent('contextmenu', { clientX: r.left + sx, clientY: r.top + sy, bubbles: true }));
+    const saveItem = [...menu.querySelectorAll('.menu-item')].find(b => /Save as component/.test(b.textContent));
+    const sawSave = !!saveItem;
+    if (saveItem) saveItem.click();
+    const libOpen = !document.getElementById('lib-overlay').classList.contains('hidden');
+    const focused = !!document.activeElement && document.activeElement.id === 'comp-name';
+    window.app._hideModal('lib-overlay');
+    return { pasteDisabled, hasSelectAll, sawSave, libOpen, focused };
+  });
+  if (ctxMenu.pasteDisabled && ctxMenu.hasSelectAll && ctxMenu.sawSave && ctxMenu.libOpen && ctxMenu.focused)
+    ok('context menu: canvas paste-state + select-all, and "Save as component" opens the Library focused');
+  else fail('context menu: ' + JSON.stringify(ctxMenu));
 
   // P1 panels: queue node + process time, source limited stock, state modifier.
   const p1 = await page.evaluate(() => {
@@ -363,6 +411,51 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
       && ultra.sweepCols === 4 && ultra.helpOpens && ultra.helpCloses && ultra.helpKey)
     ok('ultrabuff: seeded MC + raw export + parameter sweep + help overlay');
   else fail('ultrabuff: ' + JSON.stringify(ultra));
+
+  // Sensitivity analysis: perturb a parameter that drives a pool (rate = `lvl`),
+  // expect an elasticity heatmap with ~1.0 for the pool (output scales 1:1 with
+  // the rate parameter).
+  const sens = await page.evaluate(async () => {
+    const r = {};
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 400, 200));
+    const c = d.addConnection(new MConnection(s.id, p.id));
+    c.rateMode = RateMode.FORMULA; c.formula = 'lvl';   // pool gains `lvl` per step
+    d.params = { lvl: 10 };
+    window.app.renderer.render();
+
+    const waitFor = async (sel, ms = 3000) => {
+      const t0 = Date.now();
+      while (!document.querySelector(sel)) {
+        if (Date.now() - t0 > ms) return false;
+        await new Promise(res => setTimeout(res, 30));
+      }
+      return true;
+    };
+
+    document.getElementById('btn-batch').click();
+    r.sensEnabled = !document.getElementById('mc-sens-run').disabled;
+    document.getElementById('mc-runs').value = '2';
+    document.getElementById('mc-steps').value = '10';
+    document.getElementById('mc-sens-pct').value = '10';
+    document.getElementById('mc-sens-run').click();
+    r.tableShown = await waitFor('#mc-results table.sens-table');
+
+    const head = document.querySelector('#mc-results table.sens-table thead');
+    r.cols = head ? head.querySelectorAll('th').length : 0;   // Node + lvl = 2
+    const cell = document.querySelector('#mc-results table.sens-table tbody tr td:nth-child(2)');
+    r.elasticity = cell ? parseFloat(cell.textContent) : null;
+    r.exportBtn = !!document.getElementById('mc-export-sens');
+    r.topShown = (document.querySelector('#mc-results .sens-top')?.textContent || '').includes('lvl');
+    document.getElementById('mc-close').click();
+    return r;
+  });
+  if (sens.sensEnabled && sens.tableShown && sens.cols === 2 && sens.exportBtn && sens.topShown
+      && sens.elasticity != null && Math.abs(sens.elasticity - 1) < 0.01)
+    ok(`sensitivity: elasticity heatmap (pool→lvl elasticity ${sens.elasticity})`);
+  else fail('sensitivity: ' + JSON.stringify(sens));
 
   // Scenario branching: checkpoint mid-run, fork back (keeps the old run as a
   // ghost branch, auto-opens the timeline), legend gains a branch chip.
@@ -1331,6 +1424,39 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
       && kb.propsHelpPresent && kb.propsDeepLink)
     ok('knowledge base: guide opens, deep-links, searches, switches articles, and props "?" links a node to its entry');
   else fail('knowledge base: ' + JSON.stringify(kb));
+
+  // Reusable components: save a 2-node selection as a component, insert it,
+  // verify node count increases by 2, then undo restores the previous count.
+  const comp = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 200));
+    d.addConnection(new MConnection(s.id, p.id));
+    window.app.renderer.render();
+    window.app._commit(); // snapshot the 2-node baseline so undo can return here
+    // Select both nodes
+    window.app.editor._setSelection([s.id, p.id], null, 'node');
+    const before = d.nodes.size;
+    // Open library and save selection as component
+    window.app._openLibrary();
+    document.getElementById('comp-name').value = 'TestComp';
+    document.getElementById('comp-save').click();
+    // Verify component was saved
+    const saved = window.app._getComponents();
+    const compEntry = saved.find(e => e.name === 'TestComp');
+    // Insert the component
+    if (compEntry) window.app._insertComponent(compEntry);
+    const after = d.nodes.size;
+    // Undo should remove the 2 inserted nodes
+    window.app.undo();
+    const afterUndo = d.nodes.size;
+    return { before, after, afterUndo, savedCount: saved.length, compNodes: compEntry?.nodes.length ?? -1, compConns: compEntry?.conns.length ?? -1 };
+  });
+  if (comp.before === 2 && comp.after === 4 && comp.afterUndo === 2
+      && comp.compNodes === 2 && comp.compConns === 1)
+    ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
+  else fail('components: ' + JSON.stringify(comp));
 
   // UX pass: first-run welcome overlay shows for a brand-new user, dismisses,
   // and sets the seen flag (use a fresh context with no suppression).

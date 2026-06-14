@@ -344,6 +344,19 @@ const KB_ARTICLES = [
       + 'never disturbs your live diagram.',
   },
   {
+    id: 'sensitivity', category: 'Running and analysis', title: 'Sensitivity analysis',
+    keywords: 'sensitivity elasticity perturb parameter heatmap influence lever which matters tornado',
+    body: 'A sensitivity analysis tells you which parameters matter most. It nudges '
+      + 'every parameter up and down by a small percentage, one at a time, then '
+      + 'measures how far each node’s average outcome moves in response. The result '
+      + 'is a heatmap of elasticities — the percent change in a node per 1% change '
+      + 'in a parameter — so a value near 1 means the two move together in lockstep, '
+      + 'a larger value marks a powerful lever, and a value near zero means the '
+      + 'parameter barely matters. Green marks a node that rises with the parameter '
+      + 'and red one that falls; the brighter the cell, the stronger the link. Like '
+      + 'the batch runs it works on copies, so your live diagram is never touched.',
+  },
+  {
     id: 'scenarios', category: 'Running and analysis', title: 'Scenario branching',
     keywords: 'scenario branch checkpoint fork ghost what-if capture restore compare',
     body: 'Scenario branching lets you capture the state of a run as a checkpoint '
@@ -364,6 +377,31 @@ const KB_ARTICLES = [
       + 'Charts are saved with your diagram, so the view you set up is there the '
       + 'next time you open it. Use them to keep an eye on the numbers that matter '
       + 'while you build.',
+  },
+  {
+    id: 'editing', category: 'Building diagrams', title: 'Selecting and editing',
+    keywords: 'select marquee multi-select copy paste duplicate delete right-click context menu rubber band move nudge',
+    body: 'Click a node to select it, or drag an empty patch of canvas to rubber-band '
+      + 'a group; hold Shift to add to a selection. With something selected you can '
+      + 'copy and paste it with Ctrl+C and Ctrl+V, duplicate it in place with '
+      + 'Ctrl+D, nudge it with the arrow keys, or remove it with Delete. '
+      + 'Right-click anything to open a context menu with those same actions close '
+      + 'to hand — duplicate, copy, save the selection as a reusable component, or '
+      + 'delete — and right-click empty canvas to paste, select all or fit the view. '
+      + 'Every edit is undoable with Ctrl+Z.',
+  },
+  {
+    id: 'components', category: 'Building diagrams', title: 'Reusable components',
+    keywords: 'component subgraph reuse stamp paste copy building block group selection save library',
+    body: 'A component is a named building block you save from any selection of '
+      + 'nodes and connections, then stamp onto the canvas as many times as you '
+      + 'like. Select the nodes you want to reuse, open the Library, give the '
+      + 'component a name and click Save selection. Each time you click Insert, '
+      + 'the app places a fresh independent copy — new node IDs, ready to edit — '
+      + 'so modifying a placed copy never touches the saved original or any other '
+      + 'instance. Components are a fast way to build repeated patterns such as a '
+      + 'source–pool–drain trio, a feedback loop or a probability gate, without '
+      + 'redrawing them every time.',
   },
 ];
 
