@@ -422,6 +422,33 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('editor: wheel-zoom + undo/redo of a placement');
   else fail('editor 3a: ' + JSON.stringify(ed));
 
+  // Editor 3a': double-click a node to rename it inline; Enter commits.
+  const inlineLabel = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    window.app.renderer.resetView();
+    const d = window.app.diagram;
+    const n = d.addNode(new MNode(NodeType.POOL, 200, 200)); n.label = 'Old';
+    window.app.renderer.render();
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const rr = window.app.renderer;
+    const sx = r.left + rr._panX + n.x * rr._scale;
+    const sy = r.top + rr._panY + n.y * rr._scale;
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: sx, clientY: sy, bubbles: true }));
+
+    const input = document.querySelector('.node-label-edit');
+    const opened = !!input && input.value === 'Old';
+    if (!input) return { opened, renamed: false, closed: true };
+    input.value = 'Treasury';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const renamed = d.nodes.get(n.id).label === 'Treasury';
+    const closed = !document.querySelector('.node-label-edit');
+    return { opened, renamed, closed };
+  });
+  if (inlineLabel.opened && inlineLabel.renamed && inlineLabel.closed)
+    ok('editor: double-click node opens inline label editor, Enter commits the rename');
+  else fail('editor inline label: ' + JSON.stringify(inlineLabel));
+
   // Editor 3b: marquee multi-select + copy/paste + group delete.
   const ms = await page.evaluate(() => {
     window.app._clearAll(); window.app._resetHistory();

@@ -16,6 +16,18 @@
 
 html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; overflow: hidden; }
 
+/* Inline node-label editor: floats over the canvas on double-click. */
+.node-label-edit {
+  position: fixed; z-index: 200;
+  transform: translateY(-50%);
+  text-align: center;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 4px;
+  padding: 2px 6px; outline: none;
+  font-family: var(--font);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+
 #app { display: flex; flex-direction: column; height: 100vh; }
 
 /* ── Topbar ── */
