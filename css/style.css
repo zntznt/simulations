@@ -38,11 +38,14 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 
 .logo {
-  font-size: 16px; font-weight: 700; color: var(--accent);
-  letter-spacing: 0.5px; margin-right: 8px;
+  display: flex; align-items: center; gap: 10px;
+  margin-right: 8px; user-select: none; flex-shrink: 0;
 }
-
-.logo span { color: var(--accent2); }
+.logo-mark { display: block; flex-shrink: 0; }
+.logo-name {
+  font-size: 15px; font-weight: 700; letter-spacing: 0.3px;
+  color: var(--text); white-space: nowrap;
+}
 
 .sim-controls { display: flex; align-items: center; gap: 10px; }
 .file-controls { display: flex; gap: 6px; margin-left: auto; align-items: center; }

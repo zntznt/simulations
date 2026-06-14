@@ -13,7 +13,18 @@
 
   <!-- Top bar -->
   <header id="topbar">
-    <div class="logo">Simulations<span>.</span></div>
+    <div class="logo" role="img" aria-label="Simulations">
+      <svg class="logo-mark" viewBox="0 0 54 28" width="54" height="28" fill="none" aria-hidden="true" focusable="false">
+        <!-- Source: upward triangle (green) -->
+        <polygon points="10,4 19,24 1,24" fill="#1a4a2a" stroke="#4caf50" stroke-width="1.6" stroke-linejoin="round"/>
+        <!-- Flow arrow (orange) -->
+        <line x1="20" y1="14" x2="31" y2="14" stroke="#ffa726" stroke-width="1.6" stroke-linecap="round"/>
+        <polygon points="29,11 33.5,14 29,17" fill="#ffa726"/>
+        <!-- Pool: circle (blue) -->
+        <circle cx="43" cy="14" r="9" fill="#1a3a6b" stroke="#4a9eff" stroke-width="1.6"/>
+      </svg>
+      <span class="logo-name">Simulations</span>
+    </div>
 
     <div class="sim-controls">
       <div class="sim-cluster" role="group" aria-label="Simulation controls">
