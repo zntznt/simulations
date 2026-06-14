@@ -198,6 +198,31 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       Economy** (37, all nine node types). Loaded from the Library like any
       template; covered by the smoke suite.
 
+## ✅ Moderated usability pass
+
+A four-participant moderated study (two total beginners, two with basic
+knowledge) drove the real app and reported friction. Fixes that shipped from it:
+
+- [x] **First-run welcome overlay** — explains what the app is, the
+      place → connect → Run loop, and a plain-language glossary of the building
+      blocks; offers "Explore the demo" / "Browse templates". Shown once
+      (localStorage `sim_seen_welcome`), skipped for embed/shared links, and
+      reopenable from **Help → Getting started**. (Beginners had no
+      concept-level onboarding; the empty-canvas hint was unreachable behind the
+      always-loaded demo.)
+- [x] **Plain-language node tooltips** — every palette node now says what it's
+      *for* ("Pool — stores a resource amount", "Source — produces resources", …)
+      rather than "Place Pool node".
+- [x] **Formula field help + validation** — the rate/register formula input now
+      lists the in-scope variable names, shows the non-obvious tip that a node's
+      value reaches a formula only via a *named state connection*, and flags
+      invalid formulas with a red border (wires up `validateFormula`). This was
+      the #1 power-user blocker.
+- [x] **Parameter-sweep CSV export** + a **deterministic-model note** in Monte
+      Carlo (explains why all percentiles match when there's no randomness).
+- [x] **Library-save confirmation toast**, and a **wider connection hit area**
+      (24px) so re-selecting a curved connection isn't fiddly.
+
 ## 🔮 Council backlog — bigger ideas worth designing
 
 Ideas from a design review ("council of geniuses" pass); none are started.

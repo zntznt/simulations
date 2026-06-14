@@ -91,6 +91,28 @@ class App {
     };
 
     this._initDiagram();
+    this._maybeWelcome();
+  }
+
+  // First-run onboarding: a one-time welcome explaining what the app is and the
+  // place → connect → Run loop. Skipped in embed mode and when opening a shared
+  // link (those users arrived with intent). Dismissing it sets a flag so it
+  // never nags again; it stays reachable from Help → "Getting started".
+  _maybeWelcome() {
+    if (document.body.classList.contains('embed')) return;
+    if (/[#&]d=/.test(location.hash)) return;
+    let seen = false;
+    try { seen = localStorage.getItem('sim_seen_welcome') === '1'; } catch { /* ignore */ }
+    if (seen) return;
+    // Mark as seen on show, so any dismissal path (button, backdrop, Escape)
+    // leaves it dismissed for good.
+    try { localStorage.setItem('sim_seen_welcome', '1'); } catch { /* ignore */ }
+    this._showModal('welcome-overlay');
+  }
+
+  _dismissWelcome() {
+    try { localStorage.setItem('sim_seen_welcome', '1'); } catch { /* ignore */ }
+    this._hideModal('welcome-overlay');
   }
 
   // ── Undo / redo ─────────────────────────────────────────────────────────────
@@ -373,6 +395,7 @@ class App {
       this._saveLibrary(lib);
       document.getElementById('lib-name').value = '';
       this._renderLibraryList();
+      this._toast(`Saved “${name}” to your Library`);
     });
   }
 
@@ -2076,6 +2099,23 @@ class App {
       if (e.target.id === 'help-overlay') this._hideModal('help-overlay');
     });
     this._modalize('help-overlay');
+    // Help → "Getting started" reopens the welcome overlay.
+    document.getElementById('help-getting-started').addEventListener('click', () => {
+      this._hideModal('help-overlay');
+      this._showModal('welcome-overlay');
+    });
+
+    // Welcome / getting-started overlay (first run; reopenable from Help)
+    document.getElementById('welcome-close').addEventListener('click', () => this._dismissWelcome());
+    document.getElementById('welcome-explore').addEventListener('click', () => this._dismissWelcome());
+    document.getElementById('welcome-templates').addEventListener('click', () => {
+      this._dismissWelcome();
+      this._openLibrary();
+    });
+    document.getElementById('welcome-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'welcome-overlay') this._dismissWelcome();
+    });
+    this._modalize('welcome-overlay');
   }
 
   // ── Monte Carlo ─────────────────────────────────────────────────────────────
@@ -2140,6 +2180,15 @@ class App {
       }
       html += '</p>';
 
+      // Deterministic model → every run is identical → no distribution. Say so,
+      // rather than leaving the user puzzling over min==max across the board.
+      const noSpread = res.nodes.length > 0 && res.nodes.every(n => n.min === n.max);
+      if (noSpread) {
+        html += '<p class="mc-stale-badge">All runs are identical — this model is '
+          + 'deterministic (no randomness). Add a Dice or Distribution rate, a chance %, '
+          + 'a probabilistic gate, or a random variable to see a distribution.</p>';
+      }
+
       html += '<table><thead><tr><th>Node</th><th>distribution</th><th>mean</th><th>min</th>'
         + '<th>p10</th><th>p50</th><th>p90</th><th>max</th></tr></thead><tbody>';
       for (const n of res.nodes) {
@@ -2181,6 +2230,27 @@ class App {
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(blob), download: this._exportFilename('mc.csv'),
+    });
+    a.click();
+  }
+
+  // Sweep results as CSV: one column per swept parameter value, one row per
+  // node (mean final value), matching the on-screen matrix.
+  _exportSweepCSV() {
+    const s = this._sweepLast;
+    if (!s) return;
+    const header = ['node', ...s.values.map(v => this._csvCell(`${s.name}=${v}`))];
+    const lines = [header.join(',')];
+    for (let n = 0; n < s.results[0].nodes.length; n++) {
+      const label = s.results[0].nodes[n].label || s.results[0].nodes[n].type;
+      lines.push([this._csvCell(label), ...s.results.map(r => r.nodes[n].mean)].join(','));
+    }
+    if (s.results.some(r => r.endStep)) {
+      lines.push([this._csvCell('Goal reached %'), ...s.results.map(r => Math.round(r.endedRate * 100))].join(','));
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob), download: this._exportFilename('sweep.csv'),
     });
     a.click();
   }
@@ -2239,7 +2309,13 @@ class App {
           + results.map(r => `<td>${Math.round(r.endedRate * 100)}%</td>`).join('') + '</tr>';
       }
       html += '</tbody></table>';
+      html += '<p class="mc-actions"><button class="btn" id="mc-export-sweep">'
+        + '<i class="fa-solid fa-download" aria-hidden="true"></i> Export sweep (CSV)</button></p>';
+      // Stash for export: param name, the swept values, and per-node means.
+      this._sweepLast = { name, values, results };
       out.innerHTML = html;
+      document.getElementById('mc-export-sweep')
+        .addEventListener('click', () => this._exportSweepCSV());
     } finally {
       this._mcBusy = false;
     }
@@ -3561,9 +3637,9 @@ class App {
       valRow.textContent = `= ${node.displayCount}`;
       panel.appendChild(valRow);
 
-      this._field(panel, 'Formula', 'text', node.formula,
+      this._formulaField(panel, node.formula,
         v => { node.formula = v; this.renderer.render(); },
-        'e.g. treasury * 2');
+        { showTip: false });
 
       this._info(panel, 'State connections feeding this register become variables. Set the connection\'s variable name (label) to use in the formula.');
     }
@@ -3708,9 +3784,9 @@ class App {
             conn.dice = v; this.renderer.render();
           }, '1d6, 2d4, 3d10…');
         } else if (conn.rateMode === RateMode.FORMULA) {
-          this._field(panel, 'Formula', 'text', conn.formula, v => {
+          this._formulaField(panel, conn.formula, v => {
             conn.formula = v; this.renderer.render();
-          }, 'e.g. treasury * 0.1');
+          });
         } else if (conn.rateMode === RateMode.DISTRIBUTION) {
           const dt = conn.distType || 'normal';
           this._select2(panel, 'Distribution', ['normal', 'uniform', 'exponential', 'poisson'], dt, v => {
@@ -4102,6 +4178,56 @@ class App {
     row.appendChild(lbl);
     row.appendChild(inp);
     panel.appendChild(row);
+    return inp;
+  }
+
+  // The identifiers a formula can reference right now: diagram parameters,
+  // custom variables, named state connections, and register labels. (Mirrors
+  // how the engine builds its variable store.)
+  _availableVars() {
+    const names = new Set();
+    for (const k of Object.keys(this.diagram.params || {})) names.add(k);
+    for (const v of (this.diagram.customVars || [])) if (v && v.name) names.add(v.name);
+    for (const c of this.diagram.connections.values())
+      if (c.type === ConnectionType.STATE && c.variableName) names.add(c.variableName);
+    for (const n of this.diagram.nodes.values())
+      if (n.type === NodeType.REGISTER && VALID_IDENT.test(n.label || '')) names.add(n.label);
+    return [...names].sort();
+  }
+
+  // A formula text input with live validity feedback and an inline list of the
+  // variable names currently in scope — plus the non-obvious tip that a node's
+  // value only reaches a formula via a *named* state connection. (Usability
+  // study: this was the #1 power-user blocker.)
+  _formulaField(panel, value, onChange, opts = {}) {
+    const isBad = v => v.trim() !== '' && !validateFormula(v);
+    const inp = this._field(panel, opts.label || 'Formula', 'text', value || '', v => {
+      onChange(v);
+      inp.classList.toggle('invalid', isBad(v));
+    }, opts.placeholder || 'e.g. growth_rate * size');
+    inp.classList.toggle('invalid', isBad(value || ''));
+
+    const vars = this._availableVars();
+    const hint = document.createElement('p');
+    hint.className = 'formula-hint';
+    if (vars.length) {
+      hint.appendChild(document.createTextNode('In scope: '));
+      for (const v of vars) {
+        const code = document.createElement('code');
+        code.textContent = v;
+        hint.appendChild(code);
+      }
+    } else {
+      hint.textContent = 'No variables yet — add a Parameter, or name a State connection to publish a node’s value.';
+    }
+    panel.appendChild(hint);
+
+    if (opts.showTip !== false) {
+      const tip = document.createElement('p');
+      tip.className = 'formula-hint formula-tip';
+      tip.textContent = 'Tip: to use a node’s value, draw a State connection from it and give it a name.';
+      panel.appendChild(tip);
+    }
     return inp;
   }
 

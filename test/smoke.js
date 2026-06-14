@@ -15,6 +15,9 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   // The display-font feature loads stylesheets from Google Fonts; stub the
   // request so the smoke run works offline and stays free of network errors.
   await page.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+  // Run as a returning user: suppress the first-run welcome overlay (covered by
+  // its own dedicated check below). Must be set before the app boots.
+  await page.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
   const errors = [];
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', e => errors.push(String(e)));
@@ -985,6 +988,52 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (p2types.hasTypesEditor && p2types.showsGold && p2types.hasTypeDropdown && p2types.totalsOk && p2types.typesOk)
     ok('P2 resource types: editor, type pickers, per-type holdings + live totals, serialize');
   else fail('P2 resource types: ' + JSON.stringify(p2types));
+
+  // UX pass: formula field shows in-scope variables + validity; formula help
+  // exists for a formula-rate connection.
+  const formulaHelp = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    d.params = { growth_rate: 0.1 };
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 400, 200)); p.setCount(10);
+    const c = d.addConnection(new MConnection(s.id, p.id));
+    c.rateMode = RateMode.FORMULA; c.formula = 'growth_rate * 2';
+    window.app.renderer.render();
+    window.app._onSelect(c.id, 'conn');
+    const hint = document.querySelector('#props-content .formula-hint');
+    const codes = [...document.querySelectorAll('#props-content .formula-hint code')].map(e => e.textContent);
+    const tip = !!document.querySelector('#props-content .formula-tip');
+    // Now make it invalid and confirm the field flags it.
+    const inp = [...document.querySelectorAll('#props-content input')].find(i => i.value === 'growth_rate * 2');
+    let invalidFlagged = false;
+    if (inp) {
+      inp.value = 'growth_rate * '; inp.dispatchEvent(new Event('input', { bubbles: true }));
+      invalidFlagged = inp.classList.contains('invalid');
+    }
+    return { hasHint: !!hint, listsParam: codes.includes('growth_rate'), tip, invalidFlagged };
+  });
+  if (formulaHelp.hasHint && formulaHelp.listsParam && formulaHelp.tip && formulaHelp.invalidFlagged)
+    ok('UX: formula field lists in-scope variables + state-connection tip + invalid-formula flagging');
+  else fail('UX formula help: ' + JSON.stringify(formulaHelp));
+
+  // UX pass: first-run welcome overlay shows for a brand-new user, dismisses,
+  // and sets the seen flag (use a fresh context with no suppression).
+  const welcome = await (async () => {
+    const ctx = await browser.newContext();
+    const wp = await ctx.newPage();
+    await wp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await wp.goto(URL, { waitUntil: 'networkidle' });
+    const shown = await wp.evaluate(() => !document.getElementById('welcome-overlay').classList.contains('hidden'));
+    await wp.click('#welcome-explore');
+    const hidden = await wp.evaluate(() => document.getElementById('welcome-overlay').classList.contains('hidden'));
+    const flag = await wp.evaluate(() => localStorage.getItem('sim_seen_welcome'));
+    await ctx.close();
+    return { shown, hidden, flag };
+  })();
+  if (welcome.shown && welcome.hidden && welcome.flag === '1')
+    ok('UX: first-run welcome overlay shows, dismisses, and persists the seen flag');
+  else fail('UX welcome: ' + JSON.stringify(welcome));
 
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);

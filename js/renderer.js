@@ -795,7 +795,7 @@ class Renderer {
 
   _makeConnEl(conn) {
     const g = svgEl('g', { 'data-id': conn.id });
-    g.appendChild(svgEl('path', { class: 'conn-hitbox', fill: 'none', stroke: 'transparent', 'stroke-width': '14', cursor: 'pointer' }));
+    g.appendChild(svgEl('path', { class: 'conn-hitbox', fill: 'none', stroke: 'transparent', 'stroke-width': '24', cursor: 'pointer' }));
     g.appendChild(svgEl('path', { class: 'conn-path', fill: 'none', 'stroke-width': '2' }));
     const lg = svgEl('g', { class: 'conn-label-g', 'data-conn-id': conn.id, cursor: 'grab' });
     lg.appendChild(svgEl('rect', { class: 'conn-label-bg', rx: '7', ry: '7', 'pointer-events': 'all' }));
