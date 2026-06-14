@@ -294,6 +294,7 @@ class Renderer {
     this._groupEls = new Map();
     this._noteEls = new Map();
     this._chartEls = new Map();
+    this._chartHover = null;  // { id, idx } — on-canvas chart hover readout
     this._panX = 0;
     this._panY = 0;
     this._scale = 1;
@@ -658,6 +659,24 @@ class Renderer {
     g.appendChild(svgEl('rect', { class: 'chart-bg', rx: '6', 'stroke-width': '1.5' }));
     g.appendChild(svgEl('text', { class: 'chart-title', 'font-size': '11', 'font-family': 'var(--font)', 'font-weight': '600', 'pointer-events': 'none' }));
     g.appendChild(svgEl('g', { class: 'chart-plot', 'pointer-events': 'none' }));
+    // Hover overlay (crosshair + value readout), painted above the plot. The
+    // background rect is the only pointer target, so mousemove bubbles to here.
+    g.appendChild(svgEl('g', { class: 'chart-hover', 'pointer-events': 'none' }));
+
+    const cid = chart.id;
+    g.addEventListener('mousemove', (e) => {
+      const ctx = g._chartCtx;
+      if (!ctx || ctx.n < 2) return;
+      const p = this.svgPoint(e.clientX, e.clientY);
+      const i = Math.round(((p.x - ctx.x0) / ctx.plotW) * (ctx.n - 1));
+      this._chartHover = { id: cid, idx: Math.max(0, Math.min(ctx.n - 1, i)) };
+      this._drawChartHover(g);
+    });
+    g.addEventListener('mouseleave', () => {
+      if (this._chartHover && this._chartHover.id === cid) this._chartHover = null;
+      const hov = g.querySelector('.chart-hover');
+      while (hov.firstChild) hov.removeChild(hov.firstChild);
+    });
     return g;
   }
 
@@ -688,6 +707,12 @@ class Renderer {
     const plot = el.querySelector('.chart-plot');
     while (plot.firstChild) plot.removeChild(plot.firstChild);
 
+    const clearHover = () => {
+      el._chartCtx = null;
+      const hov = el.querySelector('.chart-hover');
+      if (hov) while (hov.firstChild) hov.removeChild(hov.firstChild);
+    };
+
     const hint = (msg) => {
       const t = svgEl('text', {
         x: String(chart.x + chart.w / 2), y: String(chart.y + chart.h / 2 + 6),
@@ -698,10 +723,10 @@ class Renderer {
     };
 
     const ids = (chart.nodeIds || []).filter(id => this.diagram.nodes.has(id));
-    if (!ids.length) { hint('Pick nodes in the panel →'); return; }
+    if (!ids.length) { clearHover(); hint('Pick nodes in the panel →'); return; }
 
     const hist = (this.engine && this.engine.history) ? this.engine.history : [];
-    if (hist.length < 2) { hint('Run the simulation to plot'); return; }
+    if (hist.length < 2) { clearHover(); hint('Run the simulation to plot'); return; }
 
     // Plot geometry (relative to the chart box).
     const padL = 28, padT = 22, padB = 10, padR = 8;
@@ -774,6 +799,68 @@ class Renderer {
       });
       lbl.textContent = String(+Number(last).toFixed(max < 10 ? 1 : 0));
       plot.appendChild(lbl);
+    });
+
+    // Stash the plot geometry so the hover handler can map cursor → step and
+    // read values without recomputing, then refresh the overlay in case this
+    // chart is the one currently hovered.
+    el._chartCtx = { x0, y0, plotW, plotH, max, n: hist.length, ids, palette, hist, chart };
+    this._drawChartHover(el);
+  }
+
+  // Crosshair + per-series value readout for the on-canvas chart at the hovered
+  // step. Reads el._chartCtx (set by _updateChartEl) and this._chartHover.
+  _drawChartHover(el) {
+    const hov = el.querySelector('.chart-hover');
+    if (!hov) return;
+    while (hov.firstChild) hov.removeChild(hov.firstChild);
+
+    const ctx = el._chartCtx, hover = this._chartHover;
+    if (!ctx || !hover || hover.id !== el.getAttribute('data-id') || ctx.n < 2) return;
+
+    const i = Math.max(0, Math.min(ctx.n - 1, hover.idx));
+    const snap = ctx.hist[i];
+    if (!snap) return;
+    const cx = ctx.x0 + (i / (ctx.n - 1)) * ctx.plotW;
+    const yAt = v => ctx.y0 + ctx.plotH - (v / ctx.max) * ctx.plotH;
+    const fmt = v => String(+Number(v).toFixed(ctx.max < 10 ? 1 : 0));
+
+    // Crosshair at the hovered step.
+    hov.appendChild(svgEl('line', {
+      x1: cx.toFixed(1), y1: ctx.y0, x2: cx.toFixed(1), y2: ctx.y0 + ctx.plotH,
+      stroke: 'rgba(255,255,255,0.28)', 'stroke-width': '1', 'stroke-dasharray': '3,3',
+    }));
+
+    // A dot on each series and the readout rows.
+    const rows = [{ t: `Step ${snap.step}`, color: '#9aa3b2' }];
+    ctx.ids.forEach((id, k) => {
+      const v = snap.snap[id] ?? 0;
+      const color = ctx.palette[k % ctx.palette.length];
+      hov.appendChild(svgEl('circle', { cx: cx.toFixed(1), cy: yAt(v).toFixed(1), r: '2.5', fill: color }));
+      const node = this.diagram.nodes.get(id);
+      rows.push({ t: `${node ? (node.label || node.type) : id}: ${fmt(v)}`, color });
+    });
+
+    // Tooltip box, flipped to the left edge if it would overflow the chart.
+    const lh = 11, padX = 5, padY = 4, charW = 4.9;
+    const tw = Math.max(...rows.map(r => r.t.length)) * charW + padX * 2;
+    const th = rows.length * lh + padY * 2;
+    let tx = cx + 8;
+    if (tx + tw > ctx.chart.x + ctx.chart.w - 2) tx = cx - tw - 8;
+    if (tx < ctx.chart.x + 2) tx = ctx.chart.x + 2;
+    const ty = ctx.y0;
+
+    hov.appendChild(svgEl('rect', {
+      x: tx.toFixed(1), y: ty.toFixed(1), width: tw.toFixed(1), height: th.toFixed(1), rx: '3',
+      fill: 'rgba(12,14,20,0.94)', stroke: '#2a3550', 'stroke-width': '1',
+    }));
+    rows.forEach((r, k) => {
+      const t = svgEl('text', {
+        x: (tx + padX).toFixed(1), y: (ty + padY + lh * k + 8).toFixed(1),
+        'font-size': '8', 'font-family': 'monospace', fill: r.color,
+      });
+      t.textContent = r.t;
+      hov.appendChild(t);
     });
   }
 

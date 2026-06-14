@@ -910,16 +910,34 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     window.app.renderer.render();
     const linesAfter = chartEl.querySelectorAll('polyline').length;
 
+    // Hover readout: pointing at a step draws a crosshair, a dot per series, and
+    // a tooltip box with "Step N" plus the tracked node's value.
+    const r = window.app.renderer;
+    r._chartHover = { id: chart.id, idx: 3 };
+    r._drawChartHover(chartEl);
+    const hov = chartEl.querySelector('.chart-hover');
+    const hoverHasCrosshair = hov.querySelectorAll('line').length === 1;
+    const hoverHasDot = hov.querySelectorAll('circle').length === 1;
+    const hoverText = [...hov.querySelectorAll('text')].map(t => t.textContent).join(' | ');
+    const hoverShowsStepAndValue = /Step \d/.test(hoverText) && /Bank:/.test(hoverText);
+    // Leaving clears the overlay.
+    chartEl.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+    const hoverCleared = hov.childElementCount === 0;
+
     // Serialization round-trip.
     const d2 = new Diagram();
     d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
     const chartsOk = d2.charts.size === 1 && [...d2.charts.values()][0].nodeIds[0] === p.id;
 
-    return { hasChartPanel, linesBefore, linesAfter, chartsOk };
+    return { hasChartPanel, linesBefore, linesAfter, chartsOk,
+             hoverHasCrosshair, hoverHasDot, hoverShowsStepAndValue, hoverCleared };
   });
   if (p2chart.hasChartPanel && p2chart.linesBefore === 0 && p2chart.linesAfter === 1 && p2chart.chartsOk)
     ok('P2 chart: on-canvas chart tracks a node, plots a line after a run, serializes');
   else fail('P2 chart: ' + JSON.stringify(p2chart));
+  if (p2chart.hoverHasCrosshair && p2chart.hoverHasDot && p2chart.hoverShowsStepAndValue && p2chart.hoverCleared)
+    ok('P2 chart: hover draws crosshair + per-series value readout, clears on leave');
+  else fail('P2 chart hover: ' + JSON.stringify(p2chart));
 
   // Hit-test order matches visual stacking: an annotation painted over a node
   // is selected (not the node hidden beneath it), and a bare node is still hit.
