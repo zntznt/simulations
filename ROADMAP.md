@@ -236,6 +236,16 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
       Carlo (explains why all percentiles match when there's no randomness).
 - [x] **Library-save confirmation toast**, and a **wider connection hit area**
       (24px) so re-selecting a curved connection isn't fiddly.
+- [x] **Interactive tour reaches past "draw a pipe."** A second persona pass (an
+      ideal user — a game-economy designer — drove the live app) found the tour
+      taught the *gesture* but not the *model*: it never showed a **rate**, and
+      dropped graduates onto a blank canvas. Added a **"set a rate"** step (it
+      spotlights the connection's Rate field and advances when you edit it) so the
+      loop is now *place → connect → set a rate → Run*, and replaced the passive
+      final card with click-through **hand-off cards** spotlighting the
+      **Library**, the **Mechanics rail** (params/vars/types), and
+      **Analysis → Batch (Monte Carlo)** — the depth that was previously
+      undiscoverable to a new user.
 
 ## ✅ Sensitivity analysis
 

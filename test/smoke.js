@@ -45,6 +45,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     t._startTour();
     const count = () => document.getElementById('tour-count').textContent;
     const text = () => document.getElementById('tour-text').textContent;
+    const nextShown = () => !document.getElementById('tour-next').classList.contains('hidden');
     const visible = !document.getElementById('tour').classList.contains('hidden');
     const spotOn = !document.getElementById('tour-spotlight').classList.contains('off');
     const s1 = { c: count(), src: /Source/.test(text()) };
@@ -56,29 +57,44 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const pool = d.addNode(new MNode(NodeType.POOL, 420, 200)); t._commit();
     const s3 = { c: count(), conn: /Resource/.test(text()) };
 
-    d.addConnection(new MConnection(src.id, pool.id)); t._commit();
-    const s4 = { c: count(), run: /Run/.test(text()) };
+    const conn = d.addConnection(new MConnection(src.id, pool.id)); t._commit();
+    const s4 = { c: count(), rate: /Rate/.test(text()) };
 
+    // Editing the connection's rate satisfies the new "set a rate" step.
+    conn.rate = 5; t._commit();
+    const s5 = { c: count(), run: /Run/.test(text()) };
+
+    // Running advances onto the click-through hand-off cards.
     t.engine.doStep();
+    const i1 = { c: count(), lib: /Library/.test(text()), next: nextShown() };
+    document.getElementById('tour-next').click();
+    const i2 = { c: count(), rail: /Parameters/.test(text()) && /Variables/.test(text()) };
+    document.getElementById('tour-next').click();
+    const i3 = { c: count(), batch: /Monte Carlo/.test(text()) };
+    document.getElementById('tour-next').click();
     const sFinal = {
       c: count(),
-      finish: !document.getElementById('tour-next').classList.contains('hidden'),
+      finish: nextShown(),
       skipHidden: document.getElementById('tour-skip').classList.contains('hidden'),
     };
 
     document.getElementById('tour-next').click();
     const ended = t._tour === null && document.getElementById('tour').classList.contains('hidden');
     const flag = localStorage.getItem('sim_seen_tour');
-    return { visible, spotOn, s1, s2, s3, s4, sFinal, ended, flag };
+    return { visible, spotOn, s1, s2, s3, s4, s5, i1, i2, i3, sFinal, ended, flag };
   });
   const tourOk = tour.visible && tour.spotOn
-    && tour.s1.c === 'Step 1 of 4' && tour.s1.src
-    && tour.s2.c === 'Step 2 of 4' && tour.s2.pool
-    && tour.s3.c === 'Step 3 of 4' && tour.s3.conn
-    && tour.s4.c === 'Step 4 of 4' && tour.s4.run
+    && tour.s1.c === 'Step 1 of 5' && tour.s1.src
+    && tour.s2.c === 'Step 2 of 5' && tour.s2.pool
+    && tour.s3.c === 'Step 3 of 5' && tour.s3.conn
+    && tour.s4.c === 'Step 4 of 5' && tour.s4.rate
+    && tour.s5.c === 'Step 5 of 5' && tour.s5.run
+    && tour.i1.c === 'Next steps' && tour.i1.lib && tour.i1.next
+    && tour.i2.c === 'Next steps' && tour.i2.rail
+    && tour.i3.c === 'Next steps' && tour.i3.batch
     && tour.sFinal.c === 'All set' && tour.sFinal.finish && tour.sFinal.skipHidden
     && tour.ended && tour.flag === '1';
-  if (tourOk) ok('tour: coach-marks advance on place→connect→Run, then finish; flag persists');
+  if (tourOk) ok('tour: place→connect→rate→Run, then Library/rail/Batch hand-off cards, then finish');
   else fail('tour: ' + JSON.stringify(tour));
 
   // Skipping the tour mid-way ends it immediately.
