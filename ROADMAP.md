@@ -223,12 +223,23 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
 - [x] **Library-save confirmation toast**, and a **wider connection hit area**
       (24px) so re-selecting a curved connection isn't fiddly.
 
+## ✅ Sensitivity analysis
+
+- [x] **Parameter sensitivity heatmap.** From the Monte Carlo modal, "Run
+      sensitivity" perturbs every diagram parameter by ±10% (configurable), one
+      at a time, on isolated clones, and reports the **elasticity** of each
+      tracked node's mean outcome to each parameter — the % change in the node
+      per 1% change in the parameter. Results are a diverging green/red heatmap
+      (same vs opposite direction, brighter = stronger) with the most-influential
+      parameter called out and a CSV export. All batches share one seed (common
+      random numbers) so cells reflect the parameter, not RNG noise; the live
+      diagram is never touched.
+
 ## 🔮 Council backlog — bigger ideas worth designing
 
-Ideas from a design review ("council of geniuses" pass); none are started.
+Ideas from a design review ("council of geniuses" pass). The sensitivity
+dashboard has since shipped (above); the rest are unstarted.
 
-- **Sensitivity dashboard.** Auto-perturb every parameter ±10% and heatmap which
-  parameters move which nodes the most — the design-space map, not one slice.
 - **Reusable subgraph components.** Define a module (e.g. a loot-drop pipeline)
   once, instantiate it many times with different parameters via a
   `ComponentRef` node.

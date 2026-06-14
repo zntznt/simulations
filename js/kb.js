@@ -344,6 +344,19 @@ const KB_ARTICLES = [
       + 'never disturbs your live diagram.',
   },
   {
+    id: 'sensitivity', category: 'Running and analysis', title: 'Sensitivity analysis',
+    keywords: 'sensitivity elasticity perturb parameter heatmap influence lever which matters tornado',
+    body: 'A sensitivity analysis tells you which parameters matter most. It nudges '
+      + 'every parameter up and down by a small percentage, one at a time, then '
+      + 'measures how far each node’s average outcome moves in response. The result '
+      + 'is a heatmap of elasticities — the percent change in a node per 1% change '
+      + 'in a parameter — so a value near 1 means the two move together in lockstep, '
+      + 'a larger value marks a powerful lever, and a value near zero means the '
+      + 'parameter barely matters. Green marks a node that rises with the parameter '
+      + 'and red one that falls; the brighter the cell, the stronger the link. Like '
+      + 'the batch runs it works on copies, so your live diagram is never touched.',
+  },
+  {
     id: 'scenarios', category: 'Running and analysis', title: 'Scenario branching',
     keywords: 'scenario branch checkpoint fork ghost what-if capture restore compare',
     body: 'Scenario branching lets you capture the state of a run as a checkpoint '

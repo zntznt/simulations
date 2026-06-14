@@ -629,6 +629,25 @@ input[type="range"] {
 #mc-seed { width: 90px; }
 .mc-actions { margin: 12px 0 4px; }
 
+/* ── Sensitivity heatmap ── */
+.sens-top { font-size: 12px; color: var(--text); margin: 0 0 8px; }
+.sens-top b { color: var(--accent); }
+.sens-legend {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--text-dim); margin: 2px 0 10px; flex-wrap: wrap;
+}
+.sens-legend .sens-grad {
+  width: 120px; height: 10px; border-radius: 2px; border: 1px solid var(--border);
+  background: linear-gradient(to right,
+    rgba(239,83,80,0.82), rgba(255,255,255,0.04), rgba(76,175,80,0.82));
+}
+#mc-results table.sens-table th { text-align: center; white-space: nowrap; }
+#mc-results table.sens-table td { text-align: center; }
+#mc-results table.sens-table th:first-child,
+#mc-results table.sens-table td:first-child { text-align: left; }
+.sens-cell { font-variant-numeric: tabular-nums; }
+.sens-na { color: var(--text-dim); }
+
 /* ── Help / shortcuts modal ── */
 #help-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.55);

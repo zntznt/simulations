@@ -364,6 +364,51 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('ultrabuff: seeded MC + raw export + parameter sweep + help overlay');
   else fail('ultrabuff: ' + JSON.stringify(ultra));
 
+  // Sensitivity analysis: perturb a parameter that drives a pool (rate = `lvl`),
+  // expect an elasticity heatmap with ~1.0 for the pool (output scales 1:1 with
+  // the rate parameter).
+  const sens = await page.evaluate(async () => {
+    const r = {};
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 400, 200));
+    const c = d.addConnection(new MConnection(s.id, p.id));
+    c.rateMode = RateMode.FORMULA; c.formula = 'lvl';   // pool gains `lvl` per step
+    d.params = { lvl: 10 };
+    window.app.renderer.render();
+
+    const waitFor = async (sel, ms = 3000) => {
+      const t0 = Date.now();
+      while (!document.querySelector(sel)) {
+        if (Date.now() - t0 > ms) return false;
+        await new Promise(res => setTimeout(res, 30));
+      }
+      return true;
+    };
+
+    document.getElementById('btn-batch').click();
+    r.sensEnabled = !document.getElementById('mc-sens-run').disabled;
+    document.getElementById('mc-runs').value = '2';
+    document.getElementById('mc-steps').value = '10';
+    document.getElementById('mc-sens-pct').value = '10';
+    document.getElementById('mc-sens-run').click();
+    r.tableShown = await waitFor('#mc-results table.sens-table');
+
+    const head = document.querySelector('#mc-results table.sens-table thead');
+    r.cols = head ? head.querySelectorAll('th').length : 0;   // Node + lvl = 2
+    const cell = document.querySelector('#mc-results table.sens-table tbody tr td:nth-child(2)');
+    r.elasticity = cell ? parseFloat(cell.textContent) : null;
+    r.exportBtn = !!document.getElementById('mc-export-sens');
+    r.topShown = (document.querySelector('#mc-results .sens-top')?.textContent || '').includes('lvl');
+    document.getElementById('mc-close').click();
+    return r;
+  });
+  if (sens.sensEnabled && sens.tableShown && sens.cols === 2 && sens.exportBtn && sens.topShown
+      && sens.elasticity != null && Math.abs(sens.elasticity - 1) < 0.01)
+    ok(`sensitivity: elasticity heatmap (pool→lvl elasticity ${sens.elasticity})`);
+  else fail('sensitivity: ' + JSON.stringify(sens));
+
   // Scenario branching: checkpoint mid-run, fork back (keeps the old run as a
   // ghost branch, auto-opens the timeline), legend gains a branch chip.
   const branching = await page.evaluate(async () => {
