@@ -265,12 +265,6 @@ class Editor {
 
     if (this.tool === 'select') {
       if (hit && hit.type === 'node') {
-        const node = this.diagram.nodes.get(hit.id);
-        // If interactive node during run
-        if (this.engine.running && node.activation === ActivationMode.INTERACTIVE) {
-          this.engine.fireInteractive(hit.id);
-          return;
-        }
         if (e.shiftKey) {
           // Toggle this node in/out of the selection (no drag).
           if (this.selection.has(hit.id)) this.selection.delete(hit.id);
@@ -544,6 +538,7 @@ class Editor {
     if (this._drag) {
       const moved = this._dragMoved;
       const srcId = this._dragSourceNodeId;
+      const dist = Math.hypot(e.clientX - this._drag.startX, e.clientY - this._drag.startY);
       this._drag = null;
       this._dragMoved = false;
       this._dragSourceNodeId = null;
@@ -557,6 +552,14 @@ class Editor {
             this.onHint('To connect nodes, press R (resource) or T (state) then click source → target');
           }
         }
+      }
+      // A click (negligible pointer travel) on an interactive node during a run
+      // fires it. Gating on travel — not just the moved flag, which flips on a
+      // single pixel — means a tiny jitter still counts as a click while a real
+      // drag-to-reposition does not fire a stray shot.
+      if (this.engine.running && srcId && dist < 5) {
+        const node = this.diagram.nodes.get(srcId);
+        if (node && node.activation === ActivationMode.INTERACTIVE) this.engine.fireInteractive(srcId);
       }
       return;
     }
@@ -634,13 +637,11 @@ class Editor {
     if (hit && hit.type === 'node') {
       const node = this.diagram.nodes.get(hit.id);
       if (!node) return;
-      // While running, double-click fires an interactive node (matches the
-      // single-click behaviour). Otherwise, edit the node's label in place.
-      if (this.engine.running && node.activation === ActivationMode.INTERACTIVE) {
-        this.engine.fireInteractive(hit.id);
-      } else {
-        this._editNodeLabel(node);
-      }
+      // During a run, each click already fires an interactive node (see _onUp),
+      // so a double-click is just two fires — don't pop the label editor in the
+      // middle of play. Rename a running node from the properties panel instead.
+      if (this.engine.running && node.activation === ActivationMode.INTERACTIVE) return;
+      this._editNodeLabel(node);
     } else if (hit && hit.type === 'conn') {
       // Double-click a connection to reset its shape to default.
       const conn = this.diagram.connections.get(hit.id);
