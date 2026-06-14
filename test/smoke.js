@@ -31,13 +31,13 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   const nodeCount = await page.evaluate(() => window.app.diagram.nodes.size);
   if (nodeCount > 0) ok(`default example loaded (${nodeCount} nodes)`); else fail('no nodes on boot');
 
-  // Each starter template (now in the Library) loads cleanly (bypass confirm()).
-  await page.evaluate(() => { window.confirm = () => true; });
+  // Each starter template (now in the Library) loads cleanly (bypass guard modal).
+  await page.evaluate(() => { window.app._confirmGuard = () => Promise.resolve(true); });
   const templateNames = await page.evaluate(() => window.app._templates.map(t => t.name));
   for (const name of templateNames) {
-    await page.evaluate((nm) => {
+    await page.evaluate(async (nm) => {
       const t = window.app._templates.find(x => x.name === nm);
-      window.app._loadTemplate(t);
+      await window.app._loadTemplate(t);
     }, name);
     const n = await page.evaluate(() => window.app.diagram.nodes.size);
     if (n > 0) ok(`template "${name}" loaded (${n} nodes)`); else fail(`template "${name}" empty`);

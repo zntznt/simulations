@@ -432,8 +432,8 @@ class App {
     }
   }
 
-  _loadTemplate(t) {
-    if (!confirm(`Load "${t.name}"? Unsaved work will be lost.`)) return;
+  async _loadTemplate(t) {
+    if (!await this._confirmGuard(`Load "${t.name}"? Any unsaved work on the current diagram will be lost.`, 'Load template')) return;
     this._clearAll();
     t.load();
     this.diagram.meta.name = t.name;
@@ -464,8 +464,8 @@ class App {
       const loadBtn = document.createElement('button');
       loadBtn.textContent = 'Load';
       loadBtn.className = 'btn';
-      loadBtn.addEventListener('click', () => {
-        if (!confirm(`Load "${entry.name}"? Unsaved work will be lost.`)) return;
+      loadBtn.addEventListener('click', async () => {
+        if (!await this._confirmGuard(`Load "${entry.name}"? Any unsaved work on the current diagram will be lost.`, 'Load from library')) return;
         this._clearAll();
         try {
           this.diagram.loadJSON(JSON.parse(entry.json));
@@ -653,6 +653,51 @@ class App {
       const first = focusables[0], last = focusables[focusables.length - 1];
       if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
       else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+    });
+  }
+
+  // Promise-based styled confirmation for destructive actions. Resolves true if
+  // the user clicks "Discard & continue", false on Cancel or Escape.
+  _confirmGuard(message, title = 'Are you sure?') {
+    return new Promise((resolve) => {
+      document.getElementById('guard-title-text').textContent = title;
+      document.getElementById('guard-message').textContent = message;
+
+      const overlay = document.getElementById('guard-overlay');
+      const confirmBtn = document.getElementById('guard-confirm');
+      const cancelBtn = document.getElementById('guard-cancel');
+
+      const cleanup = (result) => {
+        overlay.classList.add('hidden');
+        confirmBtn.removeEventListener('click', onConfirm);
+        cancelBtn.removeEventListener('click', onCancel);
+        overlay.removeEventListener('click', onBackdrop);
+        overlay.removeEventListener('keydown', onKey);
+        if (this._modalReturnFocus && this._modalReturnFocus.focus) this._modalReturnFocus.focus();
+        this._modalReturnFocus = null;
+        resolve(result);
+      };
+
+      const onConfirm = () => cleanup(true);
+      const onCancel = () => cleanup(false);
+      const onBackdrop = (e) => { if (e.target === overlay) cleanup(false); };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.stopPropagation(); cleanup(false); }
+        if (e.key !== 'Tab') return;
+        const focusables = [confirmBtn, cancelBtn];
+        const first = focusables[0], last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+        else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+      };
+
+      confirmBtn.addEventListener('click', onConfirm);
+      cancelBtn.addEventListener('click', onCancel);
+      overlay.addEventListener('click', onBackdrop);
+      overlay.addEventListener('keydown', onKey);
+
+      this._modalReturnFocus = document.activeElement;
+      overlay.classList.remove('hidden');
+      cancelBtn.focus();
     });
   }
 
@@ -1945,8 +1990,8 @@ class App {
       btn.addEventListener('click', () => this._activateTool(btn.dataset.tool));
     });
 
-    document.getElementById('btn-new').addEventListener('click', () => {
-      if (!confirm('Start a new diagram? Unsaved work will be lost.')) return;
+    document.getElementById('btn-new').addEventListener('click', async () => {
+      if (!await this._confirmGuard('Start a new diagram? Any unsaved work on the current diagram will be lost.', 'New diagram')) return;
       this._clearAll();
       this.renderer.render();
       this.renderer.resetView();

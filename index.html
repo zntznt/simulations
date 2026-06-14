@@ -426,6 +426,22 @@
   </div>
 </div>
 
+<!-- Guard / destructive-action confirmation modal -->
+<div id="guard-overlay" class="hidden">
+  <div id="guard-modal" role="alertdialog" aria-modal="true" aria-labelledby="guard-title" aria-describedby="guard-message">
+    <div class="mc-head">
+      <span id="guard-title"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> <span id="guard-title-text">Are you sure?</span></span>
+    </div>
+    <div class="guard-body">
+      <p id="guard-message"></p>
+    </div>
+    <div class="guard-actions">
+      <button class="btn btn-danger" id="guard-confirm">Discard &amp; continue</button>
+      <button class="btn" id="guard-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Welcome / getting-started modal (first run) -->
 <div id="welcome-overlay" class="hidden">
   <div id="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcome-title">

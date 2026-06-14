@@ -622,6 +622,28 @@ input[type="range"] {
 }
 .help-footer { padding: 0 18px 16px; }
 
+/* ── Guard / destructive-action confirmation modal ── */
+#guard-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center; z-index: 120;
+}
+#guard-overlay.hidden { display: none; }
+#guard-modal {
+  width: 400px; max-width: 92vw;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.55);
+}
+.guard-body { padding: 16px 20px 8px; }
+.guard-body p { font-size: 13px; line-height: 1.55; color: var(--text); margin: 0; }
+.guard-actions {
+  display: flex; gap: 10px; justify-content: flex-end;
+  padding: 12px 16px; border-top: 1px solid var(--border);
+}
+.btn-danger {
+  background: #c0392b; color: #fff; border-color: #c0392b;
+}
+.btn-danger:hover { background: #a93226; border-color: #a93226; }
+
 /* ── Welcome / getting-started modal ── */
 #welcome-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.6);
