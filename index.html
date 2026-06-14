@@ -324,6 +324,12 @@
       <button class="btn" id="tl-close" title="Hide timeline" aria-label="Hide timeline"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
     <canvas id="timeline-canvas"></canvas>
+    <div id="tl-scrub">
+      <button class="btn" id="tl-play" title="Replay the run" aria-label="Replay the run" disabled><i class="fa-solid fa-play" aria-hidden="true"></i></button>
+      <input type="range" id="tl-range" min="0" max="0" value="0" step="1" aria-label="Scrub through run history" disabled>
+      <span id="tl-scrub-label" class="tb-chip">—</span>
+      <button class="btn" id="tl-live" title="Return to the live state" disabled>Live</button>
+    </div>
   </div>
 </div>
 

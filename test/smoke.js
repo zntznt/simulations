@@ -1042,6 +1042,44 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('flow readout: step flashes a flow badge on the connection; toggle suppresses it');
   else fail('flow readout: ' + JSON.stringify(flow));
 
+  // History scrubbing: after a run, the slider previews past node values on the
+  // canvas non-destructively, and "Live" restores the latest state.
+  const scrub = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 150, 150));
+    const p = d.addNode(new MNode(NodeType.POOL, 380, 150)); p.label = 'Bank';
+    const c = d.addConnection(new MConnection(s.id, p.id)); c.rate = 2;
+    window.app.renderer.render();
+    window.app.engine.reset();
+    for (let i = 0; i < 5; i++) window.app.engine.doStep();
+    const liveVal = p.resources; // 10
+
+    window.app._refreshScrubber();
+    const range = document.getElementById('tl-range');
+    const enabled = !range.disabled;
+
+    // Preview an early step.
+    window.app._scrubTo(1);
+    const countOf = () => window.app.renderer._nodeEls.get(p.id).querySelector('.n-count').textContent;
+    const shownAtScrub = String(countOf());
+    const histVal1 = String(window.app.engine.history[1].snap[p.id]);
+    const scrubbingClass = document.getElementById('canvas').classList.contains('scrubbing');
+    const liveUntouched = p.resources === liveVal; // engine state not mutated
+
+    // Exit scrub → live value returns and the cue clears.
+    window.app._exitScrub();
+    const shownLive = String(countOf());
+    const exited = window.app._scrubIndex === null
+      && !document.getElementById('canvas').classList.contains('scrubbing');
+
+    return { liveVal, enabled, shownAtScrub, histVal1, scrubbingClass, liveUntouched, shownLive, exited };
+  });
+  if (scrub.enabled && scrub.shownAtScrub === scrub.histVal1 && scrub.shownAtScrub !== String(scrub.liveVal)
+      && scrub.scrubbingClass && scrub.liveUntouched && scrub.exited && scrub.shownLive === String(scrub.liveVal))
+    ok('scrub: slider previews past node values non-destructively; Live restores the latest state');
+  else fail('scrub: ' + JSON.stringify(scrub));
+
   // Hit-test order matches visual stacking: an annotation painted over a node
   // is selected (not the node hidden beneath it), and a bare node is still hit.
   const hitOrder = await page.evaluate(() => {

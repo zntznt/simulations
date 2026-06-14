@@ -44,6 +44,11 @@ class App {
     this.timeline = new TimelineChart(document.getElementById('timeline-canvas'), document.getElementById('tl-legend'), this.diagram, this.engine);
     this._timelineVisible = false;
 
+    // History scrubbing: when active, _scrubIndex points at an engine.history
+    // entry being previewed (non-destructively) on the canvas and chart.
+    this._scrubIndex = null;
+    this._scrubPlayTimer = null;
+
     this._activeFeature = null; // which diagram-rail feature occupies the props panel
     this._flowReadout = true;   // transient "+N" flow badges on connections during a run
 
@@ -109,6 +114,7 @@ class App {
         document.createTextNode(` ${ended.label} reached ${ended.value} at step ${ended.step}`));
       this._syncRunButton();
       this.renderer.render();
+      this._refreshScrubber();
     };
 
     this._initDiagram();
@@ -257,6 +263,89 @@ class App {
     const r = document.getElementById('btn-redo');
     if (u) u.disabled = !this._undoStack.length;
     if (r) r.disabled = !this._redoStack.length;
+  }
+
+  // ── History scrubbing ───────────────────────────────────────────────────────
+  // Replay a finished run: drag the slider (or hit play) to preview any past
+  // step on the canvas and chart without disturbing the engine's live state.
+
+  // Sync the scrubber's range/labels/enabled-state to the current history.
+  _refreshScrubber() {
+    const range = document.getElementById('tl-range');
+    const play = document.getElementById('tl-play');
+    const live = document.getElementById('tl-live');
+    const label = document.getElementById('tl-scrub-label');
+    if (!range) return;
+    const hist = this.engine.history;
+    const usable = hist.length >= 2 && !this.engine.running;
+    range.disabled = play.disabled = !usable;
+    live.disabled = this._scrubIndex == null;
+    range.max = String(Math.max(0, hist.length - 1));
+    if (this._scrubIndex != null) {
+      range.value = String(this._scrubIndex);
+      label.textContent = `Step ${hist[this._scrubIndex]?.step ?? 0}`;
+    } else {
+      range.value = range.max;
+      label.textContent = usable ? 'Live' : '—';
+    }
+  }
+
+  // Preview history entry i on the canvas, chart, and properties panel.
+  _scrubTo(i) {
+    const hist = this.engine.history;
+    if (hist.length < 2) return;
+    i = Math.max(0, Math.min(hist.length - 1, i));
+    this._scrubIndex = i;
+    const entry = hist[i];
+    this.renderer.setScrub(entry.snap);
+    if (this._timelineVisible) this.timeline.setScrub(entry.step);
+    document.getElementById('step-counter').textContent = `Step: ${entry.step} (replay)`;
+    this._refreshScrubber();
+  }
+
+  // Leave scrub mode and restore the live (latest) state.
+  _exitScrub() {
+    if (this._scrubPlayTimer) { clearInterval(this._scrubPlayTimer); this._scrubPlayTimer = null; }
+    const wasScrubbing = this._scrubIndex != null;
+    this._scrubIndex = null;
+    this.renderer.setScrub(null);
+    this.timeline.setScrub(null);
+    this._syncScrubPlayButton();
+    if (wasScrubbing) {
+      document.getElementById('step-counter').textContent = `Step: ${this.engine.step}`;
+      this.renderer.render();
+      if (this._activeFeature === 'monitor') this._renderProps();
+    }
+    this._refreshScrubber();
+  }
+
+  _syncScrubPlayButton() {
+    const play = document.getElementById('tl-play');
+    if (!play) return;
+    const on = !!this._scrubPlayTimer;
+    play.replaceChildren(this._faIcon(on ? 'pause' : 'play'));
+    play.title = on ? 'Pause replay' : 'Replay the run';
+  }
+
+  // Auto-advance through history at the current sim speed; stops at the end.
+  _toggleScrubPlay() {
+    if (this._scrubPlayTimer) {
+      clearInterval(this._scrubPlayTimer); this._scrubPlayTimer = null;
+      this._syncScrubPlayButton();
+      return;
+    }
+    const hist = this.engine.history;
+    if (hist.length < 2) return;
+    // Restart from the beginning if we're at (or past) the end.
+    if (this._scrubIndex == null || this._scrubIndex >= hist.length - 1) this._scrubTo(0);
+    const interval = Math.max(60, 700 / this.engine.speed);
+    this._scrubPlayTimer = setInterval(() => {
+      const h = this.engine.history;
+      const next = (this._scrubIndex ?? 0) + 1;
+      if (next >= h.length) { clearInterval(this._scrubPlayTimer); this._scrubPlayTimer = null; this._syncScrubPlayButton(); return; }
+      this._scrubTo(next);
+    }, interval);
+    this._syncScrubPlayButton();
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -2007,16 +2096,22 @@ class App {
   // ── Controls ──────────────────────────────────────────────────────────────
 
   _bindControls() {
-    document.getElementById('btn-step').addEventListener('click', () => this.engine.doStep());
+    document.getElementById('btn-step').addEventListener('click', () => {
+      this._exitScrub();
+      this.engine.doStep();
+    });
 
     const runBtn = document.getElementById('btn-run');
     runBtn.addEventListener('click', () => {
+      this._exitScrub();
       if (!this.engine.running) document.getElementById('sim-status').textContent = '';
       this.engine.run();
       this._syncRunButton();
+      this._refreshScrubber();
     });
 
     document.getElementById('btn-reset').addEventListener('click', () => {
+      this._exitScrub();
       this.engine.reset();
       this._syncRunButton();
       document.getElementById('sim-status').textContent = '';
@@ -2025,7 +2120,16 @@ class App {
       this._clearSparklines();
       this.renderer.render();
       if (this._timelineVisible) this.timeline.update();
+      this._refreshScrubber();
     });
+
+    // History scrubber controls.
+    document.getElementById('tl-range').addEventListener('input', (e) => {
+      if (this._scrubPlayTimer) { clearInterval(this._scrubPlayTimer); this._scrubPlayTimer = null; this._syncScrubPlayButton(); }
+      this._scrubTo(parseInt(e.target.value, 10) || 0);
+    });
+    document.getElementById('tl-play').addEventListener('click', () => this._toggleScrubPlay());
+    document.getElementById('tl-live').addEventListener('click', () => this._exitScrub());
 
     const speedEl = document.getElementById('sim-speed');
     speedEl.addEventListener('input', () => {
@@ -2130,7 +2234,8 @@ class App {
       tlBtn.setAttribute('aria-checked', String(show));
       // Surface the timeline state on the (collapsed) Analysis menu button too.
       document.getElementById('btn-analysis-menu')?.classList.toggle('active', show);
-      if (show) this.timeline.update();
+      if (show) { this.timeline.update(); this._refreshScrubber(); }
+      else this._exitScrub();
     };
     tlBtn.addEventListener('click', () => toggleTimeline(!this._timelineVisible));
     document.getElementById('tl-close').addEventListener('click', () => toggleTimeline(false));

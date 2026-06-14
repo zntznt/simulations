@@ -370,6 +370,7 @@ class Renderer {
     this._noteEls = new Map();
     this._chartEls = new Map();
     this._chartHover = null;  // { id, idx } — on-canvas chart hover readout
+    this._scrubSnap = null;   // { nodeId: value } — history preview during scrubbing
     this._panX = 0;
     this._panY = 0;
     this._scale = 1;
@@ -559,6 +560,14 @@ class Renderer {
     this._firing = new Set(ids);
     this.render();
     setTimeout(() => { this._firing.clear(); this.render(); }, 250);
+  }
+
+  // Preview a recorded history snapshot ({ nodeId: value }) on the nodes, or
+  // pass null to return to live values. Used by the timeline scrubber.
+  setScrub(snap) {
+    this._scrubSnap = snap || null;
+    this.svg.classList.toggle('scrubbing', !!this._scrubSnap);
+    this.render();
   }
 
   render() {
@@ -1299,7 +1308,16 @@ class Renderer {
       }
     }
 
-    el.querySelector('.n-count').textContent = node.displayCount;
+    // During history scrubbing, show the recorded value for this step instead
+    // of the live count (falls back to the live count for nodes not recorded,
+    // e.g. unlimited sources).
+    const countEl = el.querySelector('.n-count');
+    if (this._scrubSnap && node.id in this._scrubSnap) {
+      const v = this._scrubSnap[node.id];
+      countEl.textContent = Number.isInteger(v) ? v : +Number(v).toFixed(2);
+    } else {
+      countEl.textContent = node.displayCount;
+    }
 
     const lbl = el.querySelector('.n-label');
     lbl.textContent = node.label;
