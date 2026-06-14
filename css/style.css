@@ -117,7 +117,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 [data-tool] {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
-  width: 56px; padding: 6px 4px; border: 1px solid transparent;
+  width: 56px; padding: 7px 4px; border: 1px solid transparent;
   border-radius: 6px; background: none; color: var(--text); cursor: pointer;
   font-size: 10px; transition: all 0.15s;
 }
@@ -792,7 +792,7 @@ input[type="range"] {
 
 /* ── Guard / destructive-action confirmation modal ── */
 #guard-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  position: fixed; inset: 0; background: rgba(0,0,0,0.55);
   display: flex; align-items: center; justify-content: center; z-index: 120;
 }
 #guard-overlay.hidden { display: none; }
@@ -813,7 +813,7 @@ input[type="range"] {
 
 /* ── Welcome / getting-started modal ── */
 #welcome-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  position: fixed; inset: 0; background: rgba(0,0,0,0.55);
   display: flex; align-items: center; justify-content: center; z-index: 110;
 }
 #welcome-overlay.hidden { display: none; }

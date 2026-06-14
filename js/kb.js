@@ -396,7 +396,7 @@ const KB_ARTICLES = [
     body: 'A component is a named building block you save from any selection of '
       + 'nodes and connections, then stamp onto the canvas as many times as you '
       + 'like. Select the nodes you want to reuse, open the Library, give the '
-      + 'component a name and click Save selection. Each time you click Insert, '
+      + 'component a name and click Save component. Each time you click Insert, '
       + 'the app places a fresh independent copy — new node IDs, ready to edit — '
       + 'so modifying a placed copy never touches the saved original or any other '
       + 'instance. Components are a fast way to build repeated patterns such as a '
