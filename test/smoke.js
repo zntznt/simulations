@@ -449,6 +449,31 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('editor: double-click node opens inline label editor, Enter commits the rename');
   else fail('editor inline label: ' + JSON.stringify(inlineLabel));
 
+  // A mistaken New / Load template is undoable: the pre-replace diagram comes
+  // back on Ctrl+Z, and redo re-applies the replacement.
+  const replaceUndo = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    d.addNode(new MNode(NodeType.POOL, 200, 200));
+    d.addNode(new MNode(NodeType.SOURCE, 400, 200));
+    const before = d.nodes.size; // 2
+
+    // Simulate the New action's body (guard bypassed).
+    const prev = window.app._snapshot();
+    window.app._clearAll();
+    window.app._commitReplace(prev);
+    const afterNew = window.app.diagram.nodes.size; // 0
+
+    window.app.undo();
+    const afterUndo = window.app.diagram.nodes.size; // back to 2
+    window.app.redo();
+    const afterRedo = window.app.diagram.nodes.size; // 0 again
+    return { before, afterNew, afterUndo, afterRedo };
+  });
+  if (replaceUndo.before === 2 && replaceUndo.afterNew === 0 && replaceUndo.afterUndo === 2 && replaceUndo.afterRedo === 0)
+    ok('editor: New / Load is undoable (Ctrl+Z restores the previous diagram)');
+  else fail('replace undo: ' + JSON.stringify(replaceUndo));
+
   // Editor 3b: marquee multi-select + copy/paste + group delete.
   const ms = await page.evaluate(() => {
     window.app._clearAll(); window.app._resetHistory();

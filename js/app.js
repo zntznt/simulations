@@ -165,12 +165,29 @@ class App {
     b.classList.toggle('running', on);
   }
 
-  // Begin a fresh history baseline (after load / new / example).
+  // Begin a fresh history baseline (after the initial boot / shared-link load).
   _resetHistory() {
     this._undoStack = [];
     this._redoStack = [];
     this._lastState = this._snapshot();
     this._updateUndoButtons();
+  }
+
+  // Make a wholesale diagram replacement (New / Load template / Load library)
+  // undoable: the pre-replace diagram (captured before the swap) goes on the
+  // undo stack and the freshly loaded one becomes the new baseline. Unlike
+  // _resetHistory(), this preserves the ability to Ctrl+Z back to what you had.
+  _commitReplace(prevSnap) {
+    const snap = this._snapshot();
+    if (snap === prevSnap) { this._lastState = snap; this._updateUndoButtons(); return; }
+    if (prevSnap != null) {
+      this._undoStack.push(prevSnap);
+      if (this._undoStack.length > 100) this._undoStack.shift();
+    }
+    this._redoStack = [];
+    this._lastState = snap;
+    this._updateUndoButtons();
+    try { localStorage.setItem('sim_autosave', this._lastState); } catch {}
   }
 
   // Record that the diagram changed (push the previous state onto the stack).
@@ -464,13 +481,14 @@ class App {
   }
 
   async _loadTemplate(t) {
-    if (!await this._confirmGuard(`Load "${t.name}"? Any unsaved work on the current diagram will be lost.`, 'Load template')) return;
+    if (!await this._confirmGuard(`Load "${t.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`, 'Load template')) return;
+    const prev = this._snapshot();
     this._clearAll();
     t.load();
     this.diagram.meta.name = t.name;
     this.diagram.meta.description = t.desc;
     this._applyMeta();
-    this._resetHistory();
+    this._commitReplace(prev);
     this.renderer.fitView();
     this._hideModal('lib-overlay');
   }
@@ -496,7 +514,8 @@ class App {
       loadBtn.textContent = 'Load';
       loadBtn.className = 'btn';
       loadBtn.addEventListener('click', async () => {
-        if (!await this._confirmGuard(`Load "${entry.name}"? Any unsaved work on the current diagram will be lost.`, 'Load from library')) return;
+        if (!await this._confirmGuard(`Load "${entry.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`, 'Load from library')) return;
+        const prev = this._snapshot();
         this._clearAll();
         try {
           this.diagram.loadJSON(JSON.parse(entry.json));
@@ -509,7 +528,7 @@ class App {
           this.renderer.render();
           this.renderer.fitView();
         } catch (err) { alert('Failed to load: ' + err.message); }
-        this._resetHistory();
+        this._commitReplace(prev);
         this._hideModal('lib-overlay');
       });
       const delBtn = document.createElement('button');
@@ -2024,11 +2043,12 @@ class App {
     });
 
     document.getElementById('btn-new').addEventListener('click', async () => {
-      if (!await this._confirmGuard('Start a new diagram? Any unsaved work on the current diagram will be lost.', 'New diagram')) return;
+      if (!await this._confirmGuard('Start a new diagram? Your current diagram will be replaced (Ctrl+Z to undo).', 'New diagram')) return;
+      const prev = this._snapshot();
       this._clearAll();
       this.renderer.render();
       this.renderer.resetView();
-      this._resetHistory();
+      this._commitReplace(prev);
     });
 
     document.getElementById('btn-snap').addEventListener('click', () => {
