@@ -717,8 +717,15 @@ class SimEngine {
     return conversions > 0;
   }
 
-  // Per-output gate weight (>= 0). Non-numeric falls back to 1.
+  // Per-output gate weight (>= 0). A formula over diagram variables takes
+  // precedence and lets the split shift with simulation state; otherwise the
+  // static number. An invalid/negative formula result routes nothing there (0);
+  // a missing/invalid static weight falls back to 1.
   _connWeight(conn) {
+    if (conn.weightFormula) {
+      const w = evalFormula(conn.weightFormula, this.diagram.variables);
+      return isFinite(w) && w >= 0 ? w : 0;
+    }
     const w = Number(conn.weight);
     return isFinite(w) && w >= 0 ? w : 1;
   }

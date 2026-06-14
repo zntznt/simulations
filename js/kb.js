@@ -59,8 +59,11 @@ const KB_ARTICLES = [
       + 'probabilistic mode the gate instead sends each whole unit to a single '
       + 'output chosen at random, higher weights more likely to win and a weight of '
       + 'zero never chosen; over many units the shares converge on the same '
-      + 'percentages. The weights are fixed numbers, not formulas or parameters, so '
-      + 'the split itself cannot be swept or computed live.',
+      + 'percentages. A weight can be a fixed number or a formula over diagram '
+      + 'variables, just like a connection rate. A formula weight is re-evaluated '
+      + 'each step, so the split can shift as the run unfolds — route more flow down '
+      + 'the hard branch as difficulty climbs, for example. Switch a gate output '
+      + 'between a fixed weight and a formula in its properties panel.',
   },
   {
     id: 'node-converter', category: 'Nodes', title: 'Converter',

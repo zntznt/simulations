@@ -487,6 +487,10 @@ class MConnection {
     // Gate output weight (resource connection out of a Gate): relative share
     // for deterministic splits / weighted chance for probabilistic routing.
     this.weight = 1;
+    // Optional: weight as a live formula over diagram variables (overrides
+    // `weight` when non-empty), e.g. 'difficulty * 10'. Lets a gate's split
+    // shift dynamically with simulation state, mirroring formula rates.
+    this.weightFormula = '';
 
     // Modifier (state connection): adjust the target node's resources without
     // a resource flow. Four modes:
@@ -547,6 +551,7 @@ class MConnection {
       actOperator: this.actOperator, actValue: this.actValue,
       actValue2: this.actValue2 || undefined,
       weight: this.weight,
+      weightFormula: this.weightFormula || undefined,
       modifier: this.modifier || undefined,
       modMode: this.modMode !== 'rate' ? this.modMode : undefined,
       modFactor: this.modFactor,

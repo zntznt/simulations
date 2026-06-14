@@ -1147,8 +1147,12 @@ class Renderer {
       if (conn.colorFilter) txt += (txt ? ' ' : '') + '●';
       if (src && src.type === NodeType.GATE) {
         const gmode = src.gateMode === 'random' ? 'probabilistic' : src.gateMode;
+        // Mirror engine._connWeight so formula weights make the labels live.
+        const getW = c => {
+          if (c.weightFormula) { const w = evalFormula(c.weightFormula, this.diagram.variables); return isFinite(w) && w >= 0 ? w : 0; }
+          const w = Number(c.weight); return isFinite(w) && w >= 0 ? w : 1;
+        };
         if (gmode === 'probabilistic') {
-          const getW = c => { const w = Number(c.weight); return isFinite(w) && w >= 0 ? w : 1; };
           const allOuts = [...this.diagram.connections.values()]
             .filter(c => c.sourceId === src.id && c.type === ConnectionType.RESOURCE);
           const totalW = allOuts.reduce((s, c) => s + getW(c), 0);
@@ -1156,6 +1160,8 @@ class Renderer {
             const pct = Math.round(getW(conn) / totalW * 100);
             txt = (txt ? txt + ' ' : '') + `${pct}%`;
           }
+        } else if (conn.weightFormula) {
+          txt += (txt ? ' ' : '') + `⚖${conn.weightFormula}`;
         } else if (Number(conn.weight) !== 1) {
           txt += (txt ? ' ' : '') + `⚖${conn.weight}`;
         }

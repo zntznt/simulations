@@ -453,6 +453,46 @@ test('legacy "random" gate mode still works (alias of probabilistic)', () => {
   });
 });
 
+test('formula gate weight drives the deterministic split from a variable', () => {
+  const { d, e } = setup();
+  d.params = { hard: 3 };
+  const g = node(d, NodeType.GATE); g.setCount(8); g.gateMode = 'deterministic';
+  const easy = node(d, NodeType.POOL);
+  const hard = node(d, NodeType.POOL);
+  conn(d, g, easy).weight = 1;             // fixed share
+  conn(d, g, hard).weightFormula = 'hard'; // formula share (evaluates to 3)
+  steps(e, 1);
+  eq(easy.resources, 2, 'fixed weight 1 → 1/4 of 8');
+  eq(hard.resources, 6, 'formula weight 3 → 3/4 of 8');
+  eq(g.resources, 0, 'gate emptied');
+});
+
+test('a formula gate weight of 0 routes nothing (probabilistic)', () => {
+  withRandom(0.5, () => {
+    const { d, e } = setup();
+    d.params = { off: 0 };
+    const g = node(d, NodeType.GATE); g.setCount(10); g.gateMode = 'probabilistic';
+    const p1 = node(d, NodeType.POOL);
+    const p2 = node(d, NodeType.POOL);
+    conn(d, g, p1).weight = 1;
+    conn(d, g, p2).weightFormula = 'off'; // 0 → never chosen
+    steps(e, 1);
+    eq(p1.resources, 10, 'all units to the live output');
+    eq(p2.resources, 0, 'formula-zero output gets nothing');
+  });
+});
+
+test('weightFormula round-trips through JSON', () => {
+  const { d } = setup();
+  const g = node(d, NodeType.GATE);
+  const p = node(d, NodeType.POOL);
+  conn(d, g, p).weightFormula = 'gold * 0.1';
+  const json = JSON.parse(JSON.stringify(d.toJSON()));
+  const d2 = new Diagram(); d2.loadJSON(json);
+  const c2 = [...d2.connections.values()][0];
+  eq(c2.weightFormula, 'gold * 0.1', 'weightFormula preserved');
+});
+
 // ── NEW: end conditions ─────────────────────────────────────────────────────
 console.log('\nEnd conditions');
 

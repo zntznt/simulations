@@ -795,6 +795,42 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P2 engine UI: gate all-mode, reverse trigger, distribution rate');
   else fail('P2 engine UI: ' + JSON.stringify(p2eng));
 
+  // P1: a gate output's Weight offers a Fixed/Formula switch; a formula is
+  // stored on the connection and survives a JSON round-trip.
+  const gw = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const g = d.addNode(new MNode(NodeType.GATE, 100, 100));
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 100));
+    const c = d.addConnection(new MConnection(g.id, p.id));
+    window.app.renderer.render();
+    window.app._onSelect(c.id, 'conn');
+
+    const weightRow = [...document.querySelectorAll('#props-content .prop-row')]
+      .find(r => r.querySelector('label') && r.querySelector('label').textContent.trim() === 'Weight');
+    const hasFormulaOpt = !!weightRow && [...weightRow.querySelectorAll('select option')]
+      .some(o => o.value === 'formula');
+    if (weightRow) {
+      const sel = weightRow.querySelector('select');
+      sel.value = 'formula';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const fInput = [...document.querySelectorAll('#props-content .prop-row input[type=text]')]
+      .find(i => i.placeholder && i.placeholder.includes('difficulty'));
+    if (fInput) {
+      fInput.value = 'gold * 2';
+      fInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    const d2 = new Diagram();
+    d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+    const c2 = [...d2.connections.values()][0];
+    return { hasFormulaOpt, stored: c.weightFormula, restored: c2.weightFormula };
+  });
+  if (gw.hasFormulaOpt && gw.stored === 'gold * 2' && gw.restored === 'gold * 2')
+    ok('P1 gate UI: weight accepts a formula and round-trips');
+  else fail('P1 gate UI: ' + JSON.stringify(gw));
+
   // Accessibility: dialog semantics + focus trap + Escape on modals, label
   // association in the props panel, aria-pressed toggles, status live region,
   // and arrow-key nudging of a selected node.

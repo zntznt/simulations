@@ -100,6 +100,13 @@ Additional per‑connection controls:
 - **Condition** — compare the **source value** *or* a **named variable** against a
   threshold with `> >= < <= == !=`; skip the connection when false.
 
+A resource connection **out of a gate** carries a **weight** (its share of the
+split) instead of a rate. A weight can be a fixed number *or* a **formula** over
+the shared variables — re‑evaluated each step, just like a formula rate — so the
+split itself can shift as the run unfolds (e.g. send more flow down the hard
+branch as `difficulty` climbs). An invalid or negative formula weight routes
+nothing down that output.
+
 Rates are rounded to integers; the engine works in whole resources.
 
 ---
