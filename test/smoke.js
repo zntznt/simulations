@@ -1709,14 +1709,21 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     await wp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
     await wp.goto(URL, { waitUntil: 'networkidle' });
     const shown = await wp.evaluate(() => !document.getElementById('welcome-overlay').classList.contains('hidden'));
+    // The building-blocks glossary should cover every palette node type, not a
+    // subset (an undercount was a credibility ding in the usability pass).
+    const glossaryComplete = await wp.evaluate(() => {
+      const dts = [...document.querySelectorAll('#welcome-modal dl dt')].map(d => d.textContent.trim());
+      const need = ['Pool', 'Source', 'Drain', 'Gate', 'Converter', 'Register', 'Delay', 'Queue', 'Trader'];
+      return need.every(n => dts.includes(n));
+    });
     await wp.click('#welcome-explore');
     const hidden = await wp.evaluate(() => document.getElementById('welcome-overlay').classList.contains('hidden'));
     const flag = await wp.evaluate(() => localStorage.getItem('sim_seen_welcome'));
     await ctx.close();
-    return { shown, hidden, flag };
+    return { shown, glossaryComplete, hidden, flag };
   })();
-  if (welcome.shown && welcome.hidden && welcome.flag === '1')
-    ok('UX: first-run welcome overlay shows, dismisses, and persists the seen flag');
+  if (welcome.shown && welcome.glossaryComplete && welcome.hidden && welcome.flag === '1')
+    ok('UX: first-run welcome overlay shows (full node glossary), dismisses, and persists the seen flag');
   else fail('UX welcome: ' + JSON.stringify(welcome));
 
   if (errors.length) {
