@@ -38,14 +38,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 
 .logo {
-  display: flex; align-items: center; gap: 10px;
-  margin-right: 8px; user-select: none; flex-shrink: 0;
+  display: flex; align-items: center;
+  margin-right: 4px; user-select: none; flex-shrink: 0;
+  color: var(--accent);   /* drives the mark via currentColor; follows the scheme */
 }
-.logo-mark { display: block; flex-shrink: 0; }
-.logo-name {
-  font-size: 15px; font-weight: 700; letter-spacing: 0.3px;
-  color: var(--text); white-space: nowrap;
-}
+.logo-mark { display: block; }
 
 .sim-controls { display: flex; align-items: center; gap: 10px; }
 .file-controls { display: flex; gap: 6px; margin-left: auto; align-items: center; }
