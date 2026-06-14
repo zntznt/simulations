@@ -439,6 +439,27 @@ select.wide-input option { background: var(--panel2); }
 .menu-item-toggle.active::before { visibility: visible; }
 .menu-item-toggle.active { color: var(--accent); }
 
+/* ── Right-click context menu ── */
+.ctx-menu {
+  position: fixed; z-index: 200; min-width: 184px;
+  padding: 5px; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 7px; box-shadow: 0 10px 32px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.ctx-menu.hidden { display: none; }
+.ctx-menu .menu-item { display: flex; align-items: center; gap: 9px; }
+.ctx-menu .menu-item > i { width: 14px; text-align: center; color: var(--text-dim); }
+.ctx-menu .menu-item:hover > i { color: var(--accent); }
+.ctx-menu .menu-item .ctx-shortcut {
+  margin-left: auto; padding-left: 20px; font-size: 11px; color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ctx-menu .menu-item.ctx-danger:hover { background: rgba(239,83,80,0.15); color: #ff6b6b; }
+.ctx-menu .menu-item.ctx-danger:hover > i { color: #ff6b6b; }
+.ctx-menu .menu-item[disabled] { opacity: 0.4; cursor: default; }
+.ctx-menu .menu-item[disabled]:hover { background: none; color: var(--text); }
+.ctx-menu .menu-item[disabled]:hover > i { color: var(--text-dim); }
+
 /* ── Node SVG styles ── */
 .node { user-select: none; }
 /* ── Connection SVG styles ── */

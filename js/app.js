@@ -36,6 +36,7 @@ class App {
     // its own tool (e.g. auto-revert to Select after placing a node).
     this.editor.onToolChange = (tool) => this._syncToolButtons(tool);
     this.editor.onHint = (msg) => this._toast(msg);
+    this.editor.onContextMenu = (ctx, x, y) => this._showContextMenu(ctx, x, y);
 
     this._selectedId = null;
     this._selectedType = null;
@@ -714,6 +715,14 @@ class App {
       this._toast(`Saved “${name}” to your Library`);
     });
     document.getElementById('comp-save').addEventListener('click', () => this._saveComponent());
+    // Enter in either name field commits its save, so the right-click
+    // "Save as component…" flow is type-name-then-Enter.
+    document.getElementById('comp-name').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); this._saveComponent(); }
+    });
+    document.getElementById('lib-name').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('lib-save').click(); }
+    });
   }
 
   _getLibrary() {
@@ -3167,6 +3176,121 @@ class App {
   }
 
   _duplicate() { this._copy(); this._paste(); }
+
+  _selectAll() {
+    const ids = [...this.diagram.nodes.keys()];
+    if (!ids.length) { this._toast('Nothing to select yet — place a node first.'); return; }
+    this.editor._setSelection(ids, ids.length === 1 ? ids[0] : null, 'node');
+  }
+
+  // ── Context menu (right-click) ──────────────────────────────────────────────
+  // Built on demand from a target descriptor the editor hands over. Replaces the
+  // old right-click-to-delete gesture with a discoverable menu, and surfaces the
+  // otherwise keyboard-only actions (copy, paste, duplicate, save-as-component).
+
+  _showContextMenu(ctx, x, y) {
+    this._hideContextMenu(); // clear any prior instance (and its listeners)
+    const menu = document.getElementById('ctx-menu');
+    menu.innerHTML = '';
+
+    const add = (label, icon, handler, opts = {}) => {
+      const b = document.createElement('button');
+      b.className = 'menu-item' + (opts.danger ? ' ctx-danger' : '');
+      b.setAttribute('role', 'menuitem');
+      b.append(this._faIcon(icon), document.createTextNode(' ' + label));
+      if (opts.shortcut) {
+        const s = document.createElement('span');
+        s.className = 'ctx-shortcut';
+        s.textContent = opts.shortcut;
+        b.appendChild(s);
+      }
+      if (opts.disabled) b.disabled = true;
+      else b.addEventListener('click', () => { this._hideContextMenu(); handler(); });
+      menu.appendChild(b);
+    };
+    const sep = () => { const d = document.createElement('div'); d.className = 'menu-sep'; menu.appendChild(d); };
+    const hasClip = !!(this._clipboard && this._clipboard.nodes && this._clipboard.nodes.length);
+
+    if (ctx.kind === 'node') {
+      const n = ctx.count || 1;
+      const noun = n > 1 ? `${n} nodes` : 'node';
+      add('Duplicate', 'clone', () => this._duplicate(), { shortcut: 'Ctrl+D' });
+      add('Copy', 'copy', () => this._copy(), { shortcut: 'Ctrl+C' });
+      add('Save as component…', 'shapes', () => this._saveComponentPrompt());
+      sep();
+      add(`Delete ${noun}`, 'trash-can', () => this._contextDelete(ctx), { shortcut: 'Del', danger: true });
+    } else if (ctx.kind === 'element') {
+      const nouns = { conn: 'connection', group: 'group', note: 'note', chart: 'chart' };
+      add(`Delete ${nouns[ctx.type] || 'item'}`, 'trash-can', () => this._contextDelete(ctx), { shortcut: 'Del', danger: true });
+    } else {
+      add('Paste', 'paste', () => this._paste(), { shortcut: 'Ctrl+V', disabled: !hasClip });
+      add('Select all', 'object-group', () => this._selectAll());
+      sep();
+      add('Fit to view', 'expand', () => this.renderer.fitView(), { shortcut: 'Ctrl+0' });
+    }
+
+    // Show first so we can measure, then clamp inside the viewport.
+    menu.classList.remove('hidden');
+    const r = menu.getBoundingClientRect();
+    const left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4));
+    const top = Math.max(4, Math.min(y, window.innerHeight - r.height - 4));
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+
+    // Dismiss on any outside interaction or Escape. The mousedown that opened the
+    // menu already fired before this listener attaches, so it won't self-close.
+    this._ctxDismiss = (e) => {
+      if (e && e.type === 'mousedown' && menu.contains(e.target)) return;
+      if (e && e.type === 'keydown' && e.key !== 'Escape') return;
+      this._hideContextMenu();
+    };
+    window.addEventListener('mousedown', this._ctxDismiss, true);
+    window.addEventListener('wheel', this._ctxDismiss, true);
+    window.addEventListener('keydown', this._ctxDismiss, true);
+
+    const first = menu.querySelector('.menu-item:not([disabled])');
+    if (first) first.focus();
+  }
+
+  _hideContextMenu() {
+    const menu = document.getElementById('ctx-menu');
+    if (!menu || menu.classList.contains('hidden')) return;
+    menu.classList.add('hidden');
+    if (this._ctxDismiss) {
+      window.removeEventListener('mousedown', this._ctxDismiss, true);
+      window.removeEventListener('wheel', this._ctxDismiss, true);
+      window.removeEventListener('keydown', this._ctxDismiss, true);
+      this._ctxDismiss = null;
+    }
+  }
+
+  // Delete whatever the context menu was opened on (the editor already settled
+  // the selection), committing one undo step.
+  _contextDelete(ctx) {
+    if (ctx.kind === 'node') {
+      if (!this.editor.selection.size) return;
+      for (const id of this.editor.selection) this.diagram.removeNode(id);
+    } else if (ctx.kind === 'element') {
+      if (ctx.type === 'conn') this.diagram.removeConnection(ctx.id);
+      else if (ctx.type === 'group') this.diagram.removeGroup(ctx.id);
+      else if (ctx.type === 'note') this.diagram.removeNote(ctx.id);
+      else if (ctx.type === 'chart') this.diagram.removeChart(ctx.id);
+    }
+    this.editor._select(null, null);
+    this.renderer.render();
+    this._commit();
+    this._toast('Deleted — press Ctrl+Z to undo');
+  }
+
+  // "Save as component…" from the context menu: open the Library and drop the
+  // cursor in the component name field. The selection is untouched, so the
+  // existing Save selection flow captures exactly what was right-clicked.
+  _saveComponentPrompt() {
+    if (!this.editor.selection.size) { this._toast('Select nodes first to save a component.'); return; }
+    this._openLibrary();
+    const input = document.getElementById('comp-name');
+    if (input) { input.scrollIntoView({ block: 'center' }); input.focus(); }
+  }
 
   // ── Selection ─────────────────────────────────────────────────────────────
 

@@ -379,6 +379,18 @@ const KB_ARTICLES = [
       + 'while you build.',
   },
   {
+    id: 'editing', category: 'Building diagrams', title: 'Selecting and editing',
+    keywords: 'select marquee multi-select copy paste duplicate delete right-click context menu rubber band move nudge',
+    body: 'Click a node to select it, or drag an empty patch of canvas to rubber-band '
+      + 'a group; hold Shift to add to a selection. With something selected you can '
+      + 'copy and paste it with Ctrl+C and Ctrl+V, duplicate it in place with '
+      + 'Ctrl+D, nudge it with the arrow keys, or remove it with Delete. '
+      + 'Right-click anything to open a context menu with those same actions close '
+      + 'to hand — duplicate, copy, save the selection as a reusable component, or '
+      + 'delete — and right-click empty canvas to paste, select all or fit the view. '
+      + 'Every edit is undoable with Ctrl+Z.',
+  },
+  {
     id: 'components', category: 'Building diagrams', title: 'Reusable components',
     keywords: 'component subgraph reuse stamp paste copy building block group selection save library',
     body: 'A component is a named building block you save from any selection of '

@@ -450,7 +450,7 @@
           <dt><kbd>Shift</kbd>+wheel</dt><dd>Pan horizontally</dd>
           <dt><kbd>Space</kbd> / <kbd>Alt</kbd> / middle-drag</dt><dd>Pan the canvas</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>0</kbd></dt><dd>Fit view to content</dd>
-          <dt>Right-click</dt><dd>Delete element (Ctrl+Z undoes)</dd>
+          <dt>Right-click</dt><dd>Context menu (copy, save component, delete…)</dd>
         </dl>
         <h3>Connections &amp; nodes</h3>
         <dl>
@@ -557,6 +557,9 @@
     </div>
   </div>
 </div>
+
+<!-- Right-click context menu (populated and positioned by app.js) -->
+<div id="ctx-menu" class="ctx-menu hidden" role="menu" aria-label="Context menu"></div>
 
 <script src="vendor/math.min.js"></script>
 <script src="js/model.js"></script>

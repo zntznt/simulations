@@ -200,7 +200,9 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('property inputs accept 0 for rate / chance / capacity');
   else fail('input parse: ' + JSON.stringify(parse));
 
-  // Editor: place, drag-connect, and right-click delete via synthetic events.
+  // Editor: place, drag-connect, and the right-click context menu (which
+  // replaced the old instant-delete gesture). Right-click opens a menu and
+  // nothing is removed until you choose Delete from it.
   const editor = await page.evaluate(() => {
     window.app._clearAll();
     const canvas = document.getElementById('canvas');
@@ -215,13 +217,59 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ev('mousedown', 200, 200); ev('mousemove', 300, 200); ev('mouseup', 420, 200);
     const conns = window.app.diagram.connections.size;
     window.app.editor.setTool('select');
+    // Right-click the pool: menu opens, no instant delete.
     canvas.dispatchEvent(new MouseEvent('contextmenu',
       { clientX: r.left + 200, clientY: r.top + 200, bubbles: true }));
-    return { placed, conns, after: window.app.diagram.nodes.size };
+    const menu = document.getElementById('ctx-menu');
+    const menuOpen = !menu.classList.contains('hidden');
+    const items = [...menu.querySelectorAll('.menu-item')].map(b => b.textContent.trim());
+    const afterRightClick = window.app.diagram.nodes.size;
+    // Choose Delete from the menu: removes the node and its connection.
+    const del = [...menu.querySelectorAll('.menu-item')].find(b => /Delete/.test(b.textContent));
+    if (del) del.click();
+    return { placed, conns, menuOpen, items, afterRightClick,
+      afterDelete: window.app.diagram.nodes.size,
+      connsAfter: window.app.diagram.connections.size,
+      menuClosed: menu.classList.contains('hidden') };
   });
-  if (editor.placed === 2 && editor.conns === 1 && editor.after === 1)
-    ok('editor place / drag-connect / right-click-delete work');
+  if (editor.placed === 2 && editor.conns === 1 && editor.menuOpen && editor.afterRightClick === 2
+      && editor.items.some(t => /Duplicate/.test(t)) && editor.items.some(t => /Save as component/.test(t))
+      && editor.afterDelete === 1 && editor.connsAfter === 0 && editor.menuClosed)
+    ok('editor: place / drag-connect / right-click context menu (opens, no instant-delete, Delete acts)');
   else fail('editor ops: ' + JSON.stringify(editor));
+
+  // Context menu: empty-canvas variant (Paste disabled with an empty clipboard,
+  // Select all present) and "Save as component…" opening the Library focused.
+  const ctxMenu = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._clipboard = null;
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const menu = document.getElementById('ctx-menu');
+    // Right-click empty canvas.
+    canvas.dispatchEvent(new MouseEvent('contextmenu', { clientX: r.left + 600, clientY: r.top + 360, bubbles: true }));
+    const canvasItems = [...menu.querySelectorAll('.menu-item')].map(b => ({ t: b.textContent.trim(), disabled: b.disabled }));
+    const pasteDisabled = canvasItems.some(i => /Paste/.test(i.t) && i.disabled);
+    const hasSelectAll = canvasItems.some(i => /Select all/.test(i.t));
+    window.app._hideContextMenu();
+    // Place + select a node, right-click it, then click "Save as component…".
+    const n = window.app.diagram.addNode(new MNode(NodeType.POOL, 300, 300));
+    window.app.renderer.render();
+    window.app.editor._setSelection([n.id], n.id, 'node');
+    const rd = window.app.renderer;
+    const sx = 300 * rd._scale + rd._panX, sy = 300 * rd._scale + rd._panY;
+    canvas.dispatchEvent(new MouseEvent('contextmenu', { clientX: r.left + sx, clientY: r.top + sy, bubbles: true }));
+    const saveItem = [...menu.querySelectorAll('.menu-item')].find(b => /Save as component/.test(b.textContent));
+    const sawSave = !!saveItem;
+    if (saveItem) saveItem.click();
+    const libOpen = !document.getElementById('lib-overlay').classList.contains('hidden');
+    const focused = !!document.activeElement && document.activeElement.id === 'comp-name';
+    window.app._hideModal('lib-overlay');
+    return { pasteDisabled, hasSelectAll, sawSave, libOpen, focused };
+  });
+  if (ctxMenu.pasteDisabled && ctxMenu.hasSelectAll && ctxMenu.sawSave && ctxMenu.libOpen && ctxMenu.focused)
+    ok('context menu: canvas paste-state + select-all, and "Save as component" opens the Library focused');
+  else fail('context menu: ' + JSON.stringify(ctxMenu));
 
   // P1 panels: queue node + process time, source limited stock, state modifier.
   const p1 = await page.evaluate(() => {

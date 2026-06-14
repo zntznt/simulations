@@ -19,6 +19,7 @@ class Editor {
     this.autoRevert = true;      // revert to Select after placing a node
     this.onToolChange = null;    // callback(tool) when the editor changes its own tool
     this.onHint = null;          // callback(msg) for transient user hints
+    this.onContextMenu = null;   // callback(ctx, clientX, clientY) for the right-click menu
     this._dragSourceNodeId = null; // node id where a select-mode drag originated
     this._touchMode = null;      // 'single' | 'pinch'
     this._pinch = null;          // last pinch state {dist, cx, cy}
@@ -708,20 +709,26 @@ class Editor {
     input.select();
   }
 
+  // Right-click opens a context menu (the app builds and positions it). The
+  // editor's job is to settle the selection so the menu acts on the right thing,
+  // then hand off the target descriptor and screen coordinates.
   _onRightClick(e) {
     const pt = this.renderer.svgPoint(e.clientX, e.clientY);
     const hit = this.renderer.hitTest(pt.x, pt.y);
-    if (hit) {
-      if (hit.type === 'node') this.diagram.removeNode(hit.id);
-      else if (hit.type === 'conn') this.diagram.removeConnection(hit.id);
-      else if (hit.type === 'group') this.diagram.removeGroup(hit.id);
-      else if (hit.type === 'note') this.diagram.removeNote(hit.id);
-      else if (hit.type === 'chart') this.diagram.removeChart(hit.id);
-      this._select(null, null);
-      this.renderer.render();
-      this._changed();
-      if (this.onHint) this.onHint('Deleted — press Ctrl+Z to undo');
+    let ctx;
+    if (hit && hit.type === 'node') {
+      // Right-clicking a node outside the current multi-selection selects just
+      // it; clicking inside an existing selection keeps the whole group.
+      if (!this.selection.has(hit.id)) this._setSelection([hit.id], hit.id, 'node');
+      ctx = { kind: 'node', id: hit.id, count: this.selection.size };
+    } else if (hit) {
+      // A connection, group, note or chart — select it so the menu targets it.
+      this._select(hit.id, hit.type);
+      ctx = { kind: 'element', id: hit.id, type: hit.type };
+    } else {
+      ctx = { kind: 'canvas', pt };
     }
+    if (this.onContextMenu) this.onContextMenu(ctx, e.clientX, e.clientY);
   }
 
   _onWheel(e) {
