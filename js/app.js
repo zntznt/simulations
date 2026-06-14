@@ -2339,26 +2339,26 @@ class App {
       this.editor.setSnap(enabled);
       const b = document.getElementById('btn-snap');
       b.classList.toggle('active', enabled);
-      b.setAttribute('aria-pressed', String(enabled));
+      b.setAttribute('aria-checked', String(enabled));
     });
 
     const autoBtn = document.getElementById('btn-autoselect');
     // Sync button to editor's initial state (autoRevert starts true)
     autoBtn.classList.toggle('active', this.editor.autoRevert);
-    autoBtn.setAttribute('aria-pressed', String(this.editor.autoRevert));
+    autoBtn.setAttribute('aria-checked', String(this.editor.autoRevert));
     autoBtn.addEventListener('click', () => {
       this.editor.autoRevert = !this.editor.autoRevert;
       autoBtn.classList.toggle('active', this.editor.autoRevert);
-      autoBtn.setAttribute('aria-pressed', String(this.editor.autoRevert));
+      autoBtn.setAttribute('aria-checked', String(this.editor.autoRevert));
     });
 
     const flowBtn = document.getElementById('btn-flow');
     flowBtn.classList.toggle('active', this._flowReadout);
-    flowBtn.setAttribute('aria-pressed', String(this._flowReadout));
+    flowBtn.setAttribute('aria-checked', String(this._flowReadout));
     flowBtn.addEventListener('click', () => {
       this._flowReadout = !this._flowReadout;
       flowBtn.classList.toggle('active', this._flowReadout);
-      flowBtn.setAttribute('aria-pressed', String(this._flowReadout));
+      flowBtn.setAttribute('aria-checked', String(this._flowReadout));
       if (!this._flowReadout) this.renderer.flowFx.clear();
     });
 

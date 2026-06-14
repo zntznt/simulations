@@ -47,9 +47,15 @@
       <button class="btn" id="btn-minimap" title="Toggle minimap overview" aria-pressed="false"><i class="fa-solid fa-map" aria-hidden="true"></i> Map</button>
       </div>
       <span class="tb-sep" aria-hidden="true"></span>
-      <button class="btn" id="btn-snap" title="Toggle grid snap (align nodes to grid)" aria-pressed="false"><i class="fa-solid fa-border-all" aria-hidden="true"></i> Snap</button>
-      <button class="btn" id="btn-autoselect" title="After placing a node, switch back to Select" aria-pressed="false"><i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i> Auto</button>
-      <button class="btn" id="btn-flow" title="Show live flow amounts on connections during a run" aria-pressed="true"><i class="fa-solid fa-water" aria-hidden="true"></i> Flow</button>
+      <div class="menu" id="menu-view">
+        <button class="btn" id="btn-view-menu" aria-haspopup="true" aria-expanded="false"
+                title="View options — grid snap, auto-select, flow readout"><i class="fa-solid fa-sliders" aria-hidden="true"></i> View <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
+        <div class="menu-popup align-left hidden" role="menu" aria-label="View options">
+          <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-snap" aria-checked="false" title="Align nodes to the grid as you place and drag them"><i class="fa-solid fa-border-all" aria-hidden="true"></i> Snap to grid</button>
+          <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-autoselect" aria-checked="true" title="After placing a node, switch back to the Select tool"><i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i> Auto-select after place</button>
+          <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-flow" aria-checked="true" title="Show live flow amounts on connections during a run"><i class="fa-solid fa-water" aria-hidden="true"></i> Flow readout</button>
+        </div>
+      </div>
     </div>
 
     <div class="file-controls">
