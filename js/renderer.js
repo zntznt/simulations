@@ -1587,10 +1587,10 @@ class Renderer {
       let len;
       try { len = pathEl.getTotalLength(); } catch { continue; }
       if (!len) continue;
-      const steps = Math.max(8, Math.floor(len / 12));
+      const steps = Math.max(16, Math.floor(len / 6));
       for (let i = 0; i <= steps; i++) {
         const pt = pathEl.getPointAtLength((i / steps) * len);
-        if (Math.hypot(x - pt.x, y - pt.y) <= 8) return { type: 'conn', id };
+        if (Math.hypot(x - pt.x, y - pt.y) <= 12) return { type: 'conn', id };
       }
     }
 
