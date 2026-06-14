@@ -513,6 +513,18 @@ const KB_ARTICLES = [
       + 'player who always buys a power-up when resources are plentiful, or one who '
       + 'acts every five steps regardless of state.',
   },
+  {
+    id: 'live-vars', category: 'Running and analysis', title: 'Live variables',
+    keywords: 'live variables watch monitor readout values store parameter register state custom inspect debug',
+    body: 'The live variables panel lists every named value in the shared store — '
+      + 'parameters, register outputs, custom variables and the variables published '
+      + 'by state connections — and updates each one as the simulation runs. Open it '
+      + 'from the diagram settings rail to watch the numbers behind the model change '
+      + 'in real time, the quickest way to see why a formula or a feedback loop '
+      + 'behaves as it does. It is a read-only view: the panel reports values but '
+      + 'does not set them. If it is empty, run the model or define a parameter or '
+      + 'variable and the values appear.',
+  },
 
   // ── Saving and sharing ─────────────────────────────────────────────────────
   {

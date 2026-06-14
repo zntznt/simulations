@@ -32,7 +32,7 @@ class AppProps {
     if (this._activeFeature) {
       const meta = this._featureMeta()[this._activeFeature];
       if (meta) {
-        this._title(panel, meta.title);
+        this._title(panel, meta.title, meta.kb);
         meta.render(panel);
         return;
       }
@@ -303,13 +303,13 @@ class AppProps {
   // a container. Editors are reused as-is; the rail supplies the title.
   _featureMeta() {
     return {
-      time:      { title: 'Time Mode',        render: c => this._timeModeEditor(c) },
-      params:    { title: 'Parameters',       render: c => this._paramsEditor(c) },
-      vars:      { title: 'Custom Variables', render: c => this._customVarsEditor(c) },
-      resources: { title: 'Resource Types',   render: c => this._resourceTypesEditor(c) },
-      player:    { title: 'Artificial Player', render: c => this._diagramAI(c) },
-      branches:  { title: 'Scenario Branches', render: c => this._branchesPanel(c) },
-      monitor:   { title: 'Live Variables',   render: c => this._liveVarsReadout(c) },
+      time:      { title: 'Time Mode',        kb: 'time-modes',        render: c => this._timeModeEditor(c) },
+      params:    { title: 'Parameters',       kb: 'params',            render: c => this._paramsEditor(c) },
+      vars:      { title: 'Custom Variables', kb: 'custom-vars',       render: c => this._customVarsEditor(c) },
+      resources: { title: 'Resource Types',   kb: 'resource-types',    render: c => this._resourceTypesEditor(c) },
+      player:    { title: 'Artificial Player', kb: 'artificial-player', render: c => this._diagramAI(c) },
+      branches:  { title: 'Scenario Branches', kb: 'scenarios',         render: c => this._branchesPanel(c) },
+      monitor:   { title: 'Live Variables',   kb: 'live-vars',         render: c => this._liveVarsReadout(c) },
     };
   }
 
@@ -1009,7 +1009,7 @@ class AppProps {
   }
 
   _groupProps(panel, group) {
-    this._titleTyped(panel, 'Container group', group.label || '(unnamed)', group.color || '#4a9eff');
+    this._titleTyped(panel, 'Container group', group.label || '(unnamed)', group.color || '#4a9eff', 'groups-notes');
     this._info(panel, 'Drag inside to move with its contained nodes. Drag the border to resize by editing Width / Height below.');
     this._field(panel, 'Label', 'text', group.label, v => { group.label = v; this.renderer.render(); });
     this._colorField(panel, 'Color', group.color || '#4a9eff', v => { group.color = v; this.renderer.render(); });
@@ -1032,7 +1032,7 @@ class AppProps {
   }
 
   _noteProps(panel, note) {
-    this._titleTyped(panel, 'Annotation', 'Sticky note', note.color || '#f6e05e');
+    this._titleTyped(panel, 'Annotation', 'Sticky note', note.color || '#f6e05e', 'groups-notes');
     const row = document.createElement('div');
     row.className = 'prop-row'; row.style.alignItems = 'flex-start';
     const lbl = document.createElement('label'); lbl.textContent = 'Text';
@@ -1064,7 +1064,7 @@ class AppProps {
     const palette = (typeof CHART_PALETTE !== 'undefined') ? CHART_PALETTE
       : ['#4a9eff', '#4caf50', '#ef5350', '#ffa726', '#ba68c8', '#26c6da', '#ffeb3b', '#7c83ff', '#ff7043', '#9ccc65'];
 
-    this._titleTyped(panel, 'Canvas widget', chart.label || 'Chart', '#26c6da');
+    this._titleTyped(panel, 'Canvas widget', chart.label || 'Chart', '#26c6da', 'canvas-charts');
     this._info(panel, 'A live chart drawn on the canvas. Pick nodes below to plot their values over the run.');
     this._field(panel, 'Title', 'text', chart.label, v => { chart.label = v; this.renderer.render(); });
 

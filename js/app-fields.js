@@ -10,10 +10,23 @@
 class AppFields {
   // ── Props helpers ─────────────────────────────────────────────────────────
 
-  _title(panel, text) {
+  // A plain section header. When a kbId is given and the article exists, a "?"
+  // on the right opens that concept's guide entry — used by the diagram-rail
+  // feature panels so help is reachable in context, not just by browsing.
+  _title(panel, text, kbId = null) {
     const h = document.createElement('h3');
     h.className = 'props-title';
-    h.textContent = text;
+    h.appendChild(document.createTextNode(text));
+    if (kbId && typeof KB_ARTICLES !== 'undefined' && KB_ARTICLES.some(a => a.id === kbId)) {
+      const help = document.createElement('button');
+      help.className = 'props-help';
+      help.type = 'button';
+      help.innerHTML = '<i class="fa-solid fa-circle-question" aria-hidden="true"></i>';
+      help.setAttribute('aria-label', `Learn about ${text} in the guide`);
+      help.title = 'Learn about this in the guide';
+      help.addEventListener('click', () => this._openKB(kbId));
+      h.appendChild(help);
+    }
     panel.appendChild(h);
   }
 
