@@ -870,6 +870,45 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P1 queue UI: Servers field + live metrics readout + serialization');
   else fail('P1 queue UI: ' + JSON.stringify(queueUI));
 
+  // Queue balking/reneging: Max line + Patience fields exist; under congestion
+  // the metrics readout reports balked and reneged losses; both serialize.
+  const queueLoss = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 80, 200));
+    const q = d.addNode(new MNode(NodeType.QUEUE, 260, 200));
+    q.processTime = 2; q.maxLine = 3; q.patience = 3;
+    const dr = d.addNode(new MNode(NodeType.DRAIN, 440, 200));
+    d.addConnection(new MConnection(s.id, q.id)).rate = 5; // overload the line
+    d.addConnection(new MConnection(q.id, dr.id)).rate = 1;
+    window.app.renderer.render();
+    window.app._onSelect(q.id, 'node');
+
+    const hasLabel = t => [...document.querySelectorAll('#props-content .prop-row label')]
+      .some(l => l.textContent.trim() === t);
+    const hasMaxLine = hasLabel('Max line');
+    const hasPatience = hasLabel('Patience');
+
+    window.app.engine.reset();
+    for (let i = 0; i < 12; i++) window.app.engine.doStep();
+    window.app._refreshTypeReadouts();
+    const text = (document.getElementById('queue-metrics') || {}).textContent || '';
+    const showsLosses = text.includes('Balked') && text.includes('Reneged');
+
+    const json = JSON.parse(JSON.stringify(d.toJSON()));
+    const cj = json.nodes.find(n => n.id === q.id);
+    return {
+      hasMaxLine, hasPatience, showsLosses,
+      balked: q.balked, reneged: q.reneged,
+      savedMaxLine: cj && cj.maxLine, savedPatience: cj && cj.patience,
+    };
+  });
+  if (queueLoss.hasMaxLine && queueLoss.hasPatience && queueLoss.showsLosses
+    && queueLoss.balked > 0 && queueLoss.reneged > 0
+    && queueLoss.savedMaxLine === 3 && queueLoss.savedPatience === 3)
+    ok('P1 queue UI: balking + reneging fields, loss metrics, serialization');
+  else fail('P1 queue loss UI: ' + JSON.stringify(queueLoss));
+
   // Accessibility: dialog semantics + focus trap + Escape on modals, label
   // association in the props panel, aria-pressed toggles, status live region,
   // and arrow-key nudging of a selected node.

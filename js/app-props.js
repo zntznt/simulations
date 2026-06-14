@@ -990,6 +990,8 @@ class AppProps {
       ['Max wait', processed > 0 ? `${node.maxWait || 0} steps` : '—'],
       ['Peak line', String(node.maxLen || 0)],
     ];
+    if (node.maxLine > 0) rows.push(['Balked (line full)', String(node.balked || 0)]);
+    if (node.patience > 0) rows.push(['Reneged (gave up)', String(node.reneged || 0)]);
     container.innerHTML = '';
     for (const [label, val] of rows) {
       const row = document.createElement('div');
@@ -1301,6 +1303,11 @@ class AppProps {
       this._field(panel, 'Servers', 'number', node.servers || 1,
         v => { node.servers = Math.max(1, parseInt(v) || 1); this.renderer.render(); }, 'units served at once');
       this._info(panel, 'A single FIFO line feeding one or more servers. Each server takes "Process time" steps per unit, so throughput is servers ÷ process-time. One server is the classic single-lane bottleneck; add servers for parallel lanes that share the one line.');
+      this._field(panel, 'Max line', 'number', node.maxLine || 0,
+        v => { node.maxLine = Math.max(0, parseInt(v) || 0); this.renderer.render(); }, '0 = unlimited; arrivals balk when full');
+      this._field(panel, 'Patience', 'number', node.patience || 0,
+        v => { node.patience = Math.max(0, parseInt(v) || 0); }, '0 = infinite; steps before a waiting unit gives up');
+      this._info(panel, 'Model lost demand: with a Max line, arrivals that find the line full are turned away (balk); with a Patience, a unit that waits that many steps without a server gives up (renege). Both are counted as losses below. (This drops the units, unlike a Capacity, which makes the source hold them and retry.)');
       const qm = document.createElement('div');
       qm.className = 'type-readout queue-metrics'; qm.id = 'queue-metrics';
       panel.appendChild(qm);

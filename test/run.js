@@ -658,6 +658,42 @@ test('queue servers round-trip through JSON', () => {
   eq(q2.processTime, 4, 'process time preserved');
 });
 
+test('a full queue turns away (balks) excess arrivals', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE); q.processTime = 50; q.servers = 1; q.maxLine = 3;
+  conn(d, s, q).rate = 5;     // far more than the line can hold
+  steps(e, 6);
+  const waiting = (q._fifo || []).reduce((a, it) => a + it.amount, 0);
+  assert(waiting <= 3, `waiting line capped at maxLine (got ${waiting})`);
+  assert(q.maxLen <= 3, `peak line respects the cap (got ${q.maxLen})`);
+  assert(q.balked > 0, `excess arrivals are counted as balked (got ${q.balked})`);
+});
+
+test('impatient units renege after waiting past their patience', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE); q.processTime = 2; q.servers = 1; q.patience = 3;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, s, q).rate = 5;     // arrivals pile up behind a slow single server
+  conn(d, q, dr).rate = 1;
+  steps(e, 15);
+  assert(q.reneged > 0, `over-patient units give up and leave (got ${q.reneged})`);
+  assert(q.processed > 0, `some units are still served (got ${q.processed})`);
+  const waiting = (q._fifo || []).reduce((a, it) => a + it.amount, 0);
+  assert(waiting <= 5 * 3, `reneging bounds the line to the patience window (got ${waiting})`);
+});
+
+test('queue balking/reneging settings round-trip', () => {
+  const { d } = setup();
+  const q = node(d, NodeType.QUEUE); q.maxLine = 8; q.patience = 4;
+  const json = JSON.parse(JSON.stringify(d.toJSON()));
+  const d2 = new Diagram(); d2.loadJSON(json);
+  const q2 = [...d2.nodes.values()][0];
+  eq(q2.maxLine, 8, 'maxLine preserved');
+  eq(q2.patience, 4, 'patience preserved');
+});
+
 console.log('\nState modifiers');
 
 test('self modifier grows a pool (interest)', () => {

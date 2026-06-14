@@ -36,6 +36,7 @@ class SimEngine {
       if (n.type === NodeType.QUEUE) {
         n._procs = [];
         n.processed = 0; n.totalWait = 0; n.maxWait = 0; n.maxLen = 0;
+        n.balked = 0; n.reneged = 0;
         // Rebuild the FIFO from any pre-loaded starting resources (treated as
         // enqueued at the run start, step 0).
         n._fifo = Object.entries(n.colorMap).filter(([, a]) => a > 0).map(([color, amount]) => ({ amount, color, enq: 0 }));
@@ -962,6 +963,22 @@ class SimEngine {
         n._procs.push({ color: unit.color, stepsLeft: pt });
       }
 
+      // Reneging: units that have now waited their patience without reaching a
+      // server give up and leave the line (counted as lost, not served).
+      if (n.patience > 0 && n._fifo.length) {
+        const kept = [];
+        for (const it of n._fifo) {
+          if ((this.step - (it.enq ?? this.step)) >= n.patience) {
+            n.reneged = (n.reneged || 0) + it.amount;
+            n.resources = Math.max(0, n.resources - it.amount);
+            if (n.colorMap[it.color]) n.colorMap[it.color] = Math.max(0, n.colorMap[it.color] - it.amount);
+          } else {
+            kept.push(it);
+          }
+        }
+        n._fifo = kept;
+      }
+
       // Track the peak waiting-line length (units still in the FIFO buffer).
       const lineLen = (n._fifo || []).reduce((s, it) => s + it.amount, 0);
       if (lineLen > (n.maxLen || 0)) n.maxLen = lineLen;
@@ -1099,10 +1116,23 @@ class SimEngine {
         continue;
       }
       for (const [color, amount] of Object.entries(colorAmounts)) {
-        n.addResources(amount, color);
         // Queues line incoming resources up in arrival order (FIFO buffer),
         // tagged with the step they arrived so waiting time can be measured.
-        if (n.type === NodeType.QUEUE) { n._fifo = n._fifo || []; n._fifo.push({ amount, color, enq: this.step }); }
+        // With a Max line set, arrivals that find the line full are turned away
+        // (balk): they never join and are counted as lost, not held.
+        if (n.type === NodeType.QUEUE) {
+          n._fifo = n._fifo || [];
+          let join = amount;
+          if (n.maxLine > 0) {
+            const lineLen = n._fifo.reduce((s, it) => s + it.amount, 0);
+            join = Math.max(0, Math.min(amount, n.maxLine - lineLen));
+            const balk = amount - join;
+            if (balk > 0) n.balked = (n.balked || 0) + balk;
+          }
+          if (join > 0) { n.addResources(join, color); n._fifo.push({ amount: join, color, enq: this.step }); }
+        } else {
+          n.addResources(amount, color);
+        }
       }
     }
 
