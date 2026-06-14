@@ -657,6 +657,36 @@ input[type="range"] {
 }
 .help-footer { padding: 0 18px 16px; }
 
+/* ── Interactive tour (coach-marks) ── */
+/* The container doesn't capture clicks, so the user can still operate the
+   highlighted control beneath the spotlight; only the coach card is interactive. */
+#tour { position: fixed; inset: 0; z-index: 130; pointer-events: none; }
+#tour.hidden { display: none; }
+#tour-spotlight {
+  position: fixed; border-radius: 8px;
+  /* The giant spread box-shadow dims everything except the cut-out. */
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.58);
+  border: 2px solid var(--accent);
+  transition: top .2s ease, left .2s ease, width .2s ease, height .2s ease;
+  pointer-events: none;
+}
+#tour-spotlight.off { box-shadow: 0 0 0 9999px rgba(0,0,0,0.58); border-color: transparent; }
+#tour-coach {
+  position: fixed; pointer-events: auto;
+  width: 290px; max-width: 92vw;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 8px;
+  padding: 14px 16px; box-shadow: 0 10px 36px rgba(0,0,0,0.55);
+}
+#tour-coach .tour-count {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 6px;
+}
+#tour-coach p { font-size: 13px; line-height: 1.55; color: var(--text); margin: 0; }
+#tour-coach p b { color: var(--text); }
+.tour-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.tour-actions .btn { padding: 4px 12px; font-size: 12px; }
+.tour-actions .hidden { display: none; }
+
 /* ── Guard / destructive-action confirmation modal ── */
 #guard-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.6);

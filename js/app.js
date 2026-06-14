@@ -56,6 +56,9 @@ class App {
 
     this._activeFeature = null; // which diagram-rail feature occupies the props panel
     this._flowReadout = true;   // transient "+N" flow badges on connections during a run
+    this._tour = null;          // { idx, base } while the interactive tour is running
+    this._tourReposition = () => this._positionTour(); // stable ref for listeners
+    this._tourKey = (e) => { if (e.key === 'Escape') this._endTour(false); };
 
     // Scenario branching: checkpoints are full sim-state snapshots you can
     // fork from; branches are finished timelines kept as ghost traces in the
@@ -111,6 +114,8 @@ class App {
       this._refreshTypeReadouts();
       // Keep the live "Watch" panel ticking with the run.
       if (this._activeFeature === 'monitor') this._renderProps();
+      // Running the sim may complete the tour's final action step.
+      this._tourCheck();
     };
 
     this.engine.onEnd = (ended) => {
@@ -152,6 +157,153 @@ class App {
   _dismissWelcome() {
     try { localStorage.setItem('sim_seen_welcome', '1'); } catch { /* ignore */ }
     this._hideModal('welcome-overlay');
+  }
+
+  // ── Interactive tour ─────────────────────────────────────────────────────────
+  // Coach-marks over the real UI that teach the place → connect → Run loop by
+  // having the user actually do it. Each step spotlights a control and advances
+  // when the corresponding action happens (detected via _commit / onStep), so
+  // it's learn-by-doing, not a slideshow. Launchable from the welcome overlay
+  // and from Help → "Take the tour"; "Skip tour" ends it at any point.
+
+  _countNodeType(type) {
+    let n = 0;
+    for (const node of this.diagram.nodes.values()) if (node.type === type) n++;
+    return n;
+  }
+
+  _countResConns() {
+    let n = 0;
+    for (const c of this.diagram.connections.values()) if (c.type === ConnectionType.RESOURCE) n++;
+    return n;
+  }
+
+  // Steps are evaluated as deltas from the baseline captured at start, so the
+  // tour works whether you begin on an empty canvas or an existing diagram.
+  _tourSteps() {
+    return [
+      {
+        target: '[data-tool="place-source"]',
+        text: 'Click <b>Source</b>, then click anywhere on the canvas to drop it. A Source <b>produces</b> resources.',
+        done: () => this._countNodeType(NodeType.SOURCE) > this._tour.base.source,
+      },
+      {
+        target: '[data-tool="place-pool"]',
+        text: 'Now place a <b>Pool</b> to the right of the Source. A Pool <b>stores</b> whatever flows into it.',
+        done: () => this._countNodeType(NodeType.POOL) > this._tour.base.pool,
+      },
+      {
+        target: '[data-tool="connect-resource"]',
+        text: 'Pick the <b>Resource</b> tool, then <b>drag from the Source to the Pool</b> to connect them.',
+        done: () => this._countResConns() > this._tour.base.conns,
+      },
+      {
+        target: '#btn-run',
+        text: 'Press <b>Run</b> — watch resources flow from the Source into the Pool, live.',
+        done: () => this.engine.running || this.engine.step > this._tour.base.step,
+      },
+      {
+        target: '#btn-run',
+        text: "That's the whole loop: <b>place → connect → Run</b>. Browse the Library for ready-made models, or keep building. You can replay this tour from <b>Help</b>.",
+        final: true,
+      },
+    ];
+  }
+
+  _startTour() {
+    // Clean slate for the Run step's baseline, and close any overlays that would
+    // sit on top of the coach-marks.
+    this.engine.stop();
+    this._syncRunButton();
+    this._hideModal('welcome-overlay');
+    this._hideModal('help-overlay');
+
+    this._tour = {
+      idx: 0,
+      base: {
+        source: this._countNodeType(NodeType.SOURCE),
+        pool: this._countNodeType(NodeType.POOL),
+        conns: this._countResConns(),
+        step: this.engine.step,
+      },
+    };
+    document.getElementById('tour').classList.remove('hidden');
+    window.addEventListener('resize', this._tourReposition);
+    window.addEventListener('keydown', this._tourKey, true);
+    this._renderTourStep();
+  }
+
+  _renderTourStep() {
+    if (!this._tour) return;
+    const steps = this._tourSteps();
+    const step = steps[this._tour.idx];
+    document.getElementById('tour-count').textContent =
+      step.final ? 'All set' : `Step ${this._tour.idx + 1} of ${steps.length - 1}`;
+    document.getElementById('tour-text').innerHTML = step.text;
+    const next = document.getElementById('tour-next');
+    next.classList.toggle('hidden', !step.final);
+    next.textContent = 'Finish';
+    document.getElementById('tour-skip').classList.toggle('hidden', !!step.final);
+    this._positionTour();
+  }
+
+  // Place the spotlight cut-out over the current target and the coach card
+  // beside it (right → below → left), clamped to the viewport.
+  _positionTour() {
+    if (!this._tour) return;
+    const step = this._tourSteps()[this._tour.idx];
+    const spot = document.getElementById('tour-spotlight');
+    const coach = document.getElementById('tour-coach');
+    const target = step.target ? document.querySelector(step.target) : null;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const cw = coach.offsetWidth || 290, ch = coach.offsetHeight || 140;
+
+    if (!target) {
+      spot.classList.add('off');
+      spot.style.cssText += ';width:0;height:0;left:-9999px;top:-9999px;';
+      coach.style.left = `${(vw - cw) / 2}px`;
+      coach.style.top = `${(vh - ch) / 2}px`;
+      return;
+    }
+    spot.classList.remove('off');
+    const r = target.getBoundingClientRect();
+    const pad = 6;
+    spot.style.left = `${r.left - pad}px`;
+    spot.style.top = `${r.top - pad}px`;
+    spot.style.width = `${r.width + pad * 2}px`;
+    spot.style.height = `${r.height + pad * 2}px`;
+
+    const gap = 14;
+    let left = r.right + gap, top = r.top;          // prefer right
+    if (left + cw > vw - 8) {                        // else left
+      left = r.left - cw - gap;
+      if (left < 8) { left = r.left; top = r.bottom + gap; } // else below
+    }
+    coach.style.left = `${Math.max(8, Math.min(left, vw - cw - 8))}px`;
+    coach.style.top = `${Math.max(8, Math.min(top, vh - ch - 8))}px`;
+  }
+
+  // Called after edits/runs: advance past any satisfied step(s).
+  _tourCheck() {
+    if (!this._tour) return;
+    let steps = this._tourSteps();
+    let step = steps[this._tour.idx];
+    while (step && !step.final && step.done && step.done()) {
+      this._tour.idx++;
+      step = steps[this._tour.idx];
+    }
+    if (this._tour.idx >= steps.length) { this._endTour(true); return; }
+    this._renderTourStep();
+  }
+
+  _endTour(completed) {
+    if (!this._tour) return;
+    this._tour = null;
+    document.getElementById('tour').classList.add('hidden');
+    window.removeEventListener('resize', this._tourReposition);
+    window.removeEventListener('keydown', this._tourKey, true);
+    try { localStorage.setItem('sim_seen_tour', '1'); } catch { /* ignore */ }
+    if (completed) this._toast('Tour complete — happy building!');
   }
 
   // ── Undo / redo ─────────────────────────────────────────────────────────────
@@ -222,6 +374,9 @@ class App {
     try { localStorage.setItem('sim_autosave', this._lastState); } catch {}
     // Mark any open MC results as potentially stale since the diagram changed.
     this._markMCStale();
+    // A structural edit may satisfy the current tour step (placed a node / drew
+    // a connection).
+    this._tourCheck();
   }
 
   _markMCStale() {
@@ -2356,9 +2511,15 @@ class App {
       this._hideModal('help-overlay');
       this._showModal('welcome-overlay');
     });
+    // Help → "Take the tour" relaunches the interactive walkthrough.
+    document.getElementById('help-take-tour').addEventListener('click', () => this._startTour());
 
     // Welcome / getting-started overlay (first run; reopenable from Help)
     document.getElementById('welcome-close').addEventListener('click', () => this._dismissWelcome());
+    document.getElementById('welcome-tour').addEventListener('click', () => {
+      this._dismissWelcome();
+      this._startTour();
+    });
     document.getElementById('welcome-explore').addEventListener('click', () => {
       this._dismissWelcome();
       this._loadDemo();
@@ -2371,6 +2532,10 @@ class App {
       if (e.target.id === 'welcome-overlay') this._dismissWelcome();
     });
     this._modalize('welcome-overlay');
+
+    // Interactive tour controls.
+    document.getElementById('tour-skip').addEventListener('click', () => this._endTour(false));
+    document.getElementById('tour-next').addEventListener('click', () => this._endTour(true));
   }
 
   // ── Monte Carlo ─────────────────────────────────────────────────────────────

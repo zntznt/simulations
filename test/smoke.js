@@ -37,6 +37,62 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (boot.empty === 0) ok('fresh session boots to an empty canvas'); else fail(`expected empty boot, got ${boot.empty} nodes`);
   if (boot.afterDemo > 0) ok(`"Explore the demo" loads the demo (${boot.afterDemo} nodes)`); else fail('demo did not load on demand');
 
+  // Interactive tour: learn-by-doing coach-marks that advance as the user
+  // actually places nodes, connects them, and runs — then can be skipped/finished.
+  const tour = await page.evaluate(() => {
+    const t = window.app;
+    t._clearAll(); t._resetHistory();
+    t._startTour();
+    const count = () => document.getElementById('tour-count').textContent;
+    const text = () => document.getElementById('tour-text').textContent;
+    const visible = !document.getElementById('tour').classList.contains('hidden');
+    const spotOn = !document.getElementById('tour-spotlight').classList.contains('off');
+    const s1 = { c: count(), src: /Source/.test(text()) };
+
+    const d = t.diagram;
+    const src = d.addNode(new MNode(NodeType.SOURCE, 200, 200)); t._commit();
+    const s2 = { c: count(), pool: /Pool/.test(text()) };
+
+    const pool = d.addNode(new MNode(NodeType.POOL, 420, 200)); t._commit();
+    const s3 = { c: count(), conn: /Resource/.test(text()) };
+
+    d.addConnection(new MConnection(src.id, pool.id)); t._commit();
+    const s4 = { c: count(), run: /Run/.test(text()) };
+
+    t.engine.doStep();
+    const sFinal = {
+      c: count(),
+      finish: !document.getElementById('tour-next').classList.contains('hidden'),
+      skipHidden: document.getElementById('tour-skip').classList.contains('hidden'),
+    };
+
+    document.getElementById('tour-next').click();
+    const ended = t._tour === null && document.getElementById('tour').classList.contains('hidden');
+    const flag = localStorage.getItem('sim_seen_tour');
+    return { visible, spotOn, s1, s2, s3, s4, sFinal, ended, flag };
+  });
+  const tourOk = tour.visible && tour.spotOn
+    && tour.s1.c === 'Step 1 of 4' && tour.s1.src
+    && tour.s2.c === 'Step 2 of 4' && tour.s2.pool
+    && tour.s3.c === 'Step 3 of 4' && tour.s3.conn
+    && tour.s4.c === 'Step 4 of 4' && tour.s4.run
+    && tour.sFinal.c === 'All set' && tour.sFinal.finish && tour.sFinal.skipHidden
+    && tour.ended && tour.flag === '1';
+  if (tourOk) ok('tour: coach-marks advance on place→connect→Run, then finish; flag persists');
+  else fail('tour: ' + JSON.stringify(tour));
+
+  // Skipping the tour mid-way ends it immediately.
+  const tourSkip = await page.evaluate(() => {
+    const t = window.app;
+    t._clearAll(); t._resetHistory();
+    t._startTour();
+    const mid = !document.getElementById('tour').classList.contains('hidden');
+    document.getElementById('tour-skip').click();
+    return { mid, ended: t._tour === null && document.getElementById('tour').classList.contains('hidden') };
+  });
+  if (tourSkip.mid && tourSkip.ended) ok('tour: "Skip tour" ends it immediately');
+  else fail('tour skip: ' + JSON.stringify(tourSkip));
+
   // Each starter template (now in the Library) loads cleanly (bypass guard modal).
   await page.evaluate(() => { window.app._confirmGuard = () => Promise.resolve(true); });
   const templateNames = await page.evaluate(() => window.app._templates.map(t => t.name));
