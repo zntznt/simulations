@@ -303,14 +303,19 @@ class MNode {
     } else if (type === NodeType.QUEUE) {
       this.processTime = 2;     // steps to process one unit (per server)
       this.servers = 1;         // parallel servers (units processed concurrently)
+      this.maxLine = 0;         // waiting-line cap; arrivals balk when full (0 = off)
+      this.patience = 0;        // steps a unit waits before it reneges (0 = infinite)
       this._fifo = [];          // [{amount, color, enq}] waiting, in arrival order
       this._procs = [];         // [{color, stepsLeft}] units currently in service
       // Live run metrics (not serialized; reset each run): throughput, the
-      // summed/peak waiting time before service, and the peak line length.
+      // summed/peak waiting time before service, the peak line length, and the
+      // losses — balked (turned away at a full line) and reneged (gave up waiting).
       this.processed = 0;
       this.totalWait = 0;
       this.maxWait = 0;
       this.maxLen = 0;
+      this.balked = 0;
+      this.reneged = 0;
     } else if (type === NodeType.GATE) {
       this.gateMode = 'deterministic';
     } else if (type === NodeType.TRADER) {
@@ -431,6 +436,8 @@ class MNode {
     if (this.type === NodeType.QUEUE) {
       d.processTime = this.processTime;
       if (this.servers !== 1) d.servers = this.servers;
+      if (this.maxLine) d.maxLine = this.maxLine;
+      if (this.patience) d.patience = this.patience;
     }
     return d;
   }
@@ -449,6 +456,7 @@ class MNode {
     if (this.type === NodeType.QUEUE) {
       this._fifo = []; this._procs = [];
       this.processed = 0; this.totalWait = 0; this.maxWait = 0; this.maxLen = 0;
+      this.balked = 0; this.reneged = 0;
     }
     if (this.type === NodeType.TRADER) this.trades = 0;
     return this;

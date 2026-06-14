@@ -103,7 +103,7 @@ const KB_ARTICLES = [
   },
   {
     id: 'node-queue', category: 'Nodes', title: 'Queue',
-    keywords: 'fifo line server servers parallel process time bottleneck wait waiting throughput metrics contention lane',
+    keywords: 'fifo line server servers parallel process time bottleneck wait waiting throughput metrics contention lane balk renege patience lost demand abandon',
     body: 'A queue is a single waiting line that feeds one or more servers, first '
       + 'in, first out. Its process time sets how long each server takes per item '
       + 'and the server count sets how many it works at once, so throughput is '
@@ -112,10 +112,15 @@ const KB_ARTICLES = [
       + 'that. Items that arrive faster than the servers can clear them back up in '
       + 'the line, so a queue is the tool for modeling bottlenecks, checkout lanes '
       + 'and contention for a scarce resource; one server is the classic '
-      + 'single-lane bottleneck. As the run unfolds the properties panel reports '
-      + 'live metrics: how many items are in service, how many wait in line, total '
-      + 'throughput, the average and longest wait before service, and the peak line '
-      + 'length. It is the difference between a crowd and an orderly line.',
+      + 'single-lane bottleneck. Two optional limits model lost demand: a max line '
+      + 'turns away arrivals that find the line full (balking), and a patience '
+      + 'makes a unit that waits too long without a server give up (reneging). '
+      + 'Both drop the units, unlike a capacity, which makes the source hold them '
+      + 'and try again. As the run unfolds the properties panel reports live '
+      + 'metrics: how many items are in service, how many wait in line, total '
+      + 'throughput, the average and longest wait before service, the peak line '
+      + 'length, and any balked or reneged losses. It is the difference between a '
+      + 'crowd and an orderly line.',
   },
   {
     id: 'node-trader', category: 'Nodes', title: 'Trader',

@@ -54,6 +54,11 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       release. Tracks **live metrics** — throughput, average/longest wait before
       service, and peak line length — shown in the properties panel and refreshed
       each step.
+- [x] **Queue balking & reneging (P3).** A queue can model lost demand: a
+      `maxLine` turns away arrivals that find the waiting line full (balking),
+      and a `patience` makes a unit that waits that many steps without a server
+      give up (reneging). Both **drop** the units (counted as `balked` / `reneged`
+      losses) — distinct from a `capacity`, which makes the source hold and retry.
 - [x] **State-connection modifiers (P1).** A state connection can add
       `factor × sourceValue` to a target pool/converter each step (negative =
       decay); self-connections enable interest/decay in place. _(Connection-rate

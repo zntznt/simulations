@@ -67,7 +67,7 @@ thousands of Monte‑Carlo trials, and share the whole diagram in a URL.
 - **Converter** — consumes N held resources per conversion and emits an output (in its own colour/type).
 - **Register** — a computed value from a **formula** over shared variables (chains across registers, resolved to a fixpoint each tick).
 - **Delay** — holds a batch of resources for N steps, then releases them together.
-- **Queue** — a FIFO line feeding one or more parallel `servers` (`servers ÷ processTime` throughput); a single server is the classic bottleneck with per‑item latency, distinct from Delay. Reports live metrics: throughput, average/longest wait, peak line length.
+- **Queue** — a FIFO line feeding one or more parallel `servers` (`servers ÷ processTime` throughput); a single server is the classic bottleneck with per‑item latency, distinct from Delay. Optional `maxLine` (balk) and `patience` (renege) model lost demand. Reports live metrics: throughput, average/longest wait, peak line length, balked/reneged losses.
 
 ### Activation modes
 `automatic` (fires every step), `passive` (only when triggered), `interactive`
