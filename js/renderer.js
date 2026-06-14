@@ -354,6 +354,104 @@ class FlowFx {
   }
 }
 
+// ── Minimap ────────────────────────────────────────────────────────────────
+// A small overview of the whole diagram with a draggable viewport rectangle —
+// for navigating the large, sprawling models. Drawn on a <canvas> for cheap
+// rendering of hundreds of nodes; click/drag re-centres the main view.
+class Minimap {
+  constructor(container, canvas, diagram, renderer) {
+    this.container = container;
+    this.canvas = canvas;
+    this.diagram = diagram;
+    this.renderer = renderer;
+    this.visible = false;
+    this._mm = null;  // last { scale, offX, offY } mapping world → minimap px
+    this._bindInteraction();
+  }
+
+  setVisible(v) {
+    this.visible = v;
+    this.container.classList.toggle('hidden', !v);
+    if (v) this.update();
+  }
+
+  update() {
+    if (!this.visible) return;
+    const cv = this.canvas;
+    const W = cv.width = cv.clientWidth || 180;
+    const H = cv.height = cv.clientHeight || 120;
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(10,12,18,0.94)';
+    ctx.fillRect(0, 0, W, H);
+
+    const box = this.renderer._contentBounds();
+    const vp = this.renderer._viewportWorld();
+    if (!box) { this._mm = null; this._drawViewport(ctx, vp, 1, 0, 0); return; }
+
+    // Map the union of content + current viewport so the rectangle is always
+    // visible even after panning into empty space.
+    const minX = Math.min(box.minX, vp.x0), minY = Math.min(box.minY, vp.y0);
+    const maxX = Math.max(box.maxX, vp.x1), maxY = Math.max(box.maxY, vp.y1);
+    const pad = 14;
+    const cw = Math.max(1, maxX - minX), ch = Math.max(1, maxY - minY);
+    const scale = Math.min((W - pad * 2) / cw, (H - pad * 2) / ch);
+    const offX = (W - cw * scale) / 2 - minX * scale;
+    const offY = (H - ch * scale) / 2 - minY * scale;
+    this._mm = { scale, offX, offY };
+    const wx = x => x * scale + offX, wy = y => y * scale + offY;
+
+    // Groups as faint rects.
+    ctx.fillStyle = 'rgba(74,158,255,0.10)';
+    for (const g of this.diagram.groups.values())
+      ctx.fillRect(wx(g.x), wy(g.y), g.w * scale, g.h * scale);
+
+    // Connections as hairlines.
+    ctx.strokeStyle = 'rgba(120,140,170,0.30)'; ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    for (const c of this.diagram.connections.values()) {
+      const s = this.diagram.nodes.get(c.sourceId), t = this.diagram.nodes.get(c.targetId);
+      if (!s || !t) continue;
+      ctx.moveTo(wx(s.x), wy(s.y)); ctx.lineTo(wx(t.x), wy(t.y));
+    }
+    ctx.stroke();
+
+    // Nodes as dots, coloured by type.
+    const NS = (typeof NODE_STROKE !== 'undefined') ? NODE_STROKE : {};
+    for (const n of this.diagram.nodes.values()) {
+      ctx.fillStyle = NS[n.type] || '#4a9eff';
+      ctx.beginPath(); ctx.arc(wx(n.x), wy(n.y), 2, 0, Math.PI * 2); ctx.fill();
+    }
+
+    this._drawViewport(ctx, vp, scale, offX, offY);
+  }
+
+  _drawViewport(ctx, vp, scale, offX, offY) {
+    const x = vp.x0 * scale + offX, y = vp.y0 * scale + offY;
+    const w = (vp.x1 - vp.x0) * scale, h = (vp.y1 - vp.y0) * scale;
+    ctx.fillStyle = 'rgba(74,158,255,0.12)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 1.2;
+    ctx.strokeRect(x, y, w, h);
+  }
+
+  _panToEvent(e) {
+    if (!this._mm) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const wx = (e.clientX - rect.left - this._mm.offX) / this._mm.scale;
+    const wy = (e.clientY - rect.top - this._mm.offY) / this._mm.scale;
+    this.renderer.centerOn(wx, wy);
+    this.update();
+  }
+
+  _bindInteraction() {
+    let dragging = false;
+    this.canvas.addEventListener('mousedown', (e) => { dragging = true; this._panToEvent(e); e.preventDefault(); });
+    window.addEventListener('mousemove', (e) => { if (dragging) this._panToEvent(e); });
+    window.addEventListener('mouseup', () => { dragging = false; });
+  }
+}
+
 // ── Main Renderer ─────────────────────────────────────────────────────────
 
 class Renderer {
@@ -580,6 +678,26 @@ class Renderer {
     const d = this.diagram;
     const empty = !d.nodes.size && !d.groups.size && !d.notes.size && !d.charts.size;
     this._emptyHint.setAttribute('visibility', empty ? 'visible' : 'hidden');
+    if (this.onRender) this.onRender();
+  }
+
+  // World-coordinate rectangle currently visible in the viewport.
+  _viewportWorld() {
+    const r = this.svg.getBoundingClientRect();
+    return {
+      x0: -this._panX / this._scale,
+      y0: -this._panY / this._scale,
+      x1: (r.width - this._panX) / this._scale,
+      y1: (r.height - this._panY) / this._scale,
+    };
+  }
+
+  // Pan so that the world point (wx, wy) sits at the viewport centre (zoom kept).
+  centerOn(wx, wy) {
+    const r = this.svg.getBoundingClientRect();
+    this._panX = r.width / 2 - wx * this._scale;
+    this._panY = r.height / 2 - wy * this._scale;
+    this._updateTransform();
   }
 
   // ── Groups ───────────────────────────────────────────────────────────────

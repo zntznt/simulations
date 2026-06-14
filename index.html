@@ -44,6 +44,7 @@
         <button class="btn zoom-level" id="btn-zoom-level" title="Reset to 100%" aria-label="Current zoom — click to reset to 100%">100%</button>
         <button class="btn zoom-btn" id="btn-zoom-in" title="Zoom in" aria-label="Zoom in"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
         <button class="btn" id="btn-fit" title="Fit diagram to view (Ctrl+0)"><i class="fa-solid fa-expand" aria-hidden="true"></i> Fit</button>
+      <button class="btn" id="btn-minimap" title="Toggle minimap overview" aria-pressed="false"><i class="fa-solid fa-map" aria-hidden="true"></i> Map</button>
       </div>
       <span class="tb-sep" aria-hidden="true"></span>
       <button class="btn" id="btn-snap" title="Toggle grid snap (align nodes to grid)" aria-pressed="false"><i class="fa-solid fa-border-all" aria-hidden="true"></i> Snap</button>
@@ -271,6 +272,9 @@
     <!-- Canvas -->
     <div id="canvas-wrap">
       <svg id="canvas" role="application" aria-label="Diagram editing canvas" tabindex="0"></svg>
+      <div id="minimap" class="hidden" aria-hidden="true">
+        <canvas id="minimap-canvas"></canvas>
+      </div>
     </div>
 
     <!-- Properties panel -->

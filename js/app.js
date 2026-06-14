@@ -21,6 +21,11 @@ class App {
     this.diagram = new Diagram();
     this.engine = new SimEngine(this.diagram);
     this.renderer = new Renderer(document.getElementById('canvas'), this.diagram, this.engine);
+    this._minimap = new Minimap(
+      document.getElementById('minimap'), document.getElementById('minimap-canvas'),
+      this.diagram, this.renderer);
+    // Keep the minimap (content + viewport rect) in sync with renders and pans.
+    this.renderer.onRender = () => this._minimap.update();
     this.editor = new Editor(
       document.getElementById('canvas'),
       this.diagram, this.renderer, this.engine,
@@ -2183,6 +2188,14 @@ class App {
       if (!this._flowReadout) this.renderer.flowFx.clear();
     });
 
+    const mapBtn = document.getElementById('btn-minimap');
+    mapBtn.addEventListener('click', () => {
+      const on = !this._minimap.visible;
+      this._minimap.setVisible(on);
+      mapBtn.classList.toggle('active', on);
+      mapBtn.setAttribute('aria-pressed', String(on));
+    });
+
     document.getElementById('btn-export-svg').addEventListener('click', () => this._exportSVG());
     document.getElementById('btn-export-png').addEventListener('click', () => this._exportPNG());
     document.getElementById('btn-export-csv').addEventListener('click', () => this._exportCSV());
@@ -2239,7 +2252,10 @@ class App {
     };
     tlBtn.addEventListener('click', () => toggleTimeline(!this._timelineVisible));
     document.getElementById('tl-close').addEventListener('click', () => toggleTimeline(false));
-    window.addEventListener('resize', () => { if (this._timelineVisible) this.timeline.update(); });
+    window.addEventListener('resize', () => {
+      if (this._timelineVisible) this.timeline.update();
+      this._minimap.update();
+    });
 
     // Resize handle — drag up/down to change timeline panel height
     const tlPanel = document.getElementById('timeline');
@@ -2270,7 +2286,10 @@ class App {
     document.getElementById('btn-zoom-out').addEventListener('click', () => this.renderer.zoomStep(1 / 1.2));
     const zoomLabel = document.getElementById('btn-zoom-level');
     zoomLabel.addEventListener('click', () => this.renderer.zoomTo(1));
-    this.renderer.onViewChange = (scale) => { zoomLabel.textContent = `${Math.round(scale * 100)}%`; };
+    this.renderer.onViewChange = (scale) => {
+      zoomLabel.textContent = `${Math.round(scale * 100)}%`;
+      this._minimap.update();
+    };
     this.renderer.onViewChange(this.renderer._scale);
 
     // Commit a property edit as one undo step (fires on blur / enter / toggle).

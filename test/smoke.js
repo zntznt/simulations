@@ -1080,6 +1080,41 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('scrub: slider previews past node values non-destructively; Live restores the latest state');
   else fail('scrub: ' + JSON.stringify(scrub));
 
+  // Minimap: toggles on, maps world→minimap coords, and clicking it re-centres
+  // the main view (the viewport follows the click).
+  const minimap = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    // Spread nodes out so there's something to navigate.
+    d.addNode(new MNode(NodeType.POOL, 100, 100));
+    d.addNode(new MNode(NodeType.POOL, 1600, 1200));
+    window.app.renderer.render();
+    window.app.renderer.zoomTo(1);
+
+    document.getElementById('btn-minimap').click();
+    const mm = window.app._minimap;
+    const shown = mm.visible && !document.getElementById('minimap').classList.contains('hidden');
+    const hasMapping = !!mm._mm;
+
+    // Click the centre of the minimap → main view should re-centre near the
+    // content centre (~world (850,650)).
+    const cv = document.getElementById('minimap-canvas');
+    const r = cv.getBoundingClientRect();
+    cv.dispatchEvent(new MouseEvent('mousedown', { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    const vp = window.app.renderer._viewportWorld();
+    const cx = (vp.x0 + vp.x1) / 2, cy = (vp.y0 + vp.y1) / 2;
+    const recentred = Math.abs(cx - 850) < 250 && Math.abs(cy - 650) < 250;
+
+    // Toggle off hides it.
+    document.getElementById('btn-minimap').click();
+    const hiddenAfter = !mm.visible && document.getElementById('minimap').classList.contains('hidden');
+    return { shown, hasMapping, recentred, hiddenAfter };
+  });
+  if (minimap.shown && minimap.hasMapping && minimap.recentred && minimap.hiddenAfter)
+    ok('minimap: toggles, renders an overview, and click re-centres the main view');
+  else fail('minimap: ' + JSON.stringify(minimap));
+
   // Hit-test order matches visual stacking: an annotation painted over a node
   // is selected (not the node hidden beneath it), and a bare node is still hit.
   const hitOrder = await page.evaluate(() => {
