@@ -966,6 +966,28 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P2 chart: hover draws crosshair + per-series value readout, clears on leave');
   else fail('P2 chart hover: ' + JSON.stringify(p2chart));
 
+  // Bar charts lay each step in its own slot, so hover hit-testing must be
+  // slot-based (floor), not the edge-to-edge index used by line/area. Pointing
+  // inside slot 2 should select index 2, and the crosshair lands at slot centre.
+  const barHover = await page.evaluate(() => {
+    const chart = [...window.app.diagram.charts.values()][0];
+    chart.chartType = 'bars';
+    window.app.renderer.render();
+    const el = window.app.renderer._chartEls.get(chart.id);
+    const ctx = el._chartCtx;
+    const slot = ctx.plotW / ctx.n;
+    // A cursor a little past the start of slot 2 must resolve to index 2 (a
+    // round-to-nearest mapping would wrongly pick 1 here).
+    const probeX = ctx.x0 + slot * 2 + slot * 0.15;
+    const idx = window.app.renderer._chartIndexAtX(ctx, probeX);
+    const cx = window.app.renderer._chartXAtIndex(ctx, 2);
+    const slotCentre = ctx.x0 + 2.5 * slot;
+    return { n: ctx.n, idx, crosshairAtSlotCentre: Math.abs(cx - slotCentre) < 0.5 };
+  });
+  if (barHover.idx === 2 && barHover.crosshairAtSlotCentre)
+    ok('P2 chart: bar-chart hover snaps to the correct slot (slot-based, not edge-spaced)');
+  else fail('P2 chart bar hover: ' + JSON.stringify(barHover));
+
   // Hit-test order matches visual stacking: an annotation painted over a node
   // is selected (not the node hidden beneath it), and a bare node is still hit.
   const hitOrder = await page.evaluate(() => {

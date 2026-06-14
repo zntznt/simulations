@@ -668,8 +668,7 @@ class Renderer {
       const ctx = g._chartCtx;
       if (!ctx || ctx.n < 2) return;
       const p = this.svgPoint(e.clientX, e.clientY);
-      const i = Math.round(((p.x - ctx.x0) / ctx.plotW) * (ctx.n - 1));
-      this._chartHover = { id: cid, idx: Math.max(0, Math.min(ctx.n - 1, i)) };
+      this._chartHover = { id: cid, idx: this._chartIndexAtX(ctx, p.x) };
       this._drawChartHover(g);
     });
     g.addEventListener('mouseleave', () => {
@@ -804,8 +803,24 @@ class Renderer {
     // Stash the plot geometry so the hover handler can map cursor → step and
     // read values without recomputing, then refresh the overlay in case this
     // chart is the one currently hovered.
-    el._chartCtx = { x0, y0, plotW, plotH, max, n: hist.length, ids, palette, hist, chart };
+    el._chartCtx = { x0, y0, plotW, plotH, max, n: hist.length, ids, palette, hist, chart, type };
     this._drawChartHover(el);
+  }
+
+  // Map between a hovered step index and its x position. Bars lay each step in
+  // its own slot (centre at the slot middle); line/area/step space points
+  // edge-to-edge across the plot. Both hover hit-testing and the crosshair use
+  // these so the readout lands on what you're pointing at.
+  _chartIndexAtX(ctx, worldX) {
+    let i;
+    if (ctx.type === 'bars') i = Math.floor((worldX - ctx.x0) / (ctx.plotW / ctx.n));
+    else i = Math.round(((worldX - ctx.x0) / ctx.plotW) * (ctx.n - 1));
+    return Math.max(0, Math.min(ctx.n - 1, i));
+  }
+
+  _chartXAtIndex(ctx, i) {
+    if (ctx.type === 'bars') return ctx.x0 + (i + 0.5) * (ctx.plotW / ctx.n);
+    return ctx.x0 + (ctx.n <= 1 ? 0 : (i / (ctx.n - 1)) * ctx.plotW);
   }
 
   // Crosshair + per-series value readout for the on-canvas chart at the hovered
@@ -821,7 +836,7 @@ class Renderer {
     const i = Math.max(0, Math.min(ctx.n - 1, hover.idx));
     const snap = ctx.hist[i];
     if (!snap) return;
-    const cx = ctx.x0 + (i / (ctx.n - 1)) * ctx.plotW;
+    const cx = this._chartXAtIndex(ctx, i);
     const yAt = v => ctx.y0 + ctx.plotH - (v / ctx.max) * ctx.plotH;
     const fmt = v => String(+Number(v).toFixed(ctx.max < 10 ? 1 : 0));
 
