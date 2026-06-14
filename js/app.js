@@ -1020,6 +1020,99 @@ class App {
     });
   }
 
+  // ── Knowledge base / concept guide ─────────────────────────────────────────
+  // A searchable, static reference built from KB_ARTICLES (js/kb.js). The left
+  // rail lists topics grouped by category; the right pane shows one article.
+  // Article ids follow node-<type> / conn-<type>, so the "?" in the properties
+  // panel can deep-link a selected element straight to its own entry.
+  _initKB() {
+    if (typeof KB_ARTICLES === 'undefined') return;   // content failed to load
+    this._kbId = null;
+    document.getElementById('kb-close').addEventListener('click', () => this._hideModal('kb-overlay'));
+    document.getElementById('kb-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'kb-overlay') this._hideModal('kb-overlay');
+    });
+    this._modalize('kb-overlay');
+
+    const search = document.getElementById('kb-search-input');
+    search.addEventListener('input', () => this._renderKBNav(search.value));
+
+    document.getElementById('kb-nav').addEventListener('click', (e) => {
+      const link = e.target.closest('.kb-link');
+      if (link) this._showKBArticle(link.dataset.kbId);
+    });
+  }
+
+  // Open the guide, optionally at a specific article. Falls back to the first
+  // article (or the matching one) when the id is unknown.
+  _openKB(articleId = null) {
+    if (typeof KB_ARTICLES === 'undefined') return;
+    const search = document.getElementById('kb-search-input');
+    search.value = '';
+    this._renderKBNav('');
+    const target = (articleId && KB_ARTICLES.some(a => a.id === articleId))
+      ? articleId : KB_ARTICLES[0].id;
+    this._showKBArticle(target);
+    this._showModal('kb-overlay');
+  }
+
+  // (Re)build the topic rail, grouped by category, filtered by the search query
+  // (matched against title, keywords, category and body). Empty categories are
+  // dropped; no matches shows a hint.
+  _renderKBNav(query = '') {
+    const nav = document.getElementById('kb-nav');
+    nav.innerHTML = '';
+    const q = query.trim().toLowerCase();
+    const matches = KB_ARTICLES.filter(a => !q
+      || `${a.title} ${a.keywords || ''} ${a.category} ${a.body}`.toLowerCase().includes(q));
+
+    if (!matches.length) {
+      const p = document.createElement('p');
+      p.className = 'kb-noresults';
+      p.textContent = 'No topics match your search.';
+      nav.appendChild(p);
+      return;
+    }
+
+    let lastCat = null;
+    for (const a of matches) {
+      if (a.category !== lastCat) {
+        const h = document.createElement('div');
+        h.className = 'kb-cat';
+        h.textContent = a.category;
+        nav.appendChild(h);
+        lastCat = a.category;
+      }
+      const btn = document.createElement('button');
+      btn.className = 'kb-link' + (a.id === this._kbId ? ' active' : '');
+      btn.dataset.kbId = a.id;
+      btn.textContent = a.title;
+      nav.appendChild(btn);
+    }
+  }
+
+  // Render one article into the reading pane and highlight its rail link.
+  _showKBArticle(id) {
+    const a = KB_ARTICLES.find(x => x.id === id);
+    if (!a) return;
+    this._kbId = id;
+    const pane = document.getElementById('kb-article');
+    pane.innerHTML = '';
+    const cat = document.createElement('div');
+    cat.className = 'kb-cat-label';
+    cat.textContent = a.category;
+    const h = document.createElement('h2');
+    h.textContent = a.title;
+    const p = document.createElement('p');
+    p.textContent = a.body;
+    pane.append(cat, h, p);
+    pane.scrollTop = 0;
+
+    for (const link of document.querySelectorAll('#kb-nav .kb-link')) {
+      link.classList.toggle('active', link.dataset.kbId === id);
+    }
+  }
+
   _toast(msg) {
     let t = document.getElementById('app-toast');
     if (!t) {
@@ -2513,6 +2606,12 @@ class App {
     });
     // Help → "Take the tour" relaunches the interactive walkthrough.
     document.getElementById('help-take-tour').addEventListener('click', () => this._startTour());
+    // Help → "Concept guide" opens the searchable knowledge base.
+    document.getElementById('help-guide').addEventListener('click', () => {
+      this._hideModal('help-overlay');
+      this._openKB();
+    });
+    this._initKB();
 
     // Welcome / getting-started overlay (first run; reopenable from Help)
     document.getElementById('welcome-close').addEventListener('click', () => this._dismissWelcome());
@@ -3935,7 +4034,7 @@ class App {
 
   _nodeProps(panel, node) {
     const typeColor = (typeof NODE_STROKE !== 'undefined' && NODE_STROKE[node.type]) || 'var(--accent)';
-    this._titleTyped(panel, `${node.type} node`, node.label || '(unnamed)', typeColor);
+    this._titleTyped(panel, `${node.type} node`, node.label || '(unnamed)', typeColor, `node-${node.type}`);
 
     this._field(panel, 'Label', 'text', node.label, v => { node.label = v; this.renderer.render(); });
 
@@ -4125,7 +4224,8 @@ class App {
     const tgt = this.diagram.nodes.get(conn.targetId);
     const isRes = conn.type === ConnectionType.RESOURCE;
     this._titleTyped(panel, `${isRes ? 'Resource' : 'State'} connection`,
-      `${src?.label || '?'} → ${tgt?.label || '?'}`, isRes ? '#ffa726' : '#78909c');
+      `${src?.label || '?'} → ${tgt?.label || '?'}`, isRes ? '#ffa726' : '#78909c',
+      isRes ? 'conn-resource' : 'conn-state');
 
     this._section(panel, 'Appearance');
 
@@ -4464,8 +4564,9 @@ class App {
   }
 
   // Selection header: a small uppercase kind overline with a type-colored dot,
-  // then the element's own name large — "what is it" before "which one".
-  _titleTyped(panel, kind, text, color) {
+  // then the element's own name large — "what is it" before "which one". When a
+  // kbId is given, a "?" on the overline opens that concept's guide article.
+  _titleTyped(panel, kind, text, color, kbId = null) {
     const wrap = document.createElement('div');
     wrap.className = 'props-title-block';
     const over = document.createElement('div');
@@ -4475,6 +4576,16 @@ class App {
     dot.style.background = color || 'var(--accent)';
     over.appendChild(dot);
     over.appendChild(document.createTextNode(kind));
+    if (kbId && typeof KB_ARTICLES !== 'undefined' && KB_ARTICLES.some(a => a.id === kbId)) {
+      const help = document.createElement('button');
+      help.className = 'props-help';
+      help.type = 'button';
+      help.innerHTML = '<i class="fa-solid fa-circle-question" aria-hidden="true"></i>';
+      help.setAttribute('aria-label', `What is a ${kind}? Open the guide`);
+      help.title = 'Learn about this in the guide';
+      help.addEventListener('click', () => this._openKB(kbId));
+      over.appendChild(help);
+    }
     const h = document.createElement('h3');
     h.className = 'props-title';
     h.textContent = text;

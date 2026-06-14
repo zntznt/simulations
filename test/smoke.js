@@ -1273,6 +1273,65 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('UX: formula field lists in-scope variables + state-connection tip + invalid-formula flagging');
   else fail('UX formula help: ' + JSON.stringify(formulaHelp));
 
+  // Knowledge base: the concept guide loads content, opens to a deep-linked
+  // article, filters via search, switches articles from the rail, and the
+  // properties "?" deep-links a selected node to its own entry.
+  const kb = await page.evaluate(() => {
+    const out = {};
+    out.loaded = typeof KB_ARTICLES !== 'undefined' && KB_ARTICLES.length > 0;
+
+    // Open deep-linked to the Pool article.
+    window.app._openKB('node-pool');
+    out.overlayOpen = !document.getElementById('kb-overlay').classList.contains('hidden');
+    out.articleIsPool = /Pool/.test(document.querySelector('#kb-article h2')?.textContent || '')
+      && /container/.test(document.getElementById('kb-article').textContent);
+    out.navHasItems = document.querySelectorAll('#kb-nav .kb-link').length === KB_ARTICLES.length;
+    out.activeIsPool = document.querySelector('#kb-nav .kb-link.active')?.dataset.kbId === 'node-pool';
+
+    // Search filters the rail down to matching topics.
+    const search = document.getElementById('kb-search-input');
+    search.value = 'converter';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    const links = [...document.querySelectorAll('#kb-nav .kb-link')];
+    out.searchNarrowed = links.length > 0 && links.length < KB_ARTICLES.length
+      && links.some(l => l.dataset.kbId === 'node-converter');
+
+    // A no-match query shows the hint.
+    search.value = 'zzzznotathing';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    out.noResults = !!document.querySelector('#kb-nav .kb-noresults')
+      && document.querySelectorAll('#kb-nav .kb-link').length === 0;
+
+    // Clear search, then switch articles by clicking a rail link.
+    search.value = '';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#kb-nav .kb-link[data-kb-id="node-gate"]').click();
+    out.switched = /Gate/.test(document.querySelector('#kb-article h2')?.textContent || '')
+      && document.querySelector('#kb-nav .kb-link.active')?.dataset.kbId === 'node-gate';
+
+    window.app._hideModal('kb-overlay');
+    out.closed = document.getElementById('kb-overlay').classList.contains('hidden');
+
+    // Properties "?" deep-link: select a converter node, click the help button.
+    window.app._clearAll();
+    const n = window.app.diagram.addNode(new MNode(NodeType.CONVERTER, 300, 300));
+    window.app.renderer.render();
+    window.app.editor._select(n.id, 'node');
+    window.app._renderProps();
+    const helpBtn = document.querySelector('#props-content .props-help');
+    out.propsHelpPresent = !!helpBtn;
+    helpBtn?.click();
+    out.propsDeepLink = !document.getElementById('kb-overlay').classList.contains('hidden')
+      && /Converter/.test(document.querySelector('#kb-article h2')?.textContent || '');
+    window.app._hideModal('kb-overlay');
+    return out;
+  });
+  if (kb.loaded && kb.overlayOpen && kb.articleIsPool && kb.navHasItems && kb.activeIsPool
+      && kb.searchNarrowed && kb.noResults && kb.switched && kb.closed
+      && kb.propsHelpPresent && kb.propsDeepLink)
+    ok('knowledge base: guide opens, deep-links, searches, switches articles, and props "?" links a node to its entry');
+  else fail('knowledge base: ' + JSON.stringify(kb));
+
   // UX pass: first-run welcome overlay shows for a brand-new user, dismisses,
   // and sets the seen flag (use a fresh context with no suppression).
   const welcome = await (async () => {
