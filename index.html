@@ -129,7 +129,7 @@
         <button class="palette-header" aria-expanded="true" aria-controls="pal-nodes">Nodes</button>
         <div class="palette-items" id="pal-nodes">
 
-      <button data-tool="place-pool" title="Place Pool node">
+      <button data-tool="place-pool" title="Pool — stores a resource amount (a container)">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="16" r="13" fill="#1a3a6b" stroke="#4a9eff" stroke-width="2"/>
@@ -139,7 +139,7 @@
         Pool
       </button>
 
-      <button data-tool="place-source" title="Place Source node">
+      <button data-tool="place-source" title="Source — produces resources (a faucet)">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <polygon points="16,3 29,27 3,27" fill="#1a4a2a" stroke="#4caf50" stroke-width="2"/>
@@ -149,7 +149,7 @@
         Source
       </button>
 
-      <button data-tool="place-drain" title="Place Drain node">
+      <button data-tool="place-drain" title="Drain — consumes resources (a sink)">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <polygon points="16,29 3,5 29,5" fill="#4a1a1a" stroke="#ef5350" stroke-width="2"/>
@@ -159,7 +159,7 @@
         Drain
       </button>
 
-      <button data-tool="place-gate" title="Place Gate node">
+      <button data-tool="place-gate" title="Gate — splits incoming flow across its outputs">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <polygon points="16,3 29,16 16,29 3,16" fill="#3a1a5a" stroke="#ba68c8" stroke-width="2"/>
@@ -168,7 +168,7 @@
         Gate
       </button>
 
-      <button data-tool="place-converter" title="Place Converter node">
+      <button data-tool="place-converter" title="Converter — turns N input resources into a new output">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <circle cx="10" cy="16" r="10" fill="#4a2a00" stroke="#ffa726" stroke-width="2"/>
@@ -179,7 +179,7 @@
         Converter
       </button>
 
-      <button data-tool="place-register" title="Place Register node">
+      <button data-tool="place-register" title="Register — a value computed live from a formula">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <rect x="3" y="9" width="26" height="14" rx="3" fill="#1a2a38" stroke="#78909c" stroke-width="2"/>
@@ -189,7 +189,7 @@
         Register
       </button>
 
-      <button data-tool="place-delay" title="Place Delay node">
+      <button data-tool="place-delay" title="Delay — holds a batch, then releases it after N steps">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="16" r="13" fill="#004a4a" stroke="#26c6da" stroke-width="2"/>
@@ -200,7 +200,7 @@
         Delay
       </button>
 
-      <button data-tool="place-queue" title="Place Queue node">
+      <button data-tool="place-queue" title="Queue — serves one item at a time, FIFO (a line)">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="16" r="13" fill="#2a2a4a" stroke="#7c83ff" stroke-width="2"/>
@@ -419,6 +419,64 @@
           <dt>Click / double-click node</dt><dd>Fire an <i>interactive</i> node (during run / anytime)</dd>
         </dl>
       </div>
+    </div>
+    <div class="help-footer">
+      <button class="btn" id="help-getting-started"><i class="fa-solid fa-circle-play" aria-hidden="true"></i> Getting started</button>
+    </div>
+  </div>
+</div>
+
+<!-- Guard / destructive-action confirmation modal -->
+<div id="guard-overlay" class="hidden">
+  <div id="guard-modal" role="alertdialog" aria-modal="true" aria-labelledby="guard-title" aria-describedby="guard-message">
+    <div class="mc-head">
+      <span id="guard-title"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> <span id="guard-title-text">Are you sure?</span></span>
+    </div>
+    <div class="guard-body">
+      <p id="guard-message"></p>
+    </div>
+    <div class="guard-actions">
+      <button class="btn btn-danger" id="guard-confirm">Discard &amp; continue</button>
+      <button class="btn" id="guard-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Welcome / getting-started modal (first run) -->
+<div id="welcome-overlay" class="hidden">
+  <div id="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+    <div class="mc-head">
+      <span id="welcome-title"><i class="fa-solid fa-circle-play" aria-hidden="true"></i> Welcome to Simulations</span>
+      <button class="btn" id="welcome-close" aria-label="Close welcome"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+    </div>
+    <div class="welcome-body">
+      <p class="welcome-lede">Design a <b>game economy or system</b> as a diagram, then press <b>Run</b> to watch resources flow, pile up, convert, and feed back — live.</p>
+      <div class="welcome-cols">
+        <div class="welcome-col">
+          <h3>The 3-step loop</h3>
+          <ol>
+            <li>Pick a node from the left palette and <b>click the canvas</b> to place it.</li>
+            <li>Choose the <b>Resource (R)</b> tool, then <b>drag from one node to another</b> to connect them.</li>
+            <li>Press <b>Run</b> — numbers move, tokens flow, charts draw.</li>
+          </ol>
+          <p class="welcome-note">New here? <b>Browse templates</b> to open a ready-made model and press Run.</p>
+        </div>
+        <div class="welcome-col">
+          <h3>The building blocks</h3>
+          <dl>
+            <dt>Pool</dt><dd>stores a resource amount</dd>
+            <dt>Source</dt><dd>produces resources</dd>
+            <dt>Drain</dt><dd>consumes resources</dd>
+            <dt>Gate</dt><dd>splits flow across outputs</dd>
+            <dt>Converter</dt><dd>turns N in into a new output</dd>
+            <dt>Connections</dt><dd>move resources (Resource) or carry a value (State)</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+    <div class="welcome-actions">
+      <button class="btn btn-primary" id="welcome-explore">Explore the demo</button>
+      <button class="btn" id="welcome-templates"><i class="fa-solid fa-book" aria-hidden="true"></i> Browse templates</button>
     </div>
   </div>
 </div>

@@ -15,6 +15,9 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   // The display-font feature loads stylesheets from Google Fonts; stub the
   // request so the smoke run works offline and stays free of network errors.
   await page.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+  // Run as a returning user: suppress the first-run welcome overlay (covered by
+  // its own dedicated check below). Must be set before the app boots.
+  await page.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
   const errors = [];
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', e => errors.push(String(e)));
@@ -28,13 +31,13 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   const nodeCount = await page.evaluate(() => window.app.diagram.nodes.size);
   if (nodeCount > 0) ok(`default example loaded (${nodeCount} nodes)`); else fail('no nodes on boot');
 
-  // Each starter template (now in the Library) loads cleanly (bypass confirm()).
-  await page.evaluate(() => { window.confirm = () => true; });
+  // Each starter template (now in the Library) loads cleanly (bypass guard modal).
+  await page.evaluate(() => { window.app._confirmGuard = () => Promise.resolve(true); });
   const templateNames = await page.evaluate(() => window.app._templates.map(t => t.name));
   for (const name of templateNames) {
-    await page.evaluate((nm) => {
+    await page.evaluate(async (nm) => {
       const t = window.app._templates.find(x => x.name === nm);
-      window.app._loadTemplate(t);
+      await window.app._loadTemplate(t);
     }, name);
     const n = await page.evaluate(() => window.app.diagram.nodes.size);
     if (n > 0) ok(`template "${name}" loaded (${n} nodes)`); else fail(`template "${name}" empty`);
@@ -907,16 +910,34 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     window.app.renderer.render();
     const linesAfter = chartEl.querySelectorAll('polyline').length;
 
+    // Hover readout: pointing at a step draws a crosshair, a dot per series, and
+    // a tooltip box with "Step N" plus the tracked node's value.
+    const r = window.app.renderer;
+    r._chartHover = { id: chart.id, idx: 3 };
+    r._drawChartHover(chartEl);
+    const hov = chartEl.querySelector('.chart-hover');
+    const hoverHasCrosshair = hov.querySelectorAll('line').length === 1;
+    const hoverHasDot = hov.querySelectorAll('circle').length === 1;
+    const hoverText = [...hov.querySelectorAll('text')].map(t => t.textContent).join(' | ');
+    const hoverShowsStepAndValue = /Step \d/.test(hoverText) && /Bank:/.test(hoverText);
+    // Leaving clears the overlay.
+    chartEl.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+    const hoverCleared = hov.childElementCount === 0;
+
     // Serialization round-trip.
     const d2 = new Diagram();
     d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
     const chartsOk = d2.charts.size === 1 && [...d2.charts.values()][0].nodeIds[0] === p.id;
 
-    return { hasChartPanel, linesBefore, linesAfter, chartsOk };
+    return { hasChartPanel, linesBefore, linesAfter, chartsOk,
+             hoverHasCrosshair, hoverHasDot, hoverShowsStepAndValue, hoverCleared };
   });
   if (p2chart.hasChartPanel && p2chart.linesBefore === 0 && p2chart.linesAfter === 1 && p2chart.chartsOk)
     ok('P2 chart: on-canvas chart tracks a node, plots a line after a run, serializes');
   else fail('P2 chart: ' + JSON.stringify(p2chart));
+  if (p2chart.hoverHasCrosshair && p2chart.hoverHasDot && p2chart.hoverShowsStepAndValue && p2chart.hoverCleared)
+    ok('P2 chart: hover draws crosshair + per-series value readout, clears on leave');
+  else fail('P2 chart hover: ' + JSON.stringify(p2chart));
 
   // Hit-test order matches visual stacking: an annotation painted over a node
   // is selected (not the node hidden beneath it), and a bare node is still hit.
@@ -985,6 +1006,52 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (p2types.hasTypesEditor && p2types.showsGold && p2types.hasTypeDropdown && p2types.totalsOk && p2types.typesOk)
     ok('P2 resource types: editor, type pickers, per-type holdings + live totals, serialize');
   else fail('P2 resource types: ' + JSON.stringify(p2types));
+
+  // UX pass: formula field shows in-scope variables + validity; formula help
+  // exists for a formula-rate connection.
+  const formulaHelp = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    d.params = { growth_rate: 0.1 };
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 400, 200)); p.setCount(10);
+    const c = d.addConnection(new MConnection(s.id, p.id));
+    c.rateMode = RateMode.FORMULA; c.formula = 'growth_rate * 2';
+    window.app.renderer.render();
+    window.app._onSelect(c.id, 'conn');
+    const hint = document.querySelector('#props-content .formula-hint');
+    const codes = [...document.querySelectorAll('#props-content .formula-hint code')].map(e => e.textContent);
+    const tip = !!document.querySelector('#props-content .formula-tip');
+    // Now make it invalid and confirm the field flags it.
+    const inp = [...document.querySelectorAll('#props-content input')].find(i => i.value === 'growth_rate * 2');
+    let invalidFlagged = false;
+    if (inp) {
+      inp.value = 'growth_rate * '; inp.dispatchEvent(new Event('input', { bubbles: true }));
+      invalidFlagged = inp.classList.contains('invalid');
+    }
+    return { hasHint: !!hint, listsParam: codes.includes('growth_rate'), tip, invalidFlagged };
+  });
+  if (formulaHelp.hasHint && formulaHelp.listsParam && formulaHelp.tip && formulaHelp.invalidFlagged)
+    ok('UX: formula field lists in-scope variables + state-connection tip + invalid-formula flagging');
+  else fail('UX formula help: ' + JSON.stringify(formulaHelp));
+
+  // UX pass: first-run welcome overlay shows for a brand-new user, dismisses,
+  // and sets the seen flag (use a fresh context with no suppression).
+  const welcome = await (async () => {
+    const ctx = await browser.newContext();
+    const wp = await ctx.newPage();
+    await wp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await wp.goto(URL, { waitUntil: 'networkidle' });
+    const shown = await wp.evaluate(() => !document.getElementById('welcome-overlay').classList.contains('hidden'));
+    await wp.click('#welcome-explore');
+    const hidden = await wp.evaluate(() => document.getElementById('welcome-overlay').classList.contains('hidden'));
+    const flag = await wp.evaluate(() => localStorage.getItem('sim_seen_welcome'));
+    await ctx.close();
+    return { shown, hidden, flag };
+  })();
+  if (welcome.shown && welcome.hidden && welcome.flag === '1')
+    ok('UX: first-run welcome overlay shows, dismisses, and persists the seen flag');
+  else fail('UX welcome: ' + JSON.stringify(welcome));
 
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
