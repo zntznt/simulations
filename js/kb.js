@@ -403,6 +403,154 @@ const KB_ARTICLES = [
       + 'source–pool–drain trio, a feedback loop or a probability gate, without '
       + 'redrawing them every time.',
   },
+  {
+    id: 'connecting', category: 'Building diagrams', title: 'Connecting nodes',
+    keywords: 'draw connect arrow link wire drag tool R T resource state connection endpoint',
+    body: 'To draw a connection, select the resource connection tool by pressing R, '
+      + 'then drag from one node to another. A green highlight appears when the '
+      + 'cursor reaches a valid endpoint; releasing the mouse completes the arrow. '
+      + 'For a state connection — the dashed kind that carries information rather '
+      + 'than resources — press T first, then drag the same way. Once a connection '
+      + 'exists, click it to select it and set its rate, mode and other properties '
+      + 'in the panel on the right. Delete a connection by selecting it and pressing '
+      + 'Delete, or right-click and choose Delete.',
+  },
+  {
+    id: 'groups-notes', category: 'Building diagrams', title: 'Groups and notes',
+    keywords: 'group container label boundary annotate note sticky comment region resize corner',
+    body: 'A group is a labeled container you place over a region of the canvas to '
+      + 'give a set of nodes a shared name and a visible border. Drag its corner '
+      + 'handle to resize it; move it and the nodes inside travel with it. A note '
+      + 'is a free-form text comment you can place anywhere on the canvas — useful '
+      + 'for explaining what a part of the model does, narrating behavior or leaving '
+      + 'a reminder. Both are added from the palette, saved with the diagram and can '
+      + 'be selected and deleted like any other element.',
+  },
+  {
+    id: 'navigation', category: 'Building diagrams', title: 'Navigation and zoom',
+    keywords: 'pan zoom scroll wheel fit minimap overview touch pinch drag middle button navigate view',
+    body: 'Scroll the mouse wheel to zoom in and out, or use the plus and minus '
+      + 'buttons in the toolbar. Click the zoom level readout to reset to 100%, or '
+      + 'press Ctrl+0 to fit the whole diagram in view. Pan by holding the middle '
+      + 'mouse button and dragging, or hold Ctrl and drag with the left button. The '
+      + 'minimap in the corner shows a scaled-down overview of the whole canvas — '
+      + 'click or drag inside it to jump to any area. On a touchscreen, pinch with '
+      + 'two fingers to zoom and drag with one to pan.',
+  },
+  {
+    id: 'undo-redo', category: 'Building diagrams', title: 'Undo and redo',
+    keywords: 'undo redo history ctrl+z ctrl+y stack revert mistake recover edit',
+    body: 'Every structural edit — adding or moving a node, changing a property, '
+      + 'loading a template — is recorded in a history stack. Press Ctrl+Z to undo '
+      + 'the last change, and Ctrl+Shift+Z or Ctrl+Y to redo it. The stack holds '
+      + '100 steps, enough for a long editing session. History is session-only and '
+      + 'does not survive a page reload, though autosave preserves the latest '
+      + 'diagram state. Because loading from the library is also undoable, you can '
+      + 'always step back to what was there before.',
+  },
+
+  // ── Logic and control (additions) ─────────────────────────────────────────
+  {
+    id: 'time-modes', category: 'Logic and control', title: 'Time modes',
+    keywords: 'time mode sync async synchronous asynchronous fire every phase offset rhythm rate turn-based',
+    body: 'In the default sync mode, every automatic node fires together on each '
+      + 'step — a turn-based rhythm where the whole model advances in lockstep. '
+      + 'Switch the diagram to async mode and each automatic node runs on its own '
+      + 'schedule instead, set by a fire-every count and an optional phase offset '
+      + 'that staggers the start. Use async when parts of the system run at '
+      + 'different rates — a quarterly income and a daily spending loop, for '
+      + 'example. Passive, interactive and starting nodes are unaffected by the '
+      + 'time mode; they still fire only when triggered or clicked.',
+  },
+
+  // ── Values and formulas (additions) ────────────────────────────────────────
+  {
+    id: 'resource-types', category: 'Values and formulas', title: 'Named resource types',
+    keywords: 'resource type named label icon color colour holdings breakdown gold wood health per-type readout',
+    body: 'Named resource types give the colors in your model a label and show '
+      + 'per-type holdings in the properties panel, turning an abstract color into '
+      + 'a meaningful category like gold, wood or health. Define types in the '
+      + 'Resource Types section of the diagram settings rail; each type maps to one '
+      + 'color and appears as a row in any node’s property panel, live-updating as '
+      + 'the simulation runs. Types do not change how the engine moves or routes '
+      + 'resources — that still works by color — but they make the diagram easier '
+      + 'to read and give you a clear breakdown of what each pool holds.',
+  },
+
+  // ── Running and analysis (additions) ──────────────────────────────────────
+  {
+    id: 'sweep', category: 'Running and analysis', title: 'Parameter sweeps',
+    keywords: 'sweep parameter range vary compare column table side-by-side balance tune inflection',
+    body: 'A parameter sweep varies one diagram parameter across a range of values '
+      + 'and runs a Monte Carlo batch for each value, then shows the results side '
+      + 'by side so you can see the effect at a glance. Pick the parameter to vary, '
+      + 'set how many steps to test across the range and define the low and high '
+      + 'ends of the sweep. The output table shows per-node means for every value '
+      + 'in one column each, making it straightforward to find the inflection point '
+      + 'where the model tips from one behavior to another. Like all batch tools, '
+      + 'the sweep runs on copies and never touches the live diagram.',
+  },
+  {
+    id: 'scrubbing', category: 'Running and analysis', title: 'History scrubbing',
+    keywords: 'scrub slider replay history past step rewind review non-destructive live playback',
+    body: 'After a run, the scrub slider beneath the canvas lets you step back '
+      + 'through the recorded history without rerunning the simulation. Drag the '
+      + 'slider left and the canvas, charts and property readouts all update to '
+      + 'show what the model looked like at that tick. Click Live to jump back to '
+      + 'the end of the run. Scrubbing is read-only — it does not alter the '
+      + 'simulation state, so you can review any past step and then press Run to '
+      + 'continue forward from where the run finished.',
+  },
+  {
+    id: 'artificial-player', category: 'Running and analysis', title: 'Artificial player',
+    keywords: 'artificial player actor bot scripted auto-click rule interval condition stress test interactive',
+    body: 'The artificial player is a scripted actor that fires interactive nodes '
+      + 'automatically during a run, so you can stress-test a design without '
+      + 'clicking by hand. Add rules in the artificial player panel — each rule '
+      + 'picks an interactive node and sets when it fires: on a fixed interval or '
+      + 'while a named variable meets a condition such as gold being greater than '
+      + '100. Multiple rules run in order each step. It is how you simulate a '
+      + 'player who always buys a power-up when resources are plentiful, or one who '
+      + 'acts every five steps regardless of state.',
+  },
+  {
+    id: 'live-vars', category: 'Running and analysis', title: 'Live variables',
+    keywords: 'live variables watch monitor readout values store parameter register state custom inspect debug',
+    body: 'The live variables panel lists every named value in the shared store — '
+      + 'parameters, register outputs, custom variables and the variables published '
+      + 'by state connections — and updates each one as the simulation runs. Open it '
+      + 'from the diagram settings rail to watch the numbers behind the model change '
+      + 'in real time, the quickest way to see why a formula or a feedback loop '
+      + 'behaves as it does. It is a read-only view: the panel reports values but '
+      + 'does not set them. If it is empty, run the model or define a parameter or '
+      + 'variable and the values appear.',
+  },
+
+  // ── Saving and sharing ─────────────────────────────────────────────────────
+  {
+    id: 'saving', category: 'Saving and sharing', title: 'Saving and loading',
+    keywords: 'save load autosave library file JSON export import browser recovery banner',
+    body: 'The diagram saves to the browser automatically on every change, so '
+      + 'closing the tab does not lose your work. On your next visit, a banner '
+      + 'offers to restore the last session if the canvas is empty. To keep '
+      + 'multiple named diagrams, open the Library and click Save diagram — each '
+      + 'entry is stored independently in the browser and can be loaded, renamed '
+      + 'or deleted at any time. Use File → Save as JSON to download the current '
+      + 'diagram as a portable file, and File → Load JSON to bring a saved file '
+      + 'back onto the canvas.',
+  },
+  {
+    id: 'sharing', category: 'Saving and sharing', title: 'Sharing and embedding',
+    keywords: 'share URL link embed export SVG PNG publish present encode hash clipboard',
+    body: 'Click Share in the File menu to encode the current diagram into the '
+      + 'URL. The link contains the whole diagram, so anyone you send it to opens '
+      + 'the same model in their browser — no sign-in or file transfer required. '
+      + 'For a clean view without the editing chrome, add ?embed to the URL or '
+      + 'append #embed to the hash; all the toolbars and panels hide, leaving only '
+      + 'the canvas — useful for a presentation or a published page. SVG and PNG '
+      + 'options in the File menu export a snapshot of the canvas for use outside '
+      + 'the app.',
+  },
 ];
 
 // Expose for non-module browser scripts and the headless test harness.
