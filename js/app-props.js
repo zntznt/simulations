@@ -1407,11 +1407,48 @@ class AppProps {
       }
 
       if (fromGate) {
-        // Gates distribute by weight only; rate/timing/filter don't apply.
-        this._field(panel, 'Weight', 'number', conn.weight, v => {
-          const n = parseFloat(v); conn.weight = isFinite(n) ? Math.max(0, n) : 0; this.renderer.render();
-        }, 'output share (0 = off)');
-        this._info(panel, 'Share of the gate\'s resources routed down this output (deterministic split or weighted chance).');
+        // Gates distribute by weight only; rate/timing/filter don't apply. The
+        // weight may be a fixed number or a live formula over diagram variables
+        // (so the split can shift with simulation state), mirroring formula rates.
+        const useFormula = !!conn.weightFormula || conn._weightWantFormula;
+        const srcRow = document.createElement('div');
+        srcRow.className = 'prop-row';
+        const sl = document.createElement('label'); sl.textContent = 'Weight';
+        const ss = document.createElement('select');
+        for (const [v, t] of [['fixed', 'Fixed number'], ['formula', 'Formula']]) {
+          const o = document.createElement('option');
+          o.value = v; o.textContent = t;
+          if ((useFormula ? 'formula' : 'fixed') === v) o.selected = true;
+          ss.appendChild(o);
+        }
+        ss.addEventListener('change', () => {
+          if (ss.value === 'fixed') { conn.weightFormula = ''; conn._weightWantFormula = false; }
+          else conn._weightWantFormula = true; // remember the choice while the formula is still empty
+          this._renderProps(); this.renderer.render();
+        });
+        srcRow.appendChild(sl); srcRow.appendChild(ss);
+        panel.appendChild(srcRow);
+
+        if (useFormula) {
+          const fRow = document.createElement('div');
+          fRow.className = 'prop-row';
+          fRow.appendChild(document.createElement('label'));
+          const fi = document.createElement('input');
+          fi.type = 'text'; fi.value = conn.weightFormula || '';
+          fi.placeholder = 'e.g. difficulty * 10';
+          fi.addEventListener('input', () => {
+            const valid = !fi.value.trim() || validateFormula(fi.value);
+            fi.classList.toggle('invalid', !valid);
+            if (valid) { conn.weightFormula = fi.value.trim(); this.renderer.render(); }
+          });
+          fRow.appendChild(fi);
+          panel.appendChild(fRow);
+        } else {
+          this._field(panel, '', 'number', conn.weight, v => {
+            const n = parseFloat(v); conn.weight = isFinite(n) ? Math.max(0, n) : 0; this.renderer.render();
+          }, 'output share (0 = off)');
+        }
+        this._info(panel, 'Share of the gate\'s resources routed down this output (deterministic split or weighted chance). A formula is re-evaluated each step, so the split can track variables (e.g. difficulty, gold).');
       } else if (fromDelay) {
         // Delays release matured resources, split across outputs by rate.
         rateField();

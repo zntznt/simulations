@@ -66,6 +66,11 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 - [x] **Gate "all-outputs" / explicit per-output % labels (P2).** New "all"
       gate mode pushes the full weight to every output; probabilistic mode shows
       computed % labels on each outgoing connection.
+- [x] **Formula-driven gate weights (P1).** A gate output's weight can be a
+      fixed number *or* a formula over the shared variables (params, custom vars,
+      published state values), re-evaluated each step — so the split can shift
+      with simulation state (difficulty scaling, adaptive routing). Mirrors
+      formula rates; the % labels stay live during a run.
 - [x] **Synchronous turn-based vs asynchronous real-time time modes (P3).**
       Diagram-level Time mode: `sync` fires every automatic node each step;
       `async` gives each automatic node its own "Fire every" / "Phase" rhythm.
