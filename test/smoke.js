@@ -238,6 +238,38 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('editor: place / drag-connect / right-click context menu (opens, no instant-delete, Delete acts)');
   else fail('editor ops: ' + JSON.stringify(editor));
 
+  // Regression: an interactive node must stay selectable while the sim runs.
+  // Clicking it should fire it AND select it — previously the handler fired and
+  // returned early, so an interactive node could never be selected during a run.
+  const interSel = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const src = d.addNode(new MNode(NodeType.SOURCE, 250, 250));
+    const pool = d.addNode(new MNode(NodeType.POOL, 450, 250));
+    src.activation = ActivationMode.INTERACTIVE;
+    const c = new MConnection(src.id, pool.id, ConnectionType.RESOURCE); c.rate = 1;
+    d.addConnection(c);
+    window.app._commit();
+    window.app.renderer.render();
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const rd = window.app.renderer;
+    const sx = src.x * rd._scale + rd._panX, sy = src.y * rd._scale + rd._panY;
+    const ev = (type) => canvas.dispatchEvent(new MouseEvent(type,
+      { clientX: r.left + sx, clientY: r.top + sy, button: 0, bubbles: true }));
+    window.app.editor.setTool('select');
+    window.app.engine.run();
+    const before = pool.resources;
+    ev('mousedown'); ev('mouseup');
+    const selected = !!(window.app.editor.selection && window.app.editor.selection.has(src.id));
+    const fired = pool.resources > before;
+    window.app.engine.stop();
+    return { selected, fired };
+  });
+  if (interSel.selected && interSel.fired)
+    ok('interactive node stays selectable during a run (click fires AND selects)');
+  else fail('interactive select-during-run: ' + JSON.stringify(interSel));
+
   // Context menu: empty-canvas variant (Paste disabled with an empty clipboard,
   // Select all present) and "Save as component…" opening the Library focused.
   const ctxMenu = await page.evaluate(() => {

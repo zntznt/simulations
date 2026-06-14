@@ -266,10 +266,11 @@ class Editor {
     if (this.tool === 'select') {
       if (hit && hit.type === 'node') {
         const node = this.diagram.nodes.get(hit.id);
-        // If interactive node during run
+        // During a run, clicking an interactive node fires it. Fall through (no
+        // early return) so it still selects and can be moved or inspected —
+        // before, an interactive node was impossible to select while running.
         if (this.engine.running && node.activation === ActivationMode.INTERACTIVE) {
           this.engine.fireInteractive(hit.id);
-          return;
         }
         if (e.shiftKey) {
           // Toggle this node in/out of the selection (no drag).
