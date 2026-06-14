@@ -47,9 +47,13 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
       there's no double flow.
 - [x] **Finite / limited Source (P1).** Source can hold a finite starting stock
       ("Limited stock" toggle) and run dry.
-- [x] **Queue node (P1).** Single-server FIFO: one unit in service at a time for
-      `processTime` steps — serialized throughput + per-item latency, distinct
-      from Delay's batch release.
+- [x] **Queue node (P1).** A FIFO line feeding one or more parallel **servers**:
+      up to `servers` units in service at once, each taking `processTime` steps,
+      so throughput is `servers ÷ processTime` (M/D/1 at one server, M/D/c beyond).
+      Per-item latency and a shared waiting line; distinct from Delay's batch
+      release. Tracks **live metrics** — throughput, average/longest wait before
+      service, and peak line length — shown in the properties panel and refreshed
+      each step.
 - [x] **State-connection modifiers (P1).** A state connection can add
       `factor × sourceValue` to a target pool/converter each step (negative =
       decay); self-connections enable interest/decay in place. _(Connection-rate

@@ -1453,6 +1453,7 @@ class Renderer {
     const bMap = { passive: 'P', interactive: '▶', starting: '1×', automatic: '' };
     let b = bMap[node.activation] ?? '';
     if (node.flowMode === 'pull') b = '↤' + (b ? ' ' + b : '');
+    if (node.type === NodeType.QUEUE && (node.servers || 1) > 1) b = (b ? b + ' ' : '') + `×${node.servers}`;
     if (node.endEnabled) b = (b ? b + ' ' : '') + '🏁';
     badge.textContent = b;
   }
