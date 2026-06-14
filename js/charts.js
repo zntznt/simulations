@@ -52,7 +52,7 @@ class Sparkline {
     ctx.font = '11px monospace';
     const last = values[values.length - 1];
     ctx.fillText(`${last}`, w - 30, 12);
-    ctx.fillStyle = '#556';
+    ctx.fillStyle = '#95a3bc';
     ctx.fillText(`max: ${max}`, 4, 12);
   }
 
@@ -125,6 +125,7 @@ class TimelineChart {
       chip.style.setProperty('--chip-color', this._colorOf(idx));
       chip.textContent = node.label || node.type;
       chip.title = (off ? 'Show' : 'Hide') + ` "${node.label || node.type}"`;
+      chip.setAttribute('aria-pressed', String(!off));
       chip.addEventListener('click', () => this.toggleNode(node.id));
       el.appendChild(chip);
     });
@@ -181,7 +182,7 @@ class TimelineChart {
     const nodes = allNodes.filter(n => !this._hidden.has(n.id));
 
     if ((hist.length < 2 && !branches.length) || !nodes.length) {
-      ctx.fillStyle = '#556';
+      ctx.fillStyle = '#95a3bc';
       ctx.font = '12px var(--font)';
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
@@ -224,7 +225,7 @@ class TimelineChart {
     ctx.stroke();
 
     // Y-axis labels
-    ctx.font = '10px monospace'; ctx.fillStyle = '#556';
+    ctx.font = '11px monospace'; ctx.fillStyle = '#95a3bc';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     for (const pct of [0, 0.25, 0.5, 0.75, 1.0]) {
       const v = max * pct;
@@ -234,7 +235,7 @@ class TimelineChart {
     }
 
     // X-axis labels at round step values
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#556';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#95a3bc';
     const maxLabels = Math.max(2, Math.floor(plotW / 45));
     const tickStep = Math.max(1, Math.ceil(maxStep / maxLabels));
     for (let s = 0; s <= maxStep; s += tickStep) {
@@ -245,7 +246,7 @@ class TimelineChart {
     }
     // Always label the last step if it wasn't already hit
     if (maxStep % tickStep !== 0) {
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#556';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#95a3bc';
       ctx.fillText(String(maxStep), xAt(maxStep), padT + plotH + 5);
     }
 

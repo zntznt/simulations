@@ -1224,7 +1224,7 @@ class App {
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(this._toastTimer);
-    this._toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+    this._toastTimer = setTimeout(() => t.classList.remove('show'), Math.max(3000, msg.length * 60));
   }
 
   // ── Example diagrams ──────────────────────────────────────────────────────
@@ -3208,7 +3208,7 @@ class App {
       else b.addEventListener('click', () => { this._hideContextMenu(); handler(); });
       menu.appendChild(b);
     };
-    const sep = () => { const d = document.createElement('div'); d.className = 'menu-sep'; menu.appendChild(d); };
+    const sep = () => { const d = document.createElement('div'); d.className = 'menu-sep'; d.setAttribute('role', 'separator'); menu.appendChild(d); };
     const hasClip = !!(this._clipboard && this._clipboard.nodes && this._clipboard.nodes.length);
 
     if (ctx.kind === 'node') {
@@ -3229,6 +3229,12 @@ class App {
       add('Fit to view', 'expand', () => this.renderer.fitView(), { shortcut: 'Ctrl+0' });
     }
 
+    // When opened by keyboard (Shift+F10 / Menu key), x and y are 0 — centre on the canvas.
+    if (!x && !y) {
+      const canvas = document.getElementById('canvas');
+      if (canvas) { const r = canvas.getBoundingClientRect(); x = r.left + r.width / 2; y = r.top + r.height / 2; }
+    }
+    this._ctxReturnFocus = document.activeElement;
     // Show first so we can measure, then clamp inside the viewport.
     menu.classList.remove('hidden');
     const r = menu.getBoundingClientRect();
@@ -3250,12 +3256,37 @@ class App {
 
     const first = menu.querySelector('.menu-item:not([disabled])');
     if (first) first.focus();
+
+    // Arrow key navigation within the context menu.
+    this._ctxKeyNav = (e) => {
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+      const items = [...menu.querySelectorAll('.menu-item:not([disabled])')]
+        .filter(i => i.offsetParent !== null);
+      if (!items.length) return;
+      e.preventDefault();
+      const idx = items.indexOf(document.activeElement);
+      let next;
+      if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = items.length - 1;
+      else if (e.key === 'ArrowDown') next = (idx + 1) % items.length;
+      else next = (idx - 1 + items.length) % items.length;
+      items[next].focus();
+    };
+    menu.addEventListener('keydown', this._ctxKeyNav);
   }
 
   _hideContextMenu() {
     const menu = document.getElementById('ctx-menu');
     if (!menu || menu.classList.contains('hidden')) return;
     menu.classList.add('hidden');
+    if (this._ctxReturnFocus && typeof this._ctxReturnFocus.focus === 'function') {
+      this._ctxReturnFocus.focus();
+      this._ctxReturnFocus = null;
+    }
+    if (this._ctxKeyNav) {
+      menu.removeEventListener('keydown', this._ctxKeyNav);
+      this._ctxKeyNav = null;
+    }
     if (this._ctxDismiss) {
       window.removeEventListener('mousedown', this._ctxDismiss, true);
       window.removeEventListener('wheel', this._ctxDismiss, true);
@@ -4983,6 +5014,7 @@ class App {
     over.className = 'props-overline';
     const dot = document.createElement('span');
     dot.className = 'props-dot';
+    dot.setAttribute('aria-hidden', 'true');
     dot.style.background = color || 'var(--accent)';
     over.appendChild(dot);
     over.appendChild(document.createTextNode(kind));
