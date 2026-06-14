@@ -1377,6 +1377,39 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('knowledge base: guide opens, deep-links, searches, switches articles, and props "?" links a node to its entry');
   else fail('knowledge base: ' + JSON.stringify(kb));
 
+  // Reusable components: save a 2-node selection as a component, insert it,
+  // verify node count increases by 2, then undo restores the previous count.
+  const comp = await page.evaluate(() => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 200));
+    d.addConnection(new MConnection(s.id, p.id));
+    window.app.renderer.render();
+    window.app._commit(); // snapshot the 2-node baseline so undo can return here
+    // Select both nodes
+    window.app.editor._setSelection([s.id, p.id], null, 'node');
+    const before = d.nodes.size;
+    // Open library and save selection as component
+    window.app._openLibrary();
+    document.getElementById('comp-name').value = 'TestComp';
+    document.getElementById('comp-save').click();
+    // Verify component was saved
+    const saved = window.app._getComponents();
+    const compEntry = saved.find(e => e.name === 'TestComp');
+    // Insert the component
+    if (compEntry) window.app._insertComponent(compEntry);
+    const after = d.nodes.size;
+    // Undo should remove the 2 inserted nodes
+    window.app.undo();
+    const afterUndo = d.nodes.size;
+    return { before, after, afterUndo, savedCount: saved.length, compNodes: compEntry?.nodes.length ?? -1, compConns: compEntry?.conns.length ?? -1 };
+  });
+  if (comp.before === 2 && comp.after === 4 && comp.afterUndo === 2
+      && comp.compNodes === 2 && comp.compConns === 1)
+    ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
+  else fail('components: ' + JSON.stringify(comp));
+
   // UX pass: first-run welcome overlay shows for a brand-new user, dismisses,
   // and sets the seen flag (use a fresh context with no suppression).
   const welcome = await (async () => {

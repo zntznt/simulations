@@ -713,6 +713,7 @@ class App {
       this._renderLibraryList();
       this._toast(`Saved “${name}” to your Library`);
     });
+    document.getElementById('comp-save').addEventListener('click', () => this._saveComponent());
   }
 
   _getLibrary() {
@@ -723,8 +724,98 @@ class App {
     try { localStorage.setItem('sim_library', JSON.stringify(lib)); } catch {}
   }
 
+  // ── Components (reusable subgraphs) ──────────────────────────────────────────
+
+  _getComponents() {
+    try { return JSON.parse(localStorage.getItem('sim_components') || '[]'); } catch { return []; }
+  }
+
+  _saveComponents(list) {
+    try { localStorage.setItem('sim_components', JSON.stringify(list)); } catch {}
+  }
+
+  _saveComponent() {
+    const ids = new Set(this.editor.selection);
+    if (!ids.size) { this._toast('Select nodes first, then click Save selection.'); return; }
+    const name = document.getElementById('comp-name').value.trim() || 'Untitled';
+    const nodes = [...ids].map(id => this.diagram.nodes.get(id)).filter(Boolean).map(n => n.toJSON());
+    const conns = [...this.diagram.connections.values()]
+      .filter(c => ids.has(c.sourceId) && ids.has(c.targetId)).map(c => c.toJSON());
+    const list = this._getComponents();
+    list.push({ name, date: new Date().toLocaleString(), nodes, conns });
+    this._saveComponents(list);
+    document.getElementById('comp-name').value = '';
+    this._renderComponentsList();
+    this._toast(`Saved "${name}" as a component`);
+  }
+
+  _insertComponent(comp) {
+    const idMap = new Map();
+    const newIds = [];
+    for (const nd of comp.nodes) {
+      const node = new MNode(nd.type, nd.x + 40, nd.y + 40);
+      node.loadJSON({ ...nd, id: node.id, x: nd.x + 40, y: nd.y + 40 });
+      this.diagram.addNode(node);
+      idMap.set(nd.id, node.id);
+      newIds.push(node.id);
+    }
+    for (const cd of comp.conns) {
+      const sId = idMap.get(cd.sourceId), tId = idMap.get(cd.targetId);
+      if (!sId || !tId) continue;
+      const conn = new MConnection(sId, tId, cd.type);
+      conn.loadJSON({ ...cd, id: conn.id, sourceId: sId, targetId: tId });
+      this.diagram.addConnection(conn);
+    }
+    this.renderer.render();
+    this.editor._setSelection(newIds, newIds.length === 1 ? newIds[0] : null, 'node');
+    this._commit();
+    this._hideModal('lib-overlay');
+    this._toast(`Inserted "${comp.name}"`);
+  }
+
+  _renderComponentsList() {
+    const list = this._getComponents();
+    const el = document.getElementById('lib-components');
+    el.innerHTML = '';
+    if (!list.length) {
+      el.innerHTML = '<p class="mc-empty">No components yet. Select nodes on the canvas, then click Save selection.</p>';
+      return;
+    }
+    for (let i = 0; i < list.length; i++) {
+      const comp = list[i];
+      const row = document.createElement('div');
+      row.className = 'lib-row';
+      const info = document.createElement('div');
+      info.className = 'lib-info';
+      const nn = comp.nodes.length, cn = comp.conns.length;
+      info.innerHTML = `<b>${this._esc(comp.name)}</b> <span class="lib-date">${this._esc(comp.date)}</span>`
+        + `<span class="lib-desc">${nn} node${nn !== 1 ? 's' : ''}, ${cn} connection${cn !== 1 ? 's' : ''}</span>`;
+      const btns = document.createElement('div');
+      btns.style.cssText = 'display:flex;gap:6px;flex-shrink:0';
+      const insertBtn = document.createElement('button');
+      insertBtn.textContent = 'Insert';
+      insertBtn.className = 'btn btn-primary';
+      insertBtn.addEventListener('click', () => this._insertComponent(comp));
+      const delBtn = document.createElement('button');
+      delBtn.appendChild(this._faIcon('xmark'));
+      delBtn.setAttribute('aria-label', 'Delete component');
+      delBtn.className = 'btn';
+      delBtn.addEventListener('click', () => {
+        list.splice(i, 1);
+        this._saveComponents(list);
+        this._renderComponentsList();
+      });
+      btns.appendChild(insertBtn);
+      btns.appendChild(delBtn);
+      row.appendChild(info);
+      row.appendChild(btns);
+      el.appendChild(row);
+    }
+  }
+
   _openLibrary() {
     this._renderTemplates();
+    this._renderComponentsList();
     this._renderLibraryList();
     this._showModal('lib-overlay');
   }

@@ -378,6 +378,19 @@ const KB_ARTICLES = [
       + 'next time you open it. Use them to keep an eye on the numbers that matter '
       + 'while you build.',
   },
+  {
+    id: 'components', category: 'Building diagrams', title: 'Reusable components',
+    keywords: 'component subgraph reuse stamp paste copy building block group selection save library',
+    body: 'A component is a named building block you save from any selection of '
+      + 'nodes and connections, then stamp onto the canvas as many times as you '
+      + 'like. Select the nodes you want to reuse, open the Library, give the '
+      + 'component a name and click Save selection. Each time you click Insert, '
+      + 'the app places a fresh independent copy — new node IDs, ready to edit — '
+      + 'so modifying a placed copy never touches the saved original or any other '
+      + 'instance. Components are a fast way to build repeated patterns such as a '
+      + 'source–pool–drain trio, a feedback loop or a probability gate, without '
+      + 'redrawing them every time.',
+  },
 ];
 
 // Expose for non-module browser scripts and the headless test harness.
