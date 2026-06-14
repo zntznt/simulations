@@ -45,6 +45,7 @@ class App {
     this._timelineVisible = false;
 
     this._activeFeature = null; // which diagram-rail feature occupies the props panel
+    this._flowReadout = true;   // transient "+N" flow badges on connections during a run
 
     // Scenario branching: checkpoints are full sim-state snapshots you can
     // fork from; branches are finished timelines kept as ghost traces in the
@@ -71,6 +72,26 @@ class App {
         if (pathEl) this.renderer.balls.spawn(pathEl, amount, color, ballDur);
       }
 
+      // Live flow readout: a transient "+N" badge per connection showing the
+      // actual amount that moved this step (the static label only shows the
+      // configured rate). Amounts are summed across colours; the badge takes the
+      // colour of the largest contributor.
+      if (this._flowReadout) {
+        const agg = new Map(); // connId -> { amount, color, top }
+        for (const { connId, color, amount } of transfers) {
+          if (!(amount > 0)) continue;
+          const e = agg.get(connId) || { amount: 0, color, top: 0 };
+          e.amount += amount;
+          if (amount > e.top) { e.top = amount; e.color = color; }
+          agg.set(connId, e);
+        }
+        const flowDur = Math.max(450, Math.min(1400, 900 / this.engine.speed));
+        for (const [connId, e] of agg) {
+          const pathEl = this.renderer.getConnPathEl(connId);
+          if (pathEl) this.renderer.flowFx.flash(pathEl, this._fmtFlow(e.amount), e.color, flowDur);
+        }
+      }
+
       if (fired.length) this.renderer.setFiring(fired);
       else this.renderer.render();
 
@@ -92,6 +113,13 @@ class App {
 
     this._initDiagram();
     this._maybeWelcome();
+  }
+
+  // Compact number for flow badges: integers as-is, fractions to 2 sig decimals.
+  _fmtFlow(v) {
+    const n = Number(v);
+    if (!isFinite(n)) return String(v);
+    return Number.isInteger(n) ? String(n) : String(+n.toFixed(2));
   }
 
   // First-run onboarding: a one-time welcome explaining what the app is and the
@@ -200,6 +228,7 @@ class App {
     this._syncRunButton();
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
+    this.renderer.flowFx.clear();
     this._clearSparklines();
     this.editor._select(null, null);
     this.renderer.render();
@@ -233,6 +262,7 @@ class App {
     this._syncRunButton();
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
+    this.renderer.flowFx.clear();
     this._clearSparklines();
     this.editor._select(null, null);
     if (this._timelineVisible) this.timeline.update();
@@ -270,6 +300,7 @@ class App {
         this._applyMeta();
         this.engine.reset();
         this.renderer.balls.clear();
+        this.renderer.flowFx.clear();
         this._clearSparklines();
         this.editor._select(null, null);
         this.renderer.render();
@@ -472,6 +503,7 @@ class App {
           this._applyMeta();
           this.engine.reset();
           this.renderer.balls.clear();
+          this.renderer.flowFx.clear();
           this._clearSparklines();
           this.editor._select(null, null);
           this.renderer.render();
@@ -1970,6 +2002,7 @@ class App {
       this._syncRunButton();
       document.getElementById('sim-status').textContent = '';
       this.renderer.balls.clear();
+      this.renderer.flowFx.clear();
       this._clearSparklines();
       this.renderer.render();
       if (this._timelineVisible) this.timeline.update();
@@ -2016,6 +2049,16 @@ class App {
       autoBtn.setAttribute('aria-pressed', String(this.editor.autoRevert));
     });
 
+    const flowBtn = document.getElementById('btn-flow');
+    flowBtn.classList.toggle('active', this._flowReadout);
+    flowBtn.setAttribute('aria-pressed', String(this._flowReadout));
+    flowBtn.addEventListener('click', () => {
+      this._flowReadout = !this._flowReadout;
+      flowBtn.classList.toggle('active', this._flowReadout);
+      flowBtn.setAttribute('aria-pressed', String(this._flowReadout));
+      if (!this._flowReadout) this.renderer.flowFx.clear();
+    });
+
     document.getElementById('btn-export-svg').addEventListener('click', () => this._exportSVG());
     document.getElementById('btn-export-png').addEventListener('click', () => this._exportPNG());
     document.getElementById('btn-export-csv').addEventListener('click', () => this._exportCSV());
@@ -2045,6 +2088,7 @@ class App {
             this._applyMeta();
             this.engine.reset();
             this.renderer.balls.clear();
+            this.renderer.flowFx.clear();
             this._clearSparklines();
             this.editor._select(null, null);
             this.renderer.render();
@@ -2922,6 +2966,7 @@ class App {
     document.getElementById('step-counter').textContent = `Step: ${this.engine.step}`;
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
+    this.renderer.flowFx.clear();
     this._clearSparklines();
     this.renderer.render();
     this._commit();

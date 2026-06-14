@@ -279,6 +279,81 @@ class BallSystem {
   }
 }
 
+// ── Live flow readout ──────────────────────────────────────────────────────
+// Transient "+N" badges that pulse on a connection's midpoint each step,
+// showing the actual amount that flowed (the static label only shows the
+// configured rate). Each badge fades in, drifts off the line, and fades out.
+class FlowFx {
+  constructor(layer) {
+    this.layer = layer;
+    this._items = [];
+    this._running = false;
+    this._reduce = typeof matchMedia === 'function'
+      && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  flash(pathEl, text, color, durationMs) {
+    if (!pathEl) return;
+    let pathLen;
+    try { pathLen = pathEl.getTotalLength(); } catch { return; }
+    if (pathLen < 1) return;
+
+    // Midpoint and an upward-ish normal, so the badge sits clear of the line
+    // and the static rate label that lives at the midpoint.
+    let p, nx = 0, ny = -1;
+    try {
+      p = pathEl.getPointAtLength(pathLen * 0.5);
+      const a = pathEl.getPointAtLength(Math.max(0, pathLen * 0.5 - 2));
+      const b = pathEl.getPointAtLength(Math.min(pathLen, pathLen * 0.5 + 2));
+      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+      nx = -dy / len; ny = dx / len;
+      if (ny > 0) { nx = -nx; ny = -ny; }  // prefer the upward normal
+    } catch { return; }
+
+    const g = svgEl('g', { 'pointer-events': 'none', opacity: '0' });
+    const rect = svgEl('rect', { rx: '7', ry: '7', fill: 'rgba(12,14,20,0.9)', stroke: color, 'stroke-width': '1' });
+    const t = svgEl('text', {
+      'text-anchor': 'middle', 'dominant-baseline': 'central',
+      'font-size': '11', 'font-family': 'monospace', 'font-weight': '600', fill: color,
+    });
+    t.textContent = text;
+    g.appendChild(rect); g.appendChild(t);
+    this.layer.appendChild(g);
+    try {
+      const bb = t.getBBox(), px = 6, py = 3;
+      rect.setAttribute('x', bb.x - px); rect.setAttribute('y', bb.y - py);
+      rect.setAttribute('width', bb.width + px * 2); rect.setAttribute('height', bb.height + py * 2);
+    } catch { /* ignore */ }
+
+    const off = 13;
+    this._items.push({
+      g, nx, ny, baseX: p.x + nx * off, baseY: p.y + ny * off,
+      start: performance.now(), dur: durationMs,
+    });
+    if (!this._running) this._loop();
+  }
+
+  clear() { for (const it of this._items) it.g.remove(); this._items = []; }
+
+  _loop() {
+    this._running = true;
+    const tick = (now) => {
+      this._items = this._items.filter(it => {
+        const t = (now - it.start) / it.dur;
+        if (t >= 1) { it.g.remove(); return false; }
+        const op = t < 0.2 ? t / 0.2 : t > 0.6 ? (1 - t) / 0.4 : 1;
+        const drift = this._reduce ? 0 : t * 11;
+        it.g.setAttribute('opacity', String(Math.max(0, op)));
+        it.g.setAttribute('transform', `translate(${it.baseX + it.nx * drift},${it.baseY + it.ny * drift})`);
+        return true;
+      });
+      if (this._items.length) requestAnimationFrame(tick);
+      else this._running = false;
+    };
+    requestAnimationFrame(tick);
+  }
+}
+
 // ── Main Renderer ─────────────────────────────────────────────────────────
 
 class Renderer {
@@ -301,6 +376,7 @@ class Renderer {
 
     this._setup();
     this.balls = new BallSystem(this.ballLayer);
+    this.flowFx = new FlowFx(this.flowLayer);
   }
 
   _setup() {
@@ -372,9 +448,10 @@ class Renderer {
     this.chartLayer = svgEl('g');
     this.noteLayer = svgEl('g');
     this.ballLayer = svgEl('g');
+    this.flowLayer = svgEl('g');
     this.tempLayer = svgEl('g');
     this.root.append(this.groupLayer, this.connLayer, this.nodeLayer,
-                     this.chartLayer, this.noteLayer, this.ballLayer, this.tempLayer);
+                     this.chartLayer, this.noteLayer, this.ballLayer, this.flowLayer, this.tempLayer);
     this.svg.appendChild(this.root);
 
     this._updateTransform();

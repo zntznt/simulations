@@ -988,6 +988,35 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P2 chart: bar-chart hover snaps to the correct slot (slot-based, not edge-spaced)');
   else fail('P2 chart bar hover: ' + JSON.stringify(barHover));
 
+  // Live flow readout: a step that moves resources flashes a "+N" badge on the
+  // connection; the Flow toggle suppresses and clears it.
+  const flow = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 150, 150));
+    const p = d.addNode(new MNode(NodeType.POOL, 380, 150));
+    const c = d.addConnection(new MConnection(s.id, p.id)); c.rate = 2;
+    window.app.renderer.render();
+    const btnExists = !!document.getElementById('btn-flow');
+
+    window.app._flowReadout = true;
+    window.app.engine.reset();
+    window.app.engine.doStep();
+    const layer = window.app.renderer.flowLayer;
+    const badgeCount = layer.childElementCount;
+    const txt = [...layer.querySelectorAll('text')].map(t => t.textContent).join(',');
+
+    // Toggle off clears existing badges and suppresses future ones.
+    window.app._flowReadout = false;
+    window.app.renderer.flowFx.clear();
+    window.app.engine.doStep();
+    const afterOff = window.app.renderer.flowLayer.childElementCount;
+    return { btnExists, badgeCount, txt, afterOff };
+  });
+  if (flow.btnExists && flow.badgeCount >= 1 && /2/.test(flow.txt) && flow.afterOff === 0)
+    ok('flow readout: step flashes a flow badge on the connection; toggle suppresses it');
+  else fail('flow readout: ' + JSON.stringify(flow));
+
   // Hit-test order matches visual stacking: an annotation painted over a node
   // is selected (not the node hidden beneath it), and a bare node is still hit.
   const hitOrder = await page.evaluate(() => {
