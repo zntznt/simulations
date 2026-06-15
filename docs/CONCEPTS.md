@@ -320,9 +320,9 @@ The pieces above combine into feedback loops, which is where the model gets its 
 Here is the smallest complete one — a population that grows fast when small and levels
 off near a carrying capacity (logistic growth, the classic *negative* feedback loop).
 
-**Build it:**
+**Build it:** *(to draw a self‑loop, click the same node twice with the state tool.)*
 
-1. Add a **Pool** named `Rabbits` and set its starting amount to `10` (§2).
+1. Add a **Pool** named `Rabbits` and set its **Starting amount** to `10` (§2).
 2. Draw a **state connection from `Rabbits` back to `Rabbits`**, role **Variable**,
    name `r`. This publishes the population count as `r` so formulas can read it (§5, §8).
 3. Draw a **second state connection from `Rabbits` to itself**, role **Modifier**,

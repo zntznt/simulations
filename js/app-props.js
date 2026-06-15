@@ -1213,11 +1213,12 @@ class AppProps {
 
     if (node.type !== NodeType.SOURCE && node.type !== NodeType.REGISTER
       && node.type !== NodeType.DRAIN && node.type !== NodeType.TRADER) {
-      this._field(panel, 'Resources', 'number', node.resources, v => {
+      this._field(panel, 'Starting amount', 'number', node.resources, v => {
         node.setCount(Math.max(0, parseInt(v) || 0));
         this.renderer.render();
       });
-      // Quick +/- steppers for adjusting resources during play
+      // Quick +/- steppers for adjusting the current amount during play
+      // (these nudge the live value without changing the starting baseline).
       const stepRow = document.createElement('div');
       stepRow.className = 'prop-row';
       stepRow.appendChild(document.createElement('label'));
