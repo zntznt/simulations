@@ -404,17 +404,20 @@ const KB_ARTICLES = [
   },
   {
     id: 'timeline', category: 'Running and analysis', title: 'Timeline chart',
-    keywords: 'timeline chart graph plot history hover scrub series steps line compare brush normalize log linear',
+    keywords: 'timeline chart graph plot history hover scrub series steps line compare brush normalize log linear legend show hide all toggle',
     body: 'The timeline chart plots node values over the course of a run so you can '
       + 'see how stocks rise, fall and settle rather than reading a single snapshot. '
-      + 'Open it from the Analysis menu and it tracks the run live. Hover the chart '
-      + 'to read every series at a step; drag across a range to compare two moments '
-      + 'in time — the panel shows each node\'s value at both ends and the delta '
-      + 'between them. Press Clear or Esc to dismiss the comparison. The Y-axis '
-      + 'scale control in the header switches between Linear (raw values on a shared '
-      + 'axis), Log (decade ticks, useful when series differ by orders of magnitude) '
-      + 'and Normalized (each series scaled 0–100%, for shape comparison). The scrub '
-      + 'slider beneath the canvas replays any past step without rerunning.',
+      + 'Open it from the Analysis menu and it tracks the run live. Each node gets a '
+      + 'legend chip above the chart: click one to hide or show its line, or use the '
+      + 'Show all / Hide all chip to toggle every series at once when the chart gets '
+      + 'crowded. Hover the chart to read every series at a step; drag across a range '
+      + 'to compare two moments in time — the panel shows each node\'s value at both '
+      + 'ends and the delta between them. Press Clear or Esc to dismiss the '
+      + 'comparison. The Y-axis scale control in the header switches between Linear '
+      + '(raw values on a shared axis), Log (decade ticks, useful when series differ '
+      + 'by orders of magnitude) and Normalized (each series scaled 0–100%, for shape '
+      + 'comparison). The scrub slider beneath the canvas replays any past step '
+      + 'without rerunning.',
   },
   {
     id: 'monte-carlo', category: 'Running and analysis', title: 'Monte Carlo batch',

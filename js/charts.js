@@ -182,10 +182,38 @@ class TimelineChart {
     this._refreshLegend();
   }
 
+  // Show or hide every node series at once, so you don't have to click each
+  // chip. Hides all when any series is currently visible; shows all when every
+  // series is already hidden. Branch (ghost) overlays are left untouched.
+  toggleAllNodes() {
+    const allHidden = this._cachedNodes.length > 0
+      && this._cachedNodes.every(n => this._hidden.has(n.id));
+    for (const n of this._cachedNodes) {
+      if (allHidden) this._hidden.delete(n.id);
+      else this._hidden.add(n.id);
+    }
+    this.update();
+    this._refreshLegend();
+  }
+
   _refreshLegend() {
     const el = this.legendEl;
     if (!el) return;
     el.innerHTML = '';
+    // Bulk toggle: one control to show/hide every node series at once. It
+    // reflects the current state — "Hide all" while anything is visible,
+    // "Show all" once every series is hidden — and only appears when there
+    // are at least two series to make the shortcut worthwhile.
+    if (this._cachedNodes.length >= 2) {
+      const allHidden = this._cachedNodes.every(n => this._hidden.has(n.id));
+      const allBtn = document.createElement('button');
+      allBtn.className = 'tl-chip tl-chip-all';
+      allBtn.textContent = allHidden ? 'Show all' : 'Hide all';
+      allBtn.title = allHidden ? 'Show every series' : 'Hide every series';
+      allBtn.setAttribute('aria-pressed', String(!allHidden));
+      allBtn.addEventListener('click', () => this.toggleAllNodes());
+      el.appendChild(allBtn);
+    }
     this._cachedNodes.forEach((node, idx) => {
       const chip = document.createElement('button');
       const off = this._hidden.has(node.id);
@@ -259,7 +287,13 @@ class TimelineChart {
       ctx.font = '12px var(--font)';
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
-      ctx.fillText('Run the simulation to plot node values over time.', 12, h / 2);
+      // Distinguish "no data yet" from "everything is toggled off" — the latter
+      // is recoverable from the legend's Show all chip.
+      const hasData = hist.length >= 2 || branches.length;
+      const msg = (hasData && allNodes.length && !nodes.length)
+        ? 'All series hidden — click “Show all” in the legend to bring them back.'
+        : 'Run the simulation to plot node values over time.';
+      ctx.fillText(msg, 12, h / 2);
       return;
     }
 
