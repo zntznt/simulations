@@ -295,8 +295,9 @@ class MNode {
       this.value = 0;
       this.formula = '';
     } else if (type === NodeType.CONVERTER) {
-      this.inputAmount = 1;     // resources consumed per conversion
+      this.inputAmount = 1;     // resources consumed per conversion (legacy single-input mode)
       this.outputColor = '#ffa726';
+      this.inputRecipe = [];    // [{color, amount}]; non-empty activates multi-ingredient mode
     } else if (type === NodeType.DELAY) {
       this.delay = 2;
       this._queue = [];         // [{amount, color, stepsLeft}]
@@ -431,7 +432,10 @@ class MNode {
     if (this.type === NodeType.SOURCE) { d.resourceColor = this.resourceColor; d.limited = this.limited || undefined; }
     if (this.type === NodeType.GATE) d.gateMode = this.gateMode;
     if (this.type === NodeType.REGISTER) { d.value = this.value; d.formula = this.formula; }
-    if (this.type === NodeType.CONVERTER) { d.inputAmount = this.inputAmount; d.outputColor = this.outputColor; }
+    if (this.type === NodeType.CONVERTER) {
+      d.inputAmount = this.inputAmount; d.outputColor = this.outputColor;
+      if (this.inputRecipe && this.inputRecipe.length) d.inputRecipe = this.inputRecipe.map(i => ({ ...i }));
+    }
     if (this.type === NodeType.DELAY) d.delay = this.delay;
     if (this.type === NodeType.QUEUE) {
       d.processTime = this.processTime;
@@ -459,6 +463,9 @@ class MNode {
       this.balked = 0; this.reneged = 0;
     }
     if (this.type === NodeType.TRADER) this.trades = 0;
+    if (this.type === NodeType.CONVERTER) {
+      this.inputRecipe = Array.isArray(d.inputRecipe) ? d.inputRecipe.map(i => ({ ...i })) : [];
+    }
     return this;
   }
 }

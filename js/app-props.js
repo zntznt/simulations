@@ -1305,12 +1305,116 @@ class AppProps {
     }
 
     if (node.type === NodeType.CONVERTER) {
-      this._field(panel, 'Input / conversion', 'number', node.inputAmount,
-        v => { node.inputAmount = Math.max(1, parseInt(v) || 1); });
-      this._colorField(panel, 'Output color', node.outputColor || '#ffa726', v => {
-        node.outputColor = v; this.renderer.render();
-      }, false, true);
-      this._info(panel, 'Consumes this many held resources per conversion, then emits each output connection’s rate in the output color.');
+      const hasRecipe = node.inputRecipe && node.inputRecipe.length > 0;
+
+      if (!hasRecipe) {
+        // ── Legacy single-input mode ──────────────────────────────────────────
+        this._field(panel, 'Input / conversion', 'number', node.inputAmount,
+          v => { node.inputAmount = Math.max(1, parseInt(v) || 1); });
+        this._colorField(panel, 'Output color', node.outputColor || '#ffa726', v => {
+          node.outputColor = v; this.renderer.render();
+        }, false, true);
+        this._info(panel, 'Consumes this many held resources per conversion, then emits each output connection\'s rate in the output color.');
+
+        const addRecipeBtn = document.createElement('button');
+        addRecipeBtn.className = 'btn';
+        addRecipeBtn.style.cssText = 'margin-top:6px;width:100%;font-size:11px;';
+        addRecipeBtn.textContent = '+ Add multi-ingredient recipe';
+        addRecipeBtn.addEventListener('click', () => {
+          node.inputRecipe = [{ color: node.outputColor || '#ffa726', amount: 1 }];
+          this._commit(); this._renderProps();
+        });
+        panel.appendChild(addRecipeBtn);
+      } else {
+        // ── Recipe mode ───────────────────────────────────────────────────────
+        this._section(panel, 'Ingredients (per conversion)');
+
+        const recipeList = document.createElement('div');
+        recipeList.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-bottom:4px;';
+        for (let i = 0; i < node.inputRecipe.length; i++) {
+          const ing = node.inputRecipe[i];
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+          const colorPicker = document.createElement('input');
+          colorPicker.type = 'color';
+          colorPicker.value = ing.color || '#ffa726';
+          colorPicker.style.cssText = 'width:36px;height:28px;padding:1px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:none;flex-shrink:0;';
+          colorPicker.addEventListener('input', () => { ing.color = colorPicker.value; this.renderer.render(); });
+          colorPicker.addEventListener('change', () => { this._commit(); });
+
+          // Resource type shortcut
+          if (this.diagram.resourceTypes && this.diagram.resourceTypes.length) {
+            const ts = document.createElement('select');
+            ts.style.cssText = 'flex:1;font-size:11px;min-width:0;';
+            const blank = document.createElement('option');
+            blank.value = ''; blank.textContent = '— type —';
+            ts.appendChild(blank);
+            const cur = (ing.color || '').toLowerCase();
+            for (const t of this.diagram.resourceTypes) {
+              const o = document.createElement('option');
+              o.value = t.color; o.textContent = t.name || '(unnamed)';
+              if (t.color && t.color.toLowerCase() === cur) o.selected = true;
+              ts.appendChild(o);
+            }
+            ts.addEventListener('change', () => {
+              if (ts.value) { ing.color = ts.value; colorPicker.value = ts.value; this._commit(); this.renderer.render(); }
+            });
+            row.appendChild(colorPicker); row.appendChild(ts);
+          } else {
+            const lbl = document.createElement('label');
+            lbl.style.cssText = 'font-size:11px;color:var(--text-dim);flex:1;';
+            lbl.textContent = 'Color';
+            row.appendChild(colorPicker); row.appendChild(lbl);
+          }
+
+          const amtInp = document.createElement('input');
+          amtInp.type = 'number'; amtInp.min = '1'; amtInp.value = ing.amount || 1;
+          amtInp.style.cssText = 'width:52px;text-align:center;';
+          amtInp.addEventListener('change', () => {
+            ing.amount = Math.max(1, parseInt(amtInp.value) || 1); this._commit();
+          });
+
+          const rmBtn = document.createElement('button');
+          rmBtn.className = 'btn btn-danger';
+          rmBtn.style.cssText = 'padding:2px 7px;font-size:11px;flex-shrink:0;';
+          rmBtn.title = 'Remove ingredient';
+          rmBtn.appendChild(this._faIcon('times'));
+          rmBtn.addEventListener('click', () => {
+            node.inputRecipe.splice(i, 1);
+            this._commit(); this._renderProps();
+          });
+
+          row.appendChild(amtInp); row.appendChild(rmBtn);
+          recipeList.appendChild(row);
+        }
+        panel.appendChild(recipeList);
+
+        const addIngBtn = document.createElement('button');
+        addIngBtn.className = 'btn';
+        addIngBtn.style.cssText = 'width:100%;font-size:11px;';
+        addIngBtn.textContent = '+ Add ingredient';
+        addIngBtn.addEventListener('click', () => {
+          node.inputRecipe.push({ color: '#ffa726', amount: 1 });
+          this._commit(); this._renderProps();
+        });
+        panel.appendChild(addIngBtn);
+
+        this._sep(panel);
+        this._colorField(panel, 'Default output', node.outputColor || '#ffa726', v => {
+          node.outputColor = v; this.renderer.render();
+        }, false, true);
+        this._info(panel, 'Each conversion consumes exactly these ingredients. Per-connection output color can be set on each outgoing connection. Default output is the fallback when none is set.');
+
+        const clearRecipeBtn = document.createElement('button');
+        clearRecipeBtn.className = 'btn';
+        clearRecipeBtn.style.cssText = 'margin-top:4px;width:100%;font-size:11px;';
+        clearRecipeBtn.textContent = 'Switch to single-input mode';
+        clearRecipeBtn.addEventListener('click', () => {
+          node.inputRecipe = []; this._commit(); this._renderProps();
+        });
+        panel.appendChild(clearRecipeBtn);
+      }
     }
 
     if (node.type === NodeType.DRAIN) {
@@ -1578,7 +1682,13 @@ class AppProps {
         }
 
         if (fromConverter) {
-          this._info(panel, 'Amount emitted per conversion, in the converter\'s output color.');
+          // Per-connection mint color: colorFilter on outgoing converter connections
+          // overrides the node's outputColor for just this output.
+          this._section(panel, 'Output color');
+          this._colorField(panel, 'Color', conn.colorFilter || '', v => {
+            conn.colorFilter = v; this.renderer.render();
+          }, true, true);
+          this._info(panel, 'Color minted by this output each conversion. Overrides the converter\'s default output color. Leave empty to use the converter default.');
         } else {
           // Only Source / Pool outputs honor timing, color filter, condition.
           this._section(panel, 'Timing');

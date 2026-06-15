@@ -69,17 +69,19 @@ const KB_ARTICLES = [
   },
   {
     id: 'node-converter', category: 'Nodes', title: 'Converter',
-    keywords: 'convert craft refine recipe transform input output exchange',
-    body: 'A converter turns one resource into another, consuming a set number of '
-      + 'input resources to produce each unit of output. Set the input amount to '
-      + 'define the recipe — an input amount of two means every two resources that '
-      + 'arrive become one new resource in the converter’s output color, which then '
-      + 'flows out along its outgoing connections. There is no separate output '
-      + 'amount: each completed conversion yields one unit, so a recipe is always N '
-      + 'in for one out. Converters are how you model crafting, refining or any '
-      + 'exchange where raw materials are spent to make something else. Anything '
-      + 'left over that cannot complete a full conversion stays put until enough '
-      + 'arrives.',
+    keywords: 'convert craft refine recipe transform input output exchange multi ingredient',
+    body: 'A converter turns one or more resource types into one or more outputs, '
+      + 'consuming a fixed amount each conversion. In single-input mode the '
+      + '"Input / conversion" number sets how many aggregate resources are consumed per '
+      + 'batch and every output fires in the converter\'s output color. For crafting '
+      + 'recipes that require specific resource types — 2 wood and 1 stone to make a '
+      + 'building, for example — click "Add multi-ingredient recipe" to switch to recipe '
+      + 'mode: define each ingredient with its color and amount, and the converter only '
+      + 'fires when it holds all of them simultaneously. Each outgoing connection can '
+      + 'produce a different color by setting its Output color in the connection '
+      + 'properties panel, making one converter capable of yielding multiple distinct '
+      + 'output types in a single conversion. Anything left over that cannot complete a '
+      + 'full conversion stays put until enough arrives.',
   },
   {
     id: 'node-register', category: 'Nodes', title: 'Register',

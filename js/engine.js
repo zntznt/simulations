@@ -698,13 +698,34 @@ class SimEngine {
     return shares;
   }
 
-  // Converter: consumes `inputAmount` of held resources per conversion and
-  // emits each outgoing connection's rate in the converter's output color.
+  // Converter: consumes inputs and emits each outgoing connection's rate.
+  //
+  // Two modes:
+  //   Legacy (inputRecipe empty): consumes `inputAmount` aggregate resources and
+  //     emits in `outputColor`.
+  //   Recipe (inputRecipe non-empty): consumes exactly the listed {color, amount}
+  //     ingredients per conversion — all must be present or nothing fires.
+  //
+  // Per-connection output color: if an outgoing connection's colorFilter is set it
+  // acts as the mint color for that connection; otherwise `outputColor` is used.
   _fireConverter(node, outs, ctx) {
-    const need = Math.max(1, Math.round(node.inputAmount || 1));
+    const recipe = node.inputRecipe && node.inputRecipe.length ? node.inputRecipe : null;
+    const need = recipe ? 0 : Math.max(1, Math.round(node.inputAmount || 1));
+    const defaultColor = node.outputColor || DEFAULT_COLOR;
     let conversions = 0, guard = 0;
 
-    while (node.resources >= need && guard++ < 10000) {
+    while (guard++ < 10000) {
+      // Check input availability
+      if (recipe) {
+        node.reconcile();
+        const canFire = recipe.every(
+          ing => (node.colorMap[ing.color] || 0) >= Math.max(1, Math.round(ing.amount || 1))
+        );
+        if (!canFire) break;
+      } else {
+        if (node.resources < need) break;
+      }
+
       // Figure out how much each output can take, reserving as we go so two
       // connections to the same target can't jointly exceed its capacity.
       const grants = [];
@@ -713,13 +734,22 @@ class SimEngine {
         const amt = this._acceptable(c.targetId, want, ctx);
         if (amt > 0) { this._reserve(c.targetId, amt, ctx); grants.push({ c, amt }); }
       }
-      if (!grants.length) break; // every output full — stop, keep the input
+      if (!grants.length) break; // every output full — stop, keep the inputs
 
-      node.takeResources(need);
+      // Consume inputs
+      if (recipe) {
+        for (const ing of recipe) {
+          node.takeResources(Math.max(1, Math.round(ing.amount || 1)), ing.color);
+        }
+      } else {
+        node.takeResources(need);
+      }
       conversions++;
-      const color = node.outputColor || DEFAULT_COLOR;
+
       for (const g of grants) {
-        this._give(g.c.targetId, color, g.amt, g.c.id, ctx); // already reserved above
+        // colorFilter on outgoing converter connections acts as per-connection mint color
+        const outColor = g.c.colorFilter || defaultColor;
+        this._give(g.c.targetId, outColor, g.amt, g.c.id, ctx);
       }
     }
     return conversions > 0;
