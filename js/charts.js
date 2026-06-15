@@ -79,6 +79,13 @@ class TimelineChart {
     this._scrubStep = null;  // solid playhead drawn while scrubbing history
     this._cachedNodeIds = '';
     this._cachedNodes = [];
+    // Brush-to-compare: select a window [aStep, bStep] (real step units) to
+    // compare each series' value at the two endpoints. _drag holds the in-flight
+    // gesture; onSelection notifies the app so it can show its head controls.
+    this._sel = null;
+    this._drag = null;
+    this.onSelection = null;
+    this._geom = null;
     // Supplied by the app: () => [{ id, name, history, visible }] — saved
     // timelines ("branches") drawn as dashed ghost traces for comparison.
     this.getBranches = null;
@@ -90,15 +97,67 @@ class TimelineChart {
   }
 
   _bindHover() {
+    const px = (e) => e.clientX - this.canvas.getBoundingClientRect().left;
+    this.canvas.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      this._drag = { x0: px(e), x1: px(e), moved: false };
+    });
     this.canvas.addEventListener('mousemove', (e) => {
-      const rect = this.canvas.getBoundingClientRect();
-      this._hoverX = e.clientX - rect.left;
+      const x = px(e);
+      if (this._drag) {
+        this._drag.x1 = x;
+        if (Math.abs(this._drag.x1 - this._drag.x0) > 3) this._drag.moved = true;
+        this._hoverX = null;
+      } else {
+        this._hoverX = x;
+      }
+      this.update();
+    });
+    // Release anywhere: a dragged window commits a comparison; a plain click
+    // clears any existing one.
+    window.addEventListener('mouseup', () => {
+      if (!this._drag) return;
+      const d = this._drag; this._drag = null;
+      if (d.moved) this._commitSelection(d.x0, d.x1);
+      else this.clearSelection();
       this.update();
     });
     this.canvas.addEventListener('mouseleave', () => {
       this._hoverX = null;
       this.update();
     });
+  }
+
+  // Map a canvas x to a step, then snap to the nearest recorded live snapshot
+  // (history may be stride-sampled, so the readout uses real recorded values).
+  _stepAtX(x) {
+    const g = this._geom; if (!g) return 0;
+    return Math.max(0, Math.min(g.maxStep, ((x - g.padL) / g.plotW) * g.maxStep));
+  }
+  _nearestSnap(stepF) {
+    const hist = this.engine.history;
+    if (!hist.length) return null;
+    let best = 0;
+    for (let i = 1; i < hist.length; i++) {
+      if (Math.abs(hist[i].step - stepF) < Math.abs(hist[best].step - stepF)) best = i;
+    }
+    return hist[best];
+  }
+  _commitSelection(x0, x1) {
+    const sa = this._nearestSnap(this._stepAtX(x0));
+    const sb = this._nearestSnap(this._stepAtX(x1));
+    if (!sa || !sb || sa.step === sb.step) { this.clearSelection(); return; }
+    let aStep = sa.step, bStep = sb.step;
+    if (aStep > bStep) { const t = aStep; aStep = bStep; bStep = t; }
+    this._sel = { aStep, bStep };
+    if (this.onSelection) this.onSelection({ aStep, bStep, span: bStep - aStep });
+  }
+  clearSelection() {
+    if (!this._sel && !this._drag) return;
+    this._sel = null; this._drag = null;
+    if (this.onSelection) this.onSelection(null);
+    this.update();
   }
 
   // Position of the scrub playhead (real step number), or null to hide it.
@@ -150,6 +209,11 @@ class TimelineChart {
     ctx.fillRect(0, 0, w, h);
 
     const hist = this.engine.history;
+    // A comparison pins two fixed points; drop it once the run is moving again.
+    if (this._sel && this.engine.running) {
+      this._sel = null;
+      if (this.onSelection) this.onSelection(null);
+    }
     const allBranches = this.getBranches ? this.getBranches() : [];
     const branches = allBranches.filter(b => b.visible && b.history.length >= 2);
 
@@ -207,6 +271,8 @@ class TimelineChart {
     const plotW = w - padL - padR, plotH = h - padT - padB;
     const xAt = s => padL + (s / maxStep) * plotW;
     const yAt = v => padT + plotH - (v / max) * plotH;
+    // Expose geometry so the brush handlers can map pixels ↔ steps.
+    this._geom = { padL, plotW, maxStep };
 
     // Horizontal grid lines at 25/50/75/100%
     ctx.strokeStyle = '#1e2535';
@@ -290,8 +356,48 @@ class TimelineChart {
       ctx.closePath(); ctx.fill();
     }
 
-    // Hover crosshair + tooltip (live run only; ghosts are visual context)
-    if (this._hoverX !== null && hist.length >= 2) {
+    // Provisional brush band while dragging out a comparison window.
+    if (this._drag && this._drag.moved) {
+      const l = Math.max(padL, Math.min(padL + plotW, Math.min(this._drag.x0, this._drag.x1)));
+      const r = Math.max(padL, Math.min(padL + plotW, Math.max(this._drag.x0, this._drag.x1)));
+      ctx.fillStyle = 'rgba(74,158,255,0.12)';
+      ctx.fillRect(l, padT, r - l, plotH);
+      ctx.strokeStyle = 'rgba(74,158,255,0.6)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(l, padT); ctx.lineTo(l, padT + plotH);
+      ctx.moveTo(r, padT); ctx.lineTo(r, padT + plotH);
+      ctx.stroke();
+    }
+
+    // A committed comparison window: dim outside it (focus on the span), shade
+    // inside, mark both endpoints, and draw the per-series A→B readout.
+    if (this._sel) {
+      const snapA = this._nearestSnap(this._sel.aStep);
+      const snapB = this._nearestSnap(this._sel.bStep);
+      if (snapA && snapB) {
+        const xa = xAt(snapA.step), xb = xAt(snapB.step);
+        const l = Math.min(xa, xb), r = Math.max(xa, xb);
+        ctx.fillStyle = 'rgba(8,10,15,0.55)';
+        ctx.fillRect(padL, padT, l - padL, plotH);
+        ctx.fillRect(r, padT, padL + plotW - r, plotH);
+        ctx.fillStyle = 'rgba(74,158,255,0.08)';
+        ctx.fillRect(l, padT, r - l, plotH);
+        ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(xa, padT); ctx.lineTo(xa, padT + plotH);
+        ctx.moveTo(xb, padT); ctx.lineTo(xb, padT + plotH);
+        ctx.stroke();
+        ctx.font = '10px monospace'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#4a9eff';
+        ctx.fillText('A·' + snapA.step, Math.max(padL + 12, Math.min(padL + plotW - 12, xa)), padT + 1);
+        ctx.fillText('B·' + snapB.step, Math.max(padL + 12, Math.min(padL + plotW - 12, xb)), padT + 1);
+        this._drawComparePanel(ctx, w, padL, padT, plotW, plotH, l, r, snapA, snapB, nodes, allNodes);
+      }
+    }
+
+    // Hover crosshair + tooltip (live run only; ghosts are visual context).
+    // Suppressed while a comparison window is active — the band is the focus.
+    if (this._hoverX !== null && hist.length >= 2 && !this._sel) {
       const stepF = ((this._hoverX - padL) / plotW) * maxStep;
       // Nearest recorded snapshot by step (history may be stride-sampled).
       let best = 0;
@@ -337,6 +443,52 @@ class TimelineChart {
         ctx.fillText(line, tx + 9, ty + 5 + i * 14);
       });
     }
+  }
+
+  // Floating panel listing each visible series' value at A and B, the change,
+  // and the % change. Placed opposite the selected band so it never covers it.
+  _drawComparePanel(ctx, w, padL, padT, plotW, plotH, bandL, bandR, snapA, snapB, nodes, allNodes) {
+    const fmt = v => (v % 1 === 0 ? String(v) : (Math.round(v * 100) / 100).toFixed(2));
+    const rows = nodes.map(node => {
+      const vA = snapA.snap[node.id] ?? 0, vB = snapB.snap[node.id] ?? 0;
+      const d = vB - vA;
+      const pct = vA !== 0 ? (d / Math.abs(vA)) * 100 : null;
+      const arrow = d > 0 ? '▲' : d < 0 ? '▼' : '–';
+      const pctStr = pct === null ? '' : ` (${pct > 0 ? '+' : ''}${pct.toFixed(Math.abs(pct) < 10 ? 1 : 0)}%)`;
+      return {
+        color: this._colorOf(allNodes.indexOf(node)),
+        main: `${node.label || node.type}: ${fmt(vA)} → ${fmt(vB)}`,
+        delta: `  ${arrow} ${d > 0 ? '+' : ''}${fmt(d)}${pctStr}`,
+        dcolor: d > 0 ? '#4caf50' : d < 0 ? '#ef5350' : '#95a3bc',
+      };
+    });
+    const header = `Step ${snapA.step} → ${snapB.step}  ·  Δ${snapB.step - snapA.step} steps`;
+
+    ctx.font = '10px monospace';
+    const rowW = rows.map(r => ctx.measureText(r.main).width + ctx.measureText(r.delta).width);
+    const tw = Math.max(ctx.measureText(header).width, ...rowW, 0) + 18;
+    const th = (rows.length + 1) * 14 + 10;
+    // Put the panel on whichever side of the band has more room.
+    const center = (bandL + bandR) / 2;
+    let tx = center < padL + plotW / 2 ? padL + plotW - tw - 6 : padL + 6;
+    tx = Math.max(padL + 4, Math.min(padL + plotW - tw - 4, tx));
+    const ty = padT + 2;
+
+    ctx.fillStyle = 'rgba(12,14,20,0.95)';
+    ctx.strokeStyle = '#2a3550'; ctx.lineWidth = 1;
+    this._roundRect(ctx, tx, ty, tw, th, 4);
+    ctx.fill(); ctx.stroke();
+
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#9aa3b2';
+    ctx.fillText(header, tx + 9, ty + 5);
+    rows.forEach((r, i) => {
+      const y = ty + 5 + (i + 1) * 14;
+      ctx.fillStyle = r.color;
+      ctx.fillText(r.main, tx + 9, y);
+      ctx.fillStyle = r.dcolor;
+      ctx.fillText(r.delta, tx + 9 + ctx.measureText(r.main).width, y);
+    });
   }
 
   _roundRect(ctx, x, y, w, h, r) {

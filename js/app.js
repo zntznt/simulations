@@ -536,6 +536,18 @@ class App {
   // Replay a finished run: drag the slider (or hit play) to preview any past
   // step on the canvas and chart without disturbing the engine's live state.
 
+  // Reflect the timeline's comparison window in the header: a span chip plus a
+  // Clear button, both shown only while a window is selected.
+  _updateCompareUI(sel) {
+    const info = document.getElementById('tl-compare-info');
+    const clear = document.getElementById('tl-compare-clear');
+    if (!info || !clear) return;
+    const active = !!sel;
+    info.classList.toggle('hidden', !active);
+    clear.classList.toggle('hidden', !active);
+    if (active) info.textContent = `Comparing steps ${sel.aStep}–${sel.bStep} (Δ${sel.span})`;
+  }
+
   // Sync the scrubber's range/labels/enabled-state to the current history.
   _refreshScrubber() {
     const range = document.getElementById('tl-range');
@@ -637,6 +649,7 @@ class App {
     this.renderer.balls.clear();
     this.renderer.flowFx.clear();
     this._clearSparklines();
+    this.timeline.clearSelection();
     this.editor._select(null, null);
     if (this._timelineVisible) this.timeline.update();
   }
@@ -1011,6 +1024,7 @@ class App {
 
     document.getElementById('btn-reset').addEventListener('click', () => {
       this._exitScrub();
+      this.timeline.clearSelection();
       this.engine.reset();
       this._syncRunButton();
       document.getElementById('sim-status').textContent = '';
@@ -1132,6 +1146,12 @@ class App {
       inp.click();
     });
 
+    // Brush-to-compare: the chart reports a selected [A,B] window; reflect it in
+    // the header (span chip + Clear button) and let Clear / Esc dismiss it.
+    this.timeline.onSelection = (sel) => this._updateCompareUI(sel);
+    document.getElementById('tl-compare-clear')
+      .addEventListener('click', () => this.timeline.clearSelection());
+
     // Timeline chart toggle
     const tlBtn = document.getElementById('btn-timeline');
     const toggleTimeline = (show) => {
@@ -1141,8 +1161,16 @@ class App {
       tlBtn.setAttribute('aria-checked', String(show));
       // Surface the timeline state on the (collapsed) Analysis menu button too.
       document.getElementById('btn-analysis-menu')?.classList.toggle('active', show);
-      if (show) { this.timeline.update(); this._refreshScrubber(); }
-      else this._exitScrub();
+      if (show) {
+        this.timeline.update(); this._refreshScrubber();
+        // One-time nudge toward the compare gesture once there's data to brush.
+        let seenTl = false;
+        try { seenTl = localStorage.getItem('sim_seen_tl_compare') === '1'; } catch { /* ignore */ }
+        if (this.engine.history.length >= 2 && !seenTl) {
+          this._toast('Tip: drag across the chart to compare two points in time.');
+          try { localStorage.setItem('sim_seen_tl_compare', '1'); } catch { /* ignore */ }
+        }
+      } else { this._exitScrub(); this.timeline.clearSelection(); }
     };
     tlBtn.addEventListener('click', () => toggleTimeline(!this._timelineVisible));
     document.getElementById('tl-close').addEventListener('click', () => toggleTimeline(false));
@@ -1206,6 +1234,7 @@ class App {
         const toolKeys = { s: 'select', d: 'delete', r: 'connect-resource', t: 'connect-state' };
         if (toolKeys[k]) { e.preventDefault(); this._activateTool(toolKeys[k]); }
         else if (e.key === '?') { e.preventDefault(); this._showModal('help-overlay'); }
+        else if (e.key === 'Escape' && this.timeline._sel) { this.timeline.clearSelection(); }
       }
     });
 

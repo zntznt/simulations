@@ -1510,6 +1510,42 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('scrub: slider previews past node values non-destructively; Live restores the latest state');
   else fail('scrub: ' + JSON.stringify(scrub));
 
+  // Timeline compare: drag a window [A,B] on the chart → a selection is recorded,
+  // the header shows the span + Clear, and Clear (and a plain click) dismiss it.
+  await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 150, 150));
+    const p = d.addNode(new MNode(NodeType.POOL, 380, 150)); p.label = 'Bank';
+    d.addConnection(new MConnection(s.id, p.id)).rate = 2;
+    window.app.renderer.render();
+    window.app.engine.reset();
+    for (let i = 0; i < 20; i++) window.app.engine.doStep();
+    if (!window.app._timelineVisible) document.getElementById('btn-timeline').click();
+    window.app.timeline.update();
+  });
+  const tlBox = await page.locator('#timeline-canvas').boundingBox();
+  const ty = tlBox.y + tlBox.height * 0.5;
+  await page.mouse.move(tlBox.x + tlBox.width * 0.25, ty);
+  await page.mouse.down();
+  await page.mouse.move(tlBox.x + tlBox.width * 0.45, ty, { steps: 6 });
+  await page.mouse.move(tlBox.x + tlBox.width * 0.70, ty, { steps: 6 });
+  await page.mouse.up();
+  const compare = await page.evaluate(() => {
+    const sel = window.app.timeline._sel;
+    const info = document.getElementById('tl-compare-info');
+    const clearBtn = document.getElementById('tl-compare-clear');
+    const selected = !!sel && sel.bStep > sel.aStep;
+    const headerShown = !info.classList.contains('hidden') && !clearBtn.classList.contains('hidden')
+      && /Comparing steps/.test(info.textContent);
+    clearBtn.click();
+    const clearedByButton = window.app.timeline._sel === null && info.classList.contains('hidden');
+    return { selected, headerShown, clearedByButton };
+  });
+  if (compare.selected && compare.headerShown && compare.clearedByButton)
+    ok('timeline compare: drag selects a window with an A→B readout; header + Clear dismiss it');
+  else fail('timeline compare: ' + JSON.stringify(compare));
+
   // Minimap: toggles on, maps world→minimap coords, and clicking it re-centres
   // the main view (the viewport follows the click).
   const minimap = await page.evaluate(() => {
