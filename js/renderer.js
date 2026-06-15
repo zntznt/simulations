@@ -1139,13 +1139,19 @@ class Renderer {
     const labelBg = labelG.querySelector('.conn-label-bg');
     let txt = conn.label || '';
     if (isRes) {
+      const fromGate = src && src.type === NodeType.GATE;
+      // Show the configured rate at rest so every wire communicates its flow
+      // strength — including the default 1, which used to be hidden and left new
+      // users unsure a rate was even editable. Gate outputs distribute by weight
+      // (shown below), not rate, so they're excluded.
       if (conn.rateMode === RateMode.DICE) txt = txt || conn.dice;
       else if (conn.rateMode === RateMode.FORMULA) txt = txt || conn.formula;
-      else if (conn.rate !== 1) txt = txt || String(conn.rate);
+      else if (conn.rateMode === RateMode.DISTRIBUTION) txt = txt || (conn.distType || 'dist');
+      else if (!fromGate) txt = txt || String(conn.rate);
       if (conn.interval > 1) txt += (txt ? ' ' : '') + `/${conn.interval}`;
       if (conn.chance < 100) txt += (txt ? ' ' : '') + `${conn.chance}%`;
       if (conn.colorFilter) txt += (txt ? ' ' : '') + '●';
-      if (src && src.type === NodeType.GATE) {
+      if (fromGate) {
         const gmode = src.gateMode === 'random' ? 'probabilistic' : src.gateMode;
         // Mirror engine._connWeight so formula weights make the labels live.
         const getW = c => {
@@ -1587,10 +1593,10 @@ class Renderer {
       let len;
       try { len = pathEl.getTotalLength(); } catch { continue; }
       if (!len) continue;
-      const steps = Math.max(8, Math.floor(len / 12));
+      const steps = Math.max(16, Math.floor(len / 6));
       for (let i = 0; i <= steps; i++) {
         const pt = pathEl.getPointAtLength((i / steps) * len);
-        if (Math.hypot(x - pt.x, y - pt.y) <= 8) return { type: 'conn', id };
+        if (Math.hypot(x - pt.x, y - pt.y) <= 12) return { type: 'conn', id };
       }
     }
 

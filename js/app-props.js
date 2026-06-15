@@ -1440,9 +1440,13 @@ class AppProps {
       const fromDelay = src && src.type === NodeType.DELAY;
       const traderSide = (src && src.type === NodeType.TRADER) || (tgt && tgt.type === NodeType.TRADER);
 
-      const rateField = () => this._field(panel, 'Rate', 'number', conn.rate, v => {
-        const n = parseFloat(v); conn.rate = isFinite(n) ? Math.max(0, n) : 0; this.renderer.render();
-      });
+      const rateField = () => {
+        const inp = this._field(panel, 'Rate', 'number', conn.rate, v => {
+          const n = parseFloat(v); conn.rate = isFinite(n) ? Math.max(0, n) : 0; this.renderer.render();
+        });
+        inp.setAttribute('data-tour', 'rate'); // lets the onboarding tour spotlight the Rate field
+        return inp;
+      };
 
       if (traderSide) {
         this._info(panel, tgt && tgt.type === NodeType.TRADER

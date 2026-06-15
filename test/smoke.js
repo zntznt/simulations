@@ -45,6 +45,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     t._startTour();
     const count = () => document.getElementById('tour-count').textContent;
     const text = () => document.getElementById('tour-text').textContent;
+    const nextShown = () => !document.getElementById('tour-next').classList.contains('hidden');
     const visible = !document.getElementById('tour').classList.contains('hidden');
     const spotOn = !document.getElementById('tour-spotlight').classList.contains('off');
     const s1 = { c: count(), src: /Source/.test(text()) };
@@ -56,29 +57,44 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const pool = d.addNode(new MNode(NodeType.POOL, 420, 200)); t._commit();
     const s3 = { c: count(), conn: /Resource/.test(text()) };
 
-    d.addConnection(new MConnection(src.id, pool.id)); t._commit();
-    const s4 = { c: count(), run: /Run/.test(text()) };
+    const conn = d.addConnection(new MConnection(src.id, pool.id)); t._commit();
+    const s4 = { c: count(), rate: /Rate/.test(text()) };
 
+    // Editing the connection's rate satisfies the new "set a rate" step.
+    conn.rate = 5; t._commit();
+    const s5 = { c: count(), run: /Run/.test(text()) };
+
+    // Running advances onto the click-through hand-off cards.
     t.engine.doStep();
+    const i1 = { c: count(), lib: /Library/.test(text()), next: nextShown() };
+    document.getElementById('tour-next').click();
+    const i2 = { c: count(), rail: /Parameters/.test(text()) && /Variables/.test(text()) };
+    document.getElementById('tour-next').click();
+    const i3 = { c: count(), batch: /Monte Carlo/.test(text()) };
+    document.getElementById('tour-next').click();
     const sFinal = {
       c: count(),
-      finish: !document.getElementById('tour-next').classList.contains('hidden'),
+      finish: nextShown(),
       skipHidden: document.getElementById('tour-skip').classList.contains('hidden'),
     };
 
     document.getElementById('tour-next').click();
     const ended = t._tour === null && document.getElementById('tour').classList.contains('hidden');
     const flag = localStorage.getItem('sim_seen_tour');
-    return { visible, spotOn, s1, s2, s3, s4, sFinal, ended, flag };
+    return { visible, spotOn, s1, s2, s3, s4, s5, i1, i2, i3, sFinal, ended, flag };
   });
   const tourOk = tour.visible && tour.spotOn
-    && tour.s1.c === 'Step 1 of 4' && tour.s1.src
-    && tour.s2.c === 'Step 2 of 4' && tour.s2.pool
-    && tour.s3.c === 'Step 3 of 4' && tour.s3.conn
-    && tour.s4.c === 'Step 4 of 4' && tour.s4.run
+    && tour.s1.c === 'Step 1 of 5' && tour.s1.src
+    && tour.s2.c === 'Step 2 of 5' && tour.s2.pool
+    && tour.s3.c === 'Step 3 of 5' && tour.s3.conn
+    && tour.s4.c === 'Step 4 of 5' && tour.s4.rate
+    && tour.s5.c === 'Step 5 of 5' && tour.s5.run
+    && tour.i1.c === 'Next steps' && tour.i1.lib && tour.i1.next
+    && tour.i2.c === 'Next steps' && tour.i2.rail
+    && tour.i3.c === 'Next steps' && tour.i3.batch
     && tour.sFinal.c === 'All set' && tour.sFinal.finish && tour.sFinal.skipHidden
     && tour.ended && tour.flag === '1';
-  if (tourOk) ok('tour: coach-marks advance on place→connect→Run, then finish; flag persists');
+  if (tourOk) ok('tour: place→connect→rate→Run, then Library/rail/Batch hand-off cards, then finish');
   else fail('tour: ' + JSON.stringify(tour));
 
   // Skipping the tour mid-way ends it immediately.
@@ -951,6 +967,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   const rail = await page.evaluate(() => {
     window.app._clearAll();
     window.app.editor._select(null, null);
+    const titled = !!document.querySelector('#diagram-rail .rail-title'); // header names the rail
     const open = (f) => document.querySelector(`#diagram-rail .rail-btn[data-feature="${f}"]`).click();
     const content = () => document.getElementById('props-content').textContent;
     open('params');
@@ -962,11 +979,60 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     open('vars'); // toggle off
     const closed = window.app._activeFeature === null
       && !document.querySelector('#diagram-rail .rail-btn.active');
-    return { paramsShown, active, switched, closed };
+    return { titled, paramsShown, active, switched, closed };
   });
-  if (rail.paramsShown && rail.active && rail.switched && rail.closed)
-    ok('diagram rail: feature panels open / switch / highlight / toggle off');
+  if (rail.titled && rail.paramsShown && rail.active && rail.switched && rail.closed)
+    ok('diagram rail: header present; feature panels open / switch / highlight / toggle off');
   else fail('diagram rail: ' + JSON.stringify(rail));
+
+  // Discoverability: (a) an empty formula field links to the Params panel, and
+  // (b) running a stochastic model nudges toward Monte Carlo, once.
+  const discover = await page.evaluate(() => {
+    const t = window.app;
+    t._clearAll(); t._resetHistory(); t._closeFeature();
+    try { localStorage.removeItem('sim_seen_mc_hint'); } catch {}
+
+    // (a) Select a connection, switch its rate to Formula → the "no variables
+    // yet" hint exposes a link that opens the Params rail panel.
+    const d = t.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 420, 200));
+    const c = d.addConnection(new MConnection(s.id, p.id));
+    c.rateMode = RateMode.FORMULA; t._commit();
+    t._onSelect(c.id, 'conn');
+    const link = document.querySelector('#props-content .formula-hint-link');
+    const linkPresent = !!link;
+    if (link) link.click();
+    const openedParams = t._activeFeature === 'params';
+
+    // (b) A stochastic model: the first run (via the real Run button, which is
+    // what wires the nudge) fires the MC hint and persists the flag; a later
+    // run does not re-toast.
+    t._closeFeature();
+    const c2 = [...d.connections.values()][0];
+    c2.rateMode = RateMode.DICE; c2.dice = '1d6'; t._commit();
+    const hasRandom = t._hasRandomness();
+    const runBtn = document.getElementById('btn-run');
+    const toast = () => { const el = document.getElementById('app-toast'); return el && el.classList.contains('show') ? el.textContent : ''; };
+    if (t.engine.running) runBtn.click();          // ensure stopped
+    runBtn.click();                                 // start → should nudge
+    const firstToast = toast();
+    const flag = localStorage.getItem('sim_seen_mc_hint');
+    const el = document.getElementById('app-toast'); if (el) el.classList.remove('show');
+    runBtn.click();                                 // pause
+    runBtn.click();                                 // start again → must NOT re-toast
+    const secondToast = toast();
+    if (t.engine.running) runBtn.click();           // leave stopped
+    t.engine.reset();
+    return {
+      linkPresent, openedParams, hasRandom,
+      nudged: /Monte Carlo/.test(firstToast), flag, reNudged: /Monte Carlo/.test(secondToast),
+    };
+  });
+  if (discover.linkPresent && discover.openedParams && discover.hasRandom
+    && discover.nudged && discover.flag === '1' && !discover.reNudged)
+    ok('discoverability: formula→Params link opens the rail; first stochastic run nudges to Monte Carlo (once)');
+  else fail('discoverability: ' + JSON.stringify(discover));
 
   // Simulation panel (nothing selected): name/description edit, color scheme
   // remaps accents, background paints the canvas, font select injects a
@@ -1643,14 +1709,21 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     await wp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
     await wp.goto(URL, { waitUntil: 'networkidle' });
     const shown = await wp.evaluate(() => !document.getElementById('welcome-overlay').classList.contains('hidden'));
+    // The building-blocks glossary should cover every palette node type, not a
+    // subset (an undercount was a credibility ding in the usability pass).
+    const glossaryComplete = await wp.evaluate(() => {
+      const dts = [...document.querySelectorAll('#welcome-modal dl dt')].map(d => d.textContent.trim());
+      const need = ['Pool', 'Source', 'Drain', 'Gate', 'Converter', 'Register', 'Delay', 'Queue', 'Trader'];
+      return need.every(n => dts.includes(n));
+    });
     await wp.click('#welcome-explore');
     const hidden = await wp.evaluate(() => document.getElementById('welcome-overlay').classList.contains('hidden'));
     const flag = await wp.evaluate(() => localStorage.getItem('sim_seen_welcome'));
     await ctx.close();
-    return { shown, hidden, flag };
+    return { shown, glossaryComplete, hidden, flag };
   })();
-  if (welcome.shown && welcome.hidden && welcome.flag === '1')
-    ok('UX: first-run welcome overlay shows, dismisses, and persists the seen flag');
+  if (welcome.shown && welcome.glossaryComplete && welcome.hidden && welcome.flag === '1')
+    ok('UX: first-run welcome overlay shows (full node glossary), dismisses, and persists the seen flag');
   else fail('UX welcome: ' + JSON.stringify(welcome));
 
   if (errors.length) {

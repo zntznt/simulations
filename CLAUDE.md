@@ -129,6 +129,6 @@ for whole-diagram swaps).
   `_toast(msg)`, and `_confirmGuard(message, title)` (Promise-based styled confirm —
   use instead of `confirm()`).
 - **localStorage keys:** `sim_library`, `sim_components`, `sim_autosave`,
-  `sim_palette_sections`, `sim_seen_welcome`, `sim_seen_tour`.
+  `sim_palette_sections`, `sim_seen_welcome`, `sim_seen_tour`, `sim_seen_mc_hint`.
 - Develop on a feature branch and keep the model/engine DOM-free; run the matching
   test (`run.js` for engine changes, `smoke.js` for UI changes) before committing.

@@ -160,6 +160,35 @@ class App {
     this._hideModal('welcome-overlay');
   }
 
+  // Does the model contain any stochastic element? If so, a single run only
+  // shows one sample and Monte Carlo (many runs) is worth surfacing.
+  _hasRandomness() {
+    for (const c of this.diagram.connections.values()) {
+      if (c.rateMode === RateMode.DICE || c.rateMode === RateMode.DISTRIBUTION) return true;
+      if (Number(c.chance) < 100) return true;
+      if (Number(c.triggerChance) < 100) return true;
+    }
+    for (const n of this.diagram.nodes.values())
+      if (n.type === NodeType.GATE && n.gateMode === 'random') return true;
+    for (const v of (this.diagram.customVars || []))
+      if (v && v.kind && v.kind !== 'math') return true;
+    return false;
+  }
+
+  // One-time nudge: the first time a *stochastic* model is run, point at
+  // Analysis ▸ Batch (Monte Carlo) — it's otherwise buried in a menu and
+  // invisible until you know to look (a usability pass flagged it). Suppressed
+  // during the tour (so it doesn't stack on a coach-mark) and in embed mode.
+  _maybeMonteCarloHint() {
+    if (this._tour) return;
+    if (document.body.classList.contains('embed')) return;
+    let seen = false;
+    try { seen = localStorage.getItem('sim_seen_mc_hint') === '1'; } catch { /* ignore */ }
+    if (seen || !this._hasRandomness()) return;
+    try { localStorage.setItem('sim_seen_mc_hint', '1'); } catch { /* ignore */ }
+    this._toast('This model has randomness — try Analysis ▸ Batch (Monte Carlo) to run it many times and see the spread of outcomes.');
+  }
+
   // ── Interactive tour ─────────────────────────────────────────────────────────
   // Coach-marks over the real UI that teach the place → connect → Run loop by
   // having the user actually do it. Each step spotlights a control and advances
@@ -177,6 +206,24 @@ class App {
     let n = 0;
     for (const c of this.diagram.connections.values()) if (c.type === ConnectionType.RESOURCE) n++;
     return n;
+  }
+
+  // A connection's rate configuration as a comparable key — used by the tour's
+  // "set a rate" step to notice an edit as a delta from the moment that step
+  // was entered (so replaying on an existing diagram still teaches it).
+  _rateKey(c) { return `${c.rateMode}:${c.rate}`; }
+
+  _rateSnapshot() {
+    const m = {};
+    for (const c of this.diagram.connections.values())
+      if (c.type === ConnectionType.RESOURCE) m[c.id] = this._rateKey(c);
+    return m;
+  }
+
+  // How many "do this" action steps the tour has (excludes the info hand-off
+  // cards and the final card) — drives the "Step N of M" counter.
+  _actionStepCount() {
+    return this._tourSteps().filter(s => !s.final && !s.info).length;
   }
 
   // Steps are evaluated as deltas from the baseline captured at start, so the
@@ -199,14 +246,46 @@ class App {
         done: () => this._countResConns() > this._tour.base.conns,
       },
       {
-        target: '#btn-run',
-        text: 'Press <b>Run</b> — watch resources flow from the Source into the Pool, live.',
-        done: () => this.engine.running || this.engine.step > this._tour.base.step,
+        // The connection is auto-selected after the drag, so its Rate field is on
+        // screen. Teach the single most important economy knob: the flow rate.
+        target: '[data-tour="rate"]',
+        text: 'With the connection selected, find its <b>Rate</b> on the right — that\'s how many resources move each step, your faucet\'s strength. <b>Change it from 1 to 5.</b>',
+        enter: () => { this._tour.rateBase = this._rateSnapshot(); },
+        done: () => {
+          const base = this._tour.rateBase || {};
+          for (const c of this.diagram.connections.values()) {
+            if (c.type !== ConnectionType.RESOURCE) continue;
+            if (base[c.id] !== undefined && base[c.id] !== this._rateKey(c)) return true;
+          }
+          return false;
+        },
       },
       {
         target: '#btn-run',
-        text: "That's the whole loop: <b>place → connect → Run</b>. Browse the Library for ready-made models, or keep building. You can replay this tour from <b>Help</b>.",
+        text: 'Press <b>Run</b> — watch resources stream from the Source into the Pool at the rate you set, live.',
+        done: () => this.engine.running || this.engine.step > this._tour.base.step,
+      },
+      // ── Hand-off: point at where the real power lives, so a "graduate" doesn't
+      //    exit onto a blank canvas with no map. Click-through (info) cards.
+      {
+        target: '#btn-library',
+        info: true,
+        text: 'That\'s the loop: <b>place → connect → set a rate → Run</b>. Now the payoff — the <b>Library</b> has ready-made economies (try <b>F2P Mobile Economy</b>) you can open and pull apart.',
+      },
+      {
+        target: '#diagram-rail',
+        info: true,
+        text: 'This rail holds the model\'s brains: <b>Parameters</b> and <b>Variables</b> to drive formulas, <b>Resource types</b>, and a live <b>monitor</b>. Rates can be formulas, dice, or distributions too — not just fixed numbers.',
+      },
+      {
+        target: '#btn-analysis-menu',
+        info: true,
+        text: 'Balancing an economy? <b>Analysis → Batch (Monte Carlo)</b> runs your model hundreds of times and shows the spread of outcomes — the fastest way to tune a curve.',
+      },
+      {
+        target: '#btn-run',
         final: true,
+        text: 'You\'re set. Build from scratch, or open a Library model and make it yours. Replay this tour any time from <b>Help</b>.',
       },
     ];
   }
@@ -221,6 +300,7 @@ class App {
 
     this._tour = {
       idx: 0,
+      entered: -1,
       base: {
         source: this._countNodeType(NodeType.SOURCE),
         pool: this._countNodeType(NodeType.POOL),
@@ -231,6 +311,7 @@ class App {
     document.getElementById('tour').classList.remove('hidden');
     window.addEventListener('resize', this._tourReposition);
     window.addEventListener('keydown', this._tourKey, true);
+    this._enterStep(this._tourSteps()[0]);
     this._renderTourStep();
   }
 
@@ -239,11 +320,13 @@ class App {
     const steps = this._tourSteps();
     const step = steps[this._tour.idx];
     document.getElementById('tour-count').textContent =
-      step.final ? 'All set' : `Step ${this._tour.idx + 1} of ${steps.length - 1}`;
+      step.final ? 'All set' : step.info ? 'Next steps' : `Step ${this._tour.idx + 1} of ${this._actionStepCount()}`;
     document.getElementById('tour-text').innerHTML = step.text;
+    // Action steps advance on the user doing the thing (no button); info and
+    // final cards advance/close on a click.
     const next = document.getElementById('tour-next');
-    next.classList.toggle('hidden', !step.final);
-    next.textContent = 'Finish';
+    next.classList.toggle('hidden', !(step.final || step.info));
+    next.textContent = step.final ? 'Finish' : 'Next';
     document.getElementById('tour-skip').classList.toggle('hidden', !!step.final);
     this._positionTour();
   }
@@ -284,7 +367,17 @@ class App {
     coach.style.top = `${Math.max(8, Math.min(top, vh - ch - 8))}px`;
   }
 
-  // Called after edits/runs: advance past any satisfied step(s).
+  // Run a step's one-time enter() hook exactly once on landing — it snapshots a
+  // baseline for delta-detected steps, and _tourCheck fires on every edit, so a
+  // guard keeps it from re-snapshotting (which would mask the change).
+  _enterStep(step) {
+    if (!this._tour || this._tour.entered === this._tour.idx) return;
+    this._tour.entered = this._tour.idx;
+    if (step && step.enter) step.enter();
+  }
+
+  // Called after edits/runs: advance past any satisfied action step(s). Info and
+  // final cards have no done() so the loop stops there (they advance on click).
   _tourCheck() {
     if (!this._tour) return;
     let steps = this._tourSteps();
@@ -294,6 +387,19 @@ class App {
       step = steps[this._tour.idx];
     }
     if (this._tour.idx >= steps.length) { this._endTour(true); return; }
+    this._enterStep(step);
+    this._renderTourStep();
+  }
+
+  // The "Next"/"Finish" button: close on the final card, else step forward
+  // through the click-through info cards.
+  _tourNext() {
+    if (!this._tour) return;
+    if (this._tourSteps()[this._tour.idx].final) { this._endTour(true); return; }
+    this._tour.idx++;
+    const steps = this._tourSteps();
+    if (this._tour.idx >= steps.length) { this._endTour(true); return; }
+    this._enterStep(steps[this._tour.idx]);
     this._renderTourStep();
   }
 
@@ -895,10 +1001,12 @@ class App {
     const runBtn = document.getElementById('btn-run');
     runBtn.addEventListener('click', () => {
       this._exitScrub();
-      if (!this.engine.running) document.getElementById('sim-status').textContent = '';
+      const starting = !this.engine.running;
+      if (starting) document.getElementById('sim-status').textContent = '';
       this.engine.run();
       this._syncRunButton();
       this._refreshScrubber();
+      if (starting && this.engine.running) this._maybeMonteCarloHint();
     });
 
     document.getElementById('btn-reset').addEventListener('click', () => {
@@ -1154,7 +1262,7 @@ class App {
 
     // Interactive tour controls.
     document.getElementById('tour-skip').addEventListener('click', () => this._endTour(false));
-    document.getElementById('tour-next').addEventListener('click', () => this._endTour(true));
+    document.getElementById('tour-next').addEventListener('click', () => this._tourNext());
   }
 
 }

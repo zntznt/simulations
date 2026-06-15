@@ -236,6 +236,32 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
       Carlo (explains why all percentiles match when there's no randomness).
 - [x] **Library-save confirmation toast**, and a **wider connection hit area**
       (24px) so re-selecting a curved connection isn't fiddly.
+- [x] **Interactive tour reaches past "draw a pipe."** A second persona pass (an
+      ideal user — a game-economy designer — drove the live app) found the tour
+      taught the *gesture* but not the *model*: it never showed a **rate**, and
+      dropped graduates onto a blank canvas. Added a **"set a rate"** step (it
+      spotlights the connection's Rate field and advances when you edit it) so the
+      loop is now *place → connect → set a rate → Run*, and replaced the passive
+      final card with click-through **hand-off cards** spotlighting the
+      **Library**, the **Mechanics rail** (params/vars/types), and
+      **Analysis → Batch (Monte Carlo)** — the depth that was previously
+      undiscoverable to a new user.
+
+  *Tour — open follow-ups (refine before deciding what else to add):*
+  - [ ] **Refine the hand-off cards (P0 #2).** They're a first cut — revisit
+        wording, placement, and whether each card should *preview* its
+        destination (e.g. flash the Library open) rather than only point at it.
+  - [ ] **Tour Part 2 — walk a real economy.** After the basics, offer "See it
+        in a real model": load the F2P economy and annotate its formula faucet,
+        dice faucet, gacha gate, a register formula, and a chart.
+  - [ ] **Branch the welcome by intent** — "Build from scratch" vs. "Tour a
+        finished economy", routing to the basics tour or Part 2.
+  - [ ] **Usability snags surfaced by the persona pass (not tour-specific):**
+        re-selecting a connection is still fiddly despite the 24px hit area; the
+        welcome glossary lists 5 node types while the palette shows more
+        (Gate/Converter/Register/Delay/Queue/Trader); consider surfacing a
+        connection's configured rate at rest, not only the flow badge while
+        running.
 
 ## ✅ Sensitivity analysis
 
