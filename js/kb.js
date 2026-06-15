@@ -617,6 +617,24 @@ const KB_ARTICLES = [
       + 'variable and the values appear.',
   },
 
+  {
+    id: 'cli', category: 'Running and analysis', title: 'Headless CLI',
+    keywords: 'command line terminal node cli csv trace script automation batch headless server seed param steps runs',
+    body: 'The model and engine are DOM-free, so any diagram saved as a JSON file can '
+      + 'be simulated from the terminal without a browser. Save a diagram with '
+      + 'File → Save as JSON, then run it with `node cli.js diagram.json`. A single '
+      + 'run prints a CSV trace to stdout — one column for each tracked node, one row '
+      + 'per step — which you can pipe to a file or directly into another tool. '
+      + 'The --steps flag sets how many ticks to run (default 200). For Monte Carlo '
+      + 'analysis, --runs N executes N isolated trials and prints a summary table '
+      + 'with mean, min, max and percentiles; add --csv to get raw per-run final '
+      + 'values as a CSV instead. --seed S makes any run or batch bit-for-bit '
+      + 'reproducible. --param name=value overrides a diagram parameter without '
+      + 'editing the file and can be repeated for multiple parameters. Pass --help '
+      + 'for a full usage summary. The CLI is useful for scripted balance tests, '
+      + 'CI pipelines and feeding results into R, pandas or a spreadsheet.',
+  },
+
   // ── Saving and sharing ─────────────────────────────────────────────────────
   {
     id: 'library', category: 'Saving and sharing', title: 'Library and templates',
