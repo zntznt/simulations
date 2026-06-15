@@ -1594,6 +1594,38 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('timeline scale: Linear / Log / Normalized modes switch and re-render');
   else fail('timeline scale: ' + JSON.stringify(scale));
 
+  // Legend bulk toggle: a Show all / Hide all chip flips every series at once,
+  // and its label tracks the current state.
+  const legendAll = await page.evaluate(() => {
+    window.app._clearAll(); window.app._resetHistory();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 150, 150));
+    const p1 = d.addNode(new MNode(NodeType.POOL, 380, 120)); p1.label = 'A';
+    const p2 = d.addNode(new MNode(NodeType.POOL, 380, 240)); p2.label = 'B';
+    d.addConnection(new MConnection(s.id, p1.id)).rate = 1;
+    d.addConnection(new MConnection(s.id, p2.id)).rate = 2;
+    window.app.renderer.render();
+    window.app.engine.reset();
+    for (let i = 0; i < 10; i++) window.app.engine.doStep();
+    if (!window.app._timelineVisible) document.getElementById('btn-timeline').click();
+    window.app.timeline.update();
+    const tl = window.app.timeline;
+    const allBtn = () => document.querySelector('#tl-legend .tl-chip-all');
+    const present = !!allBtn();
+    const label0 = allBtn() && allBtn().textContent;
+    allBtn().click(); // Hide all
+    const hiddenAfter = tl._cachedNodes.length >= 2 && tl._cachedNodes.every(n => tl._hidden.has(n.id));
+    const label1 = allBtn() && allBtn().textContent;
+    allBtn().click(); // Show all
+    const shownAfter = tl._cachedNodes.every(n => !tl._hidden.has(n.id));
+    const label2 = allBtn() && allBtn().textContent;
+    return { present, label0, hiddenAfter, label1, shownAfter, label2 };
+  });
+  if (legendAll.present && legendAll.label0 === 'Hide all' && legendAll.hiddenAfter
+      && legendAll.label1 === 'Show all' && legendAll.shownAfter && legendAll.label2 === 'Hide all')
+    ok('timeline legend: Show all / Hide all chip toggles every series at once');
+  else fail('timeline legend: ' + JSON.stringify(legendAll));
+
   // Minimap: toggles on, maps world→minimap coords, and clicking it re-centres
   // the main view (the viewport follows the click).
   const minimap = await page.evaluate(() => {

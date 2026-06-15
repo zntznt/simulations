@@ -619,6 +619,9 @@ input[type="range"] {
 /* solid muted colors instead of opacity — opacity 0.35 gave ~1.9:1 contrast (fails AA) */
 .tl-chip-off { color: var(--text-dim); border-color: var(--border); text-decoration: line-through; }
 .tl-branch-chip { border-style: dashed; --chip-color: #95a3bc; }
+/* Bulk show/hide-all action: an accent-tinted chip, distinct from the
+   node-colored series chips and never struck through. */
+.tl-chip-all { --chip-color: var(--accent); font-weight: 600; flex-shrink: 0; margin-right: 2px; }
 #timeline-canvas { flex: 1; width: 100%; min-height: 0; cursor: crosshair; }
 
 /* History scrubber (timeline footer) */
@@ -955,6 +958,7 @@ input[type="range"] {
 .lib-section-title {
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
   color: var(--text-dim); padding: 12px 16px 2px;
+  display: flex; align-items: center; justify-content: space-between;
 }
 .lib-row {
   display: flex; align-items: center; justify-content: space-between;

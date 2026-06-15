@@ -351,6 +351,7 @@
       </select>
       <span id="tl-compare-info" class="tl-compare-info hidden"></span>
       <button class="btn hidden" id="tl-compare-clear" title="Clear comparison (or click the chart, or press Esc)"><i class="fa-solid fa-xmark" aria-hidden="true"></i> Clear</button>
+      <button class="btn" data-kb-article="timeline" title="Learn about the timeline chart in the guide" aria-label="Learn about the timeline chart"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
       <button class="btn" id="tl-close" title="Hide timeline" aria-label="Hide timeline"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
     <canvas id="timeline-canvas"></canvas>
@@ -372,12 +373,12 @@
     </div>
 
     <div class="lib-section">
-      <div class="lib-section-title">Starter templates</div>
+      <div class="lib-section-title">Starter templates <button class="props-help" data-kb-article="library" title="Learn about templates in the guide" aria-label="Learn about templates"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button></div>
       <div id="lib-templates"></div>
     </div>
 
     <div class="lib-section">
-      <div class="lib-section-title">Components</div>
+      <div class="lib-section-title">Components <button class="props-help" data-kb-article="components" title="Learn about components in the guide" aria-label="Learn about components"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button></div>
       <div class="mc-controls">
         <label style="flex:1">Name <input type="text" id="comp-name" placeholder="My component"></label>
         <button class="btn btn-primary" id="comp-save" title="Save selected nodes as a reusable component">Save component</button>
@@ -386,7 +387,7 @@
     </div>
 
     <div class="lib-section">
-      <div class="lib-section-title">Your diagrams</div>
+      <div class="lib-section-title">Your diagrams <button class="props-help" data-kb-article="saving" title="Learn about saving and loading in the guide" aria-label="Learn about saving and loading"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button></div>
       <div class="mc-controls">
         <label style="flex:1">Name <input type="text" id="lib-name" placeholder="My diagram"></label>
         <button class="btn btn-primary" id="lib-save">Save diagram</button>
@@ -401,7 +402,10 @@
   <div id="mc-modal" role="dialog" aria-modal="true" aria-labelledby="mc-title">
     <div class="mc-head">
       <span id="mc-title"><i class="fa-solid fa-dice" aria-hidden="true"></i> Monte Carlo — batch runs</span>
-      <button class="btn" id="mc-close" aria-label="Close Monte Carlo"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+      <div style="display:flex;align-items:center;gap:4px">
+        <button class="btn" data-kb-article="monte-carlo" title="Learn about Monte Carlo in the guide" aria-label="Learn about Monte Carlo in the guide"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
+        <button class="btn" id="mc-close" aria-label="Close Monte Carlo"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+      </div>
     </div>
     <!-- Shared settings — every analysis below uses these. -->
     <div class="mc-settings">
@@ -413,7 +417,10 @@
     <div class="mc-section">
       <div class="mc-section-head">
         <span class="mc-section-title">Batch run</span>
-        <button class="btn btn-primary" id="mc-run">Run batch</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="props-help" data-kb-article="monte-carlo" title="Learn about batch runs in the guide" aria-label="Learn about batch runs"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
+          <button class="btn btn-primary" id="mc-run">Run batch</button>
+        </div>
       </div>
       <p class="mc-section-desc">Run every trial and summarise where each tracked node lands, with a distribution per node.</p>
     </div>
@@ -421,7 +428,10 @@
     <div class="mc-section">
       <div class="mc-section-head">
         <span class="mc-section-title">Parameter sweep</span>
-        <button class="btn btn-primary" id="mc-sweep-run" title="Run the batch once per parameter value and compare results">Run sweep</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="props-help" data-kb-article="sweep" title="Learn about parameter sweeps in the guide" aria-label="Learn about parameter sweeps"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
+          <button class="btn btn-primary" id="mc-sweep-run" title="Run the batch once per parameter value and compare results">Run sweep</button>
+        </div>
       </div>
       <div class="mc-section-row">
         <label>Parameter <select id="mc-sweep-param" title="Pick a diagram parameter to vary across the sweep"></select></label>
@@ -434,7 +444,10 @@
     <div class="mc-section">
       <div class="mc-section-head">
         <span class="mc-section-title">Sensitivity</span>
-        <button class="btn btn-primary" id="mc-sens-run" title="Perturb each parameter ±10% and heatmap which parameters move which nodes the most">Run sensitivity</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="props-help" data-kb-article="sensitivity" title="Learn about sensitivity analysis in the guide" aria-label="Learn about sensitivity analysis"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
+          <button class="btn btn-primary" id="mc-sens-run" title="Perturb each parameter ±10% and heatmap which parameters move which nodes the most">Run sensitivity</button>
+        </div>
       </div>
       <div class="mc-section-row">
         <label title="Perturb every diagram parameter by ±this percent and measure each node's response">Perturb each parameter ±<input type="number" id="mc-sens-pct" value="10" min="1" max="50">%</label>
@@ -471,6 +484,7 @@
           <dt><kbd>Ctrl</kbd>+<kbd>D</kbd></dt><dd>Duplicate selection</dd>
           <dt><kbd>↑↓←→</kbd></dt><dd>Nudge selection (Shift = fine)</dd>
           <dt><kbd>Shift</kbd>+click / drag</dt><dd>Add to selection / marquee-add</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>A</kbd></dt><dd>Select all nodes</dd>
         </dl>
       </div>
       <div class="help-col">

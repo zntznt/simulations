@@ -97,7 +97,7 @@ class AppClipboard {
       add(`Delete ${nouns[ctx.type] || 'item'}`, 'trash-can', () => this._contextDelete(ctx), { shortcut: 'Del', danger: true });
     } else {
       add('Paste', 'paste', () => this._paste(), { shortcut: 'Ctrl+V', disabled: !hasClip });
-      add('Select all', 'object-group', () => this._selectAll());
+      add('Select all', 'object-group', () => this._selectAll(), { shortcut: 'Ctrl+A' });
       sep();
       add('Fit to view', 'expand', () => this.renderer.fitView(), { shortcut: 'Ctrl+0' });
     }
