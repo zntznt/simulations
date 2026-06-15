@@ -68,20 +68,20 @@ const KB_ARTICLES = [
       + 'between a fixed weight and a formula in its properties panel.',
   },
   {
-    id: ‘node-converter’, category: ‘Nodes’, title: ‘Converter’,
-    keywords: ‘convert craft refine recipe transform input output exchange multi ingredient’,
-    body: ‘A converter turns one or more resource types into one or more outputs, ‘
-      + ‘consuming a fixed amount each conversion. In single-input mode the ‘
-      + ‘"Input / conversion" number sets how many aggregate resources are consumed per ‘
-      + ‘batch and every output fires in the converter\’s output color. For crafting ‘
-      + ‘recipes that require specific resource types — 2 wood and 1 stone to make a ‘
-      + ‘building, for example — click "Add multi-ingredient recipe" to switch to recipe ‘
-      + ‘mode: define each ingredient with its color and amount, and the converter only ‘
-      + ‘fires when it holds all of them simultaneously. Each outgoing connection can ‘
-      + ‘produce a different color by setting its Output color in the connection ‘
-      + ‘properties panel, making one converter capable of yielding multiple distinct ‘
-      + ‘output types in a single conversion. Anything left over that cannot complete a ‘
-      + ‘full conversion stays put until enough arrives.’,
+    id: 'node-converter', category: 'Nodes', title: 'Converter',
+    keywords: 'convert craft refine recipe transform input output exchange multi ingredient',
+    body: 'A converter turns one or more resource types into one or more outputs, '
+      + 'consuming a fixed amount each conversion. In single-input mode the '
+      + '"Input / conversion" number sets how many aggregate resources are consumed per '
+      + 'batch and every output fires in the converter\'s output color. For crafting '
+      + 'recipes that require specific resource types — 2 wood and 1 stone to make a '
+      + 'building, for example — click "Add multi-ingredient recipe" to switch to recipe '
+      + 'mode: define each ingredient with its color and amount, and the converter only '
+      + 'fires when it holds all of them simultaneously. Each outgoing connection can '
+      + 'produce a different color by setting its Output color in the connection '
+      + 'properties panel, making one converter capable of yielding multiple distinct '
+      + 'output types in a single conversion. Anything left over that cannot complete a '
+      + 'full conversion stays put until enough arrives.',
   },
   {
     id: 'node-register', category: 'Nodes', title: 'Register',
