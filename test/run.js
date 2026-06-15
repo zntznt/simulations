@@ -217,6 +217,111 @@ test('pool allocation is work-conserving when one target is full', () => {
   eq(a.resources, 1, 'A stays full');
 });
 
+// ── Multi-ingredient recipe converter ────────────────────────────────────────
+console.log('\nConverter recipes');
+
+test('recipe converter fires only when all ingredients are available', () => {
+  const { d, e } = setup();
+  const c = node(d, NodeType.CONVERTER);
+  c.inputRecipe = [{ color: '#ff0000', amount: 2 }, { color: '#0000ff', amount: 1 }];
+  // Pre-load: 4 red, 2 blue → should yield 2 conversions
+  c.resources = 6; c.colorMap = { '#ff0000': 4, '#0000ff': 2 };
+  c._initialResources = 6; c._initialColorMap = { '#ff0000': 4, '#0000ff': 2 };
+  const out = node(d, NodeType.POOL);
+  conn(d, c, out).rate = 1;
+  steps(e, 1);
+  eq(out.resources, 2, 'two conversions when both ingredients available');
+  eq(c.colorMap['#ff0000'] || 0, 0, 'red ingredient consumed');
+  eq(c.colorMap['#0000ff'] || 0, 0, 'blue ingredient consumed');
+});
+
+test('recipe converter does not fire when one ingredient is missing', () => {
+  const { d, e } = setup();
+  const c = node(d, NodeType.CONVERTER);
+  c.inputRecipe = [{ color: '#ff0000', amount: 2 }, { color: '#0000ff', amount: 1 }];
+  // Only red available, no blue
+  c.resources = 4; c.colorMap = { '#ff0000': 4 };
+  c._initialResources = 4; c._initialColorMap = { '#ff0000': 4 };
+  const out = node(d, NodeType.POOL);
+  conn(d, c, out).rate = 1;
+  steps(e, 1);
+  eq(out.resources, 0, 'no conversion without blue ingredient');
+  eq(c.resources, 4, 'red stays unconsumed');
+});
+
+test('recipe converter does not fire when one ingredient is insufficient', () => {
+  const { d, e } = setup();
+  const c = node(d, NodeType.CONVERTER);
+  c.inputRecipe = [{ color: '#ff0000', amount: 3 }, { color: '#0000ff', amount: 1 }];
+  // Only 2 red (need 3) but 2 blue
+  c.resources = 4; c.colorMap = { '#ff0000': 2, '#0000ff': 2 };
+  c._initialResources = 4; c._initialColorMap = { '#ff0000': 2, '#0000ff': 2 };
+  const out = node(d, NodeType.POOL);
+  conn(d, c, out).rate = 1;
+  steps(e, 1);
+  eq(out.resources, 0, 'no conversion when red below recipe amount');
+});
+
+test('recipe converter partial batches: fires once then stops when ingredients run short', () => {
+  const { d, e } = setup();
+  const c = node(d, NodeType.CONVERTER);
+  c.inputRecipe = [{ color: '#ff0000', amount: 2 }, { color: '#0000ff', amount: 1 }];
+  // Exactly one batch: 2 red + 1 blue
+  c.resources = 3; c.colorMap = { '#ff0000': 2, '#0000ff': 1 };
+  c._initialResources = 3; c._initialColorMap = { '#ff0000': 2, '#0000ff': 1 };
+  const out = node(d, NodeType.POOL);
+  conn(d, c, out).rate = 1;
+  steps(e, 1);
+  eq(out.resources, 1, 'one conversion fired');
+  eq(c.resources, 0, 'all ingredients consumed');
+});
+
+test('recipe converter: per-connection output color via colorFilter', () => {
+  const { d, e } = setup();
+  const c = node(d, NodeType.CONVERTER);
+  c.inputRecipe = [{ color: '#ff0000', amount: 1 }, { color: '#0000ff', amount: 1 }];
+  c.resources = 4; c.colorMap = { '#ff0000': 2, '#0000ff': 2 };
+  c._initialResources = 4; c._initialColorMap = { '#ff0000': 2, '#0000ff': 2 };
+  const out1 = node(d, NodeType.POOL);
+  const out2 = node(d, NodeType.POOL);
+  const c1 = conn(d, c, out1); c1.rate = 1; c1.colorFilter = '#00ff00';
+  const c2 = conn(d, c, out2); c2.rate = 1; c2.colorFilter = '#ffff00';
+  steps(e, 1);
+  assert(out1.colorMap['#00ff00'] >= 1, 'out1 receives connection mint color green');
+  assert(out2.colorMap['#ffff00'] >= 1, 'out2 receives connection mint color yellow');
+});
+
+test('legacy converter: colorFilter on outgoing connection overrides outputColor', () => {
+  const { d, e } = setup();
+  const c = node(d, NodeType.CONVERTER);
+  c.setCount(4); c.inputAmount = 2; c.outputColor = '#00ff00';
+  const out = node(d, NodeType.POOL);
+  const co = conn(d, c, out); co.rate = 1; co.colorFilter = '#ff00ff';
+  steps(e, 1);
+  assert(out.colorMap['#ff00ff'] >= 1, 'legacy converter respects per-connection override color');
+  assert(!out.colorMap['#00ff00'], 'node outputColor not used when connection overrides');
+});
+
+test('recipe survives JSON round-trip and is omitted when empty', () => {
+  const { d } = setup();
+  const c = node(d, NodeType.CONVERTER);
+  // Empty recipe omitted from JSON
+  const j1 = JSON.parse(JSON.stringify(d.toJSON()));
+  const cj1 = j1.nodes.find(n => n.id === c.id);
+  assert(cj1.inputRecipe === undefined, 'empty inputRecipe omitted from JSON');
+
+  // Non-empty recipe round-trips
+  c.inputRecipe = [{ color: '#ff0000', amount: 3 }, { color: '#00ff00', amount: 1 }];
+  const j2 = JSON.parse(JSON.stringify(d.toJSON()));
+  const d2 = new Diagram(); d2.loadJSON(j2);
+  const c2 = d2.nodes.get(c.id);
+  assert(Array.isArray(c2.inputRecipe), 'inputRecipe is an array after round-trip');
+  eq(c2.inputRecipe.length, 2, 'recipe length preserved');
+  eq(c2.inputRecipe[0].color, '#ff0000', 'first ingredient color preserved');
+  eq(c2.inputRecipe[0].amount, 3, 'first ingredient amount preserved');
+  eq(c2.inputRecipe[1].color, '#00ff00', 'second ingredient color preserved');
+});
+
 test('converter cannot exceed a shared target capacity', () => {
   const { d, e } = setup();
   const c = node(d, NodeType.CONVERTER); c.setCount(10); c.inputAmount = 1;
