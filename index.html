@@ -344,6 +344,13 @@
     <div class="timeline-head">
       <span class="timeline-title">Timeline</span>
       <div id="tl-legend" class="tl-legend"></div>
+      <select id="tl-scale" class="tl-scale" title="Y-axis scale" aria-label="Y-axis scale">
+        <option value="linear">Linear</option>
+        <option value="log">Log</option>
+        <option value="norm">Normalized</option>
+      </select>
+      <span id="tl-compare-info" class="tl-compare-info hidden"></span>
+      <button class="btn hidden" id="tl-compare-clear" title="Clear comparison (or click the chart, or press Esc)"><i class="fa-solid fa-xmark" aria-hidden="true"></i> Clear</button>
       <button class="btn" id="tl-close" title="Hide timeline" aria-label="Hide timeline"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
     <canvas id="timeline-canvas"></canvas>
@@ -396,23 +403,45 @@
       <span id="mc-title"><i class="fa-solid fa-dice" aria-hidden="true"></i> Monte Carlo — batch runs</span>
       <button class="btn" id="mc-close" aria-label="Close Monte Carlo"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
-    <div class="mc-controls">
+    <!-- Shared settings — every analysis below uses these. -->
+    <div class="mc-settings">
       <label>Runs <input type="number" id="mc-runs" value="100" min="1" max="5000"></label>
       <label>Steps <input type="number" id="mc-steps" value="200" min="1" max="5000"></label>
       <label>Seed <input type="text" id="mc-seed" placeholder="optional" title="Any text/number — the same seed reproduces the exact same batch"></label>
-      <button class="btn btn-primary" id="mc-run">Run</button>
     </div>
-    <div class="mc-controls mc-sweep-controls">
-      <label>Sweep <select id="mc-sweep-param" title="Pick a diagram parameter to vary across the sweep"></select></label>
-      <label>from <input type="number" id="mc-sweep-from" value="0"></label>
-      <label>to <input type="number" id="mc-sweep-to" value="10"></label>
-      <label>values <input type="number" id="mc-sweep-count" value="5" min="2" max="11"></label>
-      <button class="btn btn-primary" id="mc-sweep-run" title="Run the batch once per parameter value and compare results">Run sweep</button>
+
+    <div class="mc-section">
+      <div class="mc-section-head">
+        <span class="mc-section-title">Batch run</span>
+        <button class="btn btn-primary" id="mc-run">Run batch</button>
+      </div>
+      <p class="mc-section-desc">Run every trial and summarise where each tracked node lands, with a distribution per node.</p>
     </div>
-    <div class="mc-controls mc-sweep-controls">
-      <label title="Perturb every diagram parameter by ±this percent and measure each node's response">Sensitivity ±<input type="number" id="mc-sens-pct" value="10" min="1" max="50">%</label>
-      <button class="btn btn-primary" id="mc-sens-run" title="Perturb each parameter ±10% and heatmap which parameters move which nodes the most">Run sensitivity</button>
+
+    <div class="mc-section">
+      <div class="mc-section-head">
+        <span class="mc-section-title">Parameter sweep</span>
+        <button class="btn btn-primary" id="mc-sweep-run" title="Run the batch once per parameter value and compare results">Run sweep</button>
+      </div>
+      <div class="mc-section-row">
+        <label>Parameter <select id="mc-sweep-param" title="Pick a diagram parameter to vary across the sweep"></select></label>
+        <label>from <input type="number" id="mc-sweep-from" value="0"></label>
+        <label>to <input type="number" id="mc-sweep-to" value="10"></label>
+        <label>values <input type="number" id="mc-sweep-count" value="5" min="2" max="11"></label>
+      </div>
     </div>
+
+    <div class="mc-section">
+      <div class="mc-section-head">
+        <span class="mc-section-title">Sensitivity</span>
+        <button class="btn btn-primary" id="mc-sens-run" title="Perturb each parameter ±10% and heatmap which parameters move which nodes the most">Run sensitivity</button>
+      </div>
+      <div class="mc-section-row">
+        <label title="Perturb every diagram parameter by ±this percent and measure each node's response">Perturb each parameter ±<input type="number" id="mc-sens-pct" value="10" min="1" max="50">%</label>
+        <span class="mc-section-hint">Ranks which knobs move which outputs (elasticity heatmap).</span>
+      </div>
+    </div>
+
     <div id="mc-results"></div>
   </div>
 </div>

@@ -48,22 +48,62 @@ class AppAnalysis {
     return document.getElementById('mc-seed').value.trim();
   }
 
+  // Progress with a Cancel button. The button is rendered once; subsequent
+  // progress updates only rewrite the text span, so the click handler survives.
+  // Sets this._mcCancel, which every runner passes to the engine as shouldCancel.
+  _mcBeginProgress(out, label) {
+    this._mcCancel = false;
+    out.innerHTML = '<p class="mc-empty"><span class="mc-prog-text"></span>'
+      + '<button class="btn mc-cancel-btn" id="mc-cancel">Cancel</button></p>';
+    out.querySelector('.mc-prog-text').textContent = label;
+    document.getElementById('mc-cancel').addEventListener('click', () => {
+      this._mcCancel = true;
+      const b = document.getElementById('mc-cancel');
+      if (b) { b.disabled = true; b.textContent = 'Cancelling…'; }
+    });
+    this._mcSetRunning(true);
+  }
+
+  _mcSetProgress(out, label) {
+    const t = out.querySelector('.mc-prog-text');
+    if (t) t.textContent = label;
+    else out.innerHTML = `<p class="mc-empty">${this._esc(label)}</p>`;
+  }
+
+  // Disable the three run buttons during a batch (and restore each to its prior
+  // state afterwards — sweep/sensitivity may be conditionally disabled).
+  _mcSetRunning(on) {
+    const ids = ['mc-run', 'mc-sweep-run', 'mc-sens-run'];
+    if (on) {
+      this._mcPrevDisabled = {};
+      for (const id of ids) {
+        const b = document.getElementById(id);
+        if (b) { this._mcPrevDisabled[id] = b.disabled; b.disabled = true; }
+      }
+    } else {
+      for (const id of ids) {
+        const b = document.getElementById(id);
+        if (b) b.disabled = this._mcPrevDisabled ? !!this._mcPrevDisabled[id] : false;
+      }
+    }
+  }
+
   async _runMonteCarlo() {
     const runs = Math.max(1, Math.min(5000, parseInt(document.getElementById('mc-runs').value) || 100));
     const steps = Math.max(1, Math.min(5000, parseInt(document.getElementById('mc-steps').value) || 200));
     const out = document.getElementById('mc-results');
     if (this._mcBusy) return;
     this._mcBusy = true;
-    out.innerHTML = '<p class="mc-empty">Running…</p>';
+    this._mcBeginProgress(out, 'Running…');
 
     try {
       const t0 = performance.now();
       const res = await this.engine.runMonteCarloAsync(runs, steps, {
         seed: this._mcSeed() || null,
-        onProgress: (done, total) => {
-          out.innerHTML = `<p class="mc-empty">Running… ${done} / ${total}</p>`;
-        },
+        shouldCancel: () => this._mcCancel,
+        onProgress: (done, total) => this._mcSetProgress(out, `Running… ${done} / ${total}`),
       });
+      if (!res) { out.innerHTML = '<p class="mc-empty">Cancelled.</p>'; return; }
       const ms = Math.round(performance.now() - t0);
       this._mcLast = res;
 
@@ -112,6 +152,7 @@ class AppAnalysis {
         .addEventListener('click', () => this._exportMCRaw());
     } finally {
       this._mcBusy = false;
+      this._mcSetRunning(false);
     }
   }
 
@@ -167,7 +208,7 @@ class AppAnalysis {
     const out = document.getElementById('mc-results');
     if (this._mcBusy) return;
     this._mcBusy = true;
-    out.innerHTML = '<p class="mc-empty">Sweeping…</p>';
+    this._mcBeginProgress(out, 'Sweeping…');
 
     try {
       const values = Array.from({ length: count },
@@ -184,11 +225,11 @@ class AppAnalysis {
           // Same sub-seed per value: differences between columns come from the
           // parameter, not from a fresh random stream.
           seed,
-          onProgress: (done, total) => {
-            out.innerHTML = `<p class="mc-empty">Sweeping ${name} = ${values[i]}`
-              + ` (${i + 1}/${values.length}) — ${done}/${total}</p>`;
-          },
+          shouldCancel: () => this._mcCancel,
+          onProgress: (done, total) => this._mcSetProgress(out,
+            `Sweeping ${name} = ${values[i]} (${i + 1}/${values.length}) — ${done}/${total}`),
         });
+        if (!res) { out.innerHTML = '<p class="mc-empty">Cancelled.</p>'; return; }
         results.push(res);
       }
 
@@ -216,6 +257,7 @@ class AppAnalysis {
         .addEventListener('click', () => this._exportSweepCSV());
     } finally {
       this._mcBusy = false;
+      this._mcSetRunning(false);
     }
   }
 
@@ -259,17 +301,17 @@ class AppAnalysis {
       ? structuredClone(base) : JSON.parse(JSON.stringify(base)));
     const totalBatches = 1 + params.length * 2;
     let batch = 0;
-    const prog = (label) => (done, total) => {
-      out.innerHTML = `<p class="mc-empty">Sensitivity — ${this._esc(label)} `
-        + `(batch ${batch}/${totalBatches}) — ${done}/${total}</p>`;
-    };
+    const prog = (label) => (done, total) => this._mcSetProgress(out,
+      `Sensitivity — ${label} (batch ${batch}/${totalBatches}) — ${done}/${total}`);
+    const cancelled = () => { out.innerHTML = '<p class="mc-empty">Cancelled.</p>'; };
 
     try {
       batch = 1;
-      out.innerHTML = '<p class="mc-empty">Sensitivity — baseline…</p>';
+      this._mcBeginProgress(out, 'Sensitivity — baseline…');
       const baseRes = await this.engine.runMonteCarloAsync(runs, steps, {
-        baseJSON: base, seed, onProgress: prog('baseline'),
+        baseJSON: base, seed, shouldCancel: () => this._mcCancel, onProgress: prog('baseline'),
       });
+      if (!baseRes) { cancelled(); return; }
       const nodes = baseRes.nodes;                 // [{id,label,type,mean,…}]
       const baseline = nodes.map(n => n.mean);
 
@@ -282,15 +324,17 @@ class AppAnalysis {
         lowJSON.params = { ...(lowJSON.params || {}), [name]: val * (1 - delta) };
         batch++;
         const lowRes = await this.engine.runMonteCarloAsync(runs, steps, {
-          baseJSON: lowJSON, seed, onProgress: prog(`${name} −${pct}%`),
+          baseJSON: lowJSON, seed, shouldCancel: () => this._mcCancel, onProgress: prog(`${name} −${pct}%`),
         });
+        if (!lowRes) { cancelled(); return; }
 
         const highJSON = clone();
         highJSON.params = { ...(highJSON.params || {}), [name]: val * (1 + delta) };
         batch++;
         const highRes = await this.engine.runMonteCarloAsync(runs, steps, {
-          baseJSON: highJSON, seed, onProgress: prog(`${name} +${pct}%`),
+          baseJSON: highJSON, seed, shouldCancel: () => this._mcCancel, onProgress: prog(`${name} +${pct}%`),
         });
+        if (!highRes) { cancelled(); return; }
 
         matrix.push(nodes.map((n, i) => {
           const B = baseline[i];
@@ -309,6 +353,7 @@ class AppAnalysis {
         .addEventListener('click', () => this._exportSensitivityCSV());
     } finally {
       this._mcBusy = false;
+      this._mcSetRunning(false);
     }
   }
 
