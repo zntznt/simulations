@@ -1211,9 +1211,10 @@ class App {
 
     // Monte Carlo batch runs
     document.getElementById('btn-batch').addEventListener('click', () => this._openMonteCarlo());
-    document.getElementById('mc-close').addEventListener('click', () => this._hideModal('mc-overlay'));
+    const closeMC = () => { this._mcCancel = true; this._hideModal('mc-overlay'); };
+    document.getElementById('mc-close').addEventListener('click', closeMC);
     document.getElementById('mc-overlay').addEventListener('click', (e) => {
-      if (e.target.id === 'mc-overlay') this._hideModal('mc-overlay');
+      if (e.target.id === 'mc-overlay') closeMC();
     });
     this._modalize('mc-overlay');
     document.getElementById('mc-run').addEventListener('click', () => this._runMonteCarlo());

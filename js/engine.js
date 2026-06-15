@@ -1254,6 +1254,10 @@ class SimEngine {
     return new Promise(resolve => {
       const job = this._mcTrials(runs, maxSteps, opts);
       const tick = () => {
+        // Cooperative cancellation: bail between chunks if the caller asks to
+        // stop (e.g. a Cancel button on a long batch). Resolves to null so the
+        // caller can distinguish a cancelled run from a completed one.
+        if (opts.shouldCancel && opts.shouldCancel()) { resolve(null); return; }
         const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
         let r = job.next();
         while (!r.done && ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) < 14) {

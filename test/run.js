@@ -57,6 +57,11 @@ function eq(actual, expected, msg) {
     throw new Error(`${msg || 'expected equal'}: got ${actual}, want ${expected}`);
 }
 
+// Async tests are registered here and awaited just before the summary prints
+// (the sync `test` harness can't await a promise-returning body).
+const asyncTests = [];
+function testAsync(name, fn) { asyncTests.push({ name, fn }); }
+
 // Deterministic Math.random for the duration of `fn`.
 function withRandom(value, fn) {
   const orig = Math.random;
@@ -2197,8 +2202,38 @@ test('restoreState restores structure removed after the checkpoint', () => {
   eq(d.connections.size, 1, 'connection restored from checkpoint');
 });
 
+// ── Async engine API (Monte Carlo runner) ────────────────────────────────────
+
+testAsync('runMonteCarloAsync honours shouldCancel — resolves null, no results', async () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 1;
+  // A caller that always asks to stop bails on the first chunk.
+  const res = await e.runMonteCarloAsync(1000, 1000, { shouldCancel: () => true });
+  assert(res === null, `cancelled batch resolves to null (got ${res && typeof res})`);
+});
+
+testAsync('runMonteCarloAsync completes normally without a cancel signal', async () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 5;
+  const res = await e.runMonteCarloAsync(5, 10);
+  const pn = res.nodes.find(x => x.id === p.id);
+  eq(pn.mean, 50, 'async batch matches the deterministic mean');
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
-console.log(`\n${passed} passed, ${failed} failed\n`);
-if (failed) {
-  process.exitCode = 1;
-}
+(async () => {
+  if (asyncTests.length) console.log('\nAsync engine API');
+  for (const { name, fn } of asyncTests) {
+    try { await fn(); passed++; console.log(`  \x1b[32m✓\x1b[0m ${name}`); }
+    catch (err) {
+      failed++; failures.push({ name, err });
+      console.log(`  \x1b[31m✗\x1b[0m ${name}\n      ${err.message}`);
+    }
+  }
+  console.log(`\n${passed} passed, ${failed} failed\n`);
+  if (failed) process.exitCode = 1;
+})();

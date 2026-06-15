@@ -412,6 +412,10 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
 
     document.getElementById('btn-batch').click();
     const mcShown = !document.getElementById('mc-overlay').classList.contains('hidden');
+    // Sectioned layout: a shared settings band + one titled section per analysis.
+    const settings = !!document.querySelector('.mc-settings');
+    const sections = document.querySelectorAll('#mc-modal .mc-section').length;
+    const titles = [...document.querySelectorAll('.mc-section-title')].map(t => t.textContent);
     document.getElementById('mc-runs').value = '20';
     document.getElementById('mc-steps').value = '10';
     document.getElementById('mc-run').click();
@@ -419,12 +423,40 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const rows = document.querySelectorAll('#mc-results table tbody tr').length;
     const hists = document.querySelectorAll('#mc-results .mc-hist').length;
     const histBars = document.querySelectorAll('#mc-results .mc-bar').length;
-    return { tlShown, cw, mcShown, rows, hists, histBars };
+    return { tlShown, cw, mcShown, settings, sections, titles, rows, hists, histBars };
   });
   if (analysis.tlShown && analysis.cw > 0 && analysis.mcShown && analysis.rows >= 1
-      && analysis.hists === analysis.rows && analysis.histBars > 0)
-    ok(`analysis: timeline + Monte Carlo (${analysis.rows} rows, distribution histograms)`);
+      && analysis.hists === analysis.rows && analysis.histBars > 0
+      && analysis.settings && analysis.sections === 3
+      && analysis.titles.join('|') === 'Batch run|Parameter sweep|Sensitivity')
+    ok(`analysis: timeline + sectioned Monte Carlo (${analysis.rows} rows, distribution histograms)`);
   else fail('analysis: ' + JSON.stringify(analysis));
+
+  // Cancel a long batch: the progress line shows a Cancel button, run buttons
+  // disable during the run, the engine resolves to null, and the buttons restore.
+  const cancel = await page.evaluate(async () => {
+    document.getElementById('btn-batch').click();
+    document.getElementById('mc-runs').value = '5000';
+    document.getElementById('mc-steps').value = '2000';
+    document.getElementById('mc-run').click();
+    // Wait for the progress UI to mount.
+    let guard = 0;
+    while (!document.getElementById('mc-cancel') && guard++ < 200) await new Promise(r => setTimeout(r, 10));
+    const cancelShown = !!document.getElementById('mc-cancel');
+    const disabledDuring = ['mc-run', 'mc-sweep-run', 'mc-sens-run']
+      .every(id => document.getElementById(id).disabled);
+    document.getElementById('mc-cancel').click();
+    guard = 0;
+    while (!/Cancelled/.test(document.getElementById('mc-results').textContent) && guard++ < 200)
+      await new Promise(r => setTimeout(r, 10));
+    const cancelled = /Cancelled/.test(document.getElementById('mc-results').textContent);
+    const reenabled = !document.getElementById('mc-run').disabled;
+    document.getElementById('mc-close').click();
+    return { cancelShown, disabledDuring, cancelled, reenabled };
+  });
+  if (cancel.cancelShown && cancel.disabledDuring && cancel.cancelled && cancel.reenabled)
+    ok('analysis: long batch shows Cancel, disables run buttons, and stops cleanly');
+  else fail('analysis cancel: ' + JSON.stringify(cancel));
 
   // Ultrabuff: seeded MC reproducibility, raw export button, parameter sweep,
   // help overlay.
