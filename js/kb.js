@@ -21,18 +21,20 @@ const KB_ARTICLES = [
       + 'nodes and pile up until something draws them out. When several outgoing '
       + 'connections compete for a limited stock, the pool shares what it has '
       + 'fairly rather than letting the first connection drain everything. Give a '
-      + 'pool a capacity to cap how much it can hold. A starting amount is just '
-      + 'what the pool holds when the run begins: set that count on the pool and '
-      + 'Reset returns to it — there is no separate starting-value field. A pool '
-      + 'never drops below zero, so model spending or loss by draining resources '
-      + 'out, not by letting it go negative.',
+      + 'pool a capacity to cap how much it can hold. The Starting amount field '
+      + 'sets what the pool holds when the run begins, and Reset returns to it; the '
+      + 'plus and minus buttons beside it nudge the live amount during a run without '
+      + 'changing that starting baseline. A pool never drops below zero, so model '
+      + 'spending or loss by draining resources out, not by letting it go negative.',
   },
   {
     id: 'node-source', category: 'Nodes', title: 'Source',
     keywords: 'produce faucet generate spawn infinite unlimited limited stock',
     body: 'A source produces new resources and feeds them into the model — think '
       + 'of it as a faucet. By default a source is unlimited and never runs dry, '
-      + 'emitting its rate every step for as long as the simulation runs. Switch '
+      + 'pushing resources out every step for as long as the simulation runs; how '
+      + 'many it emits is set by the rate on its outgoing connection, not on the '
+      + 'source itself. Switch '
       + 'on limited stock to give it a finite supply instead, and the source stops '
       + 'once that supply is spent. Each source emits resources in a single color, '
       + 'which downstream connections can filter on.',
@@ -109,7 +111,9 @@ const KB_ARTICLES = [
       + 'and the server count sets how many it works at once, so throughput is '
       + 'servers divided by process time — one server with a process time of three '
       + 'releases about one item every three steps, while three servers triple '
-      + 'that. Items that arrive faster than the servers can clear them back up in '
+      + 'that. To feed it with random arrivals, give the incoming connection a '
+      + 'distribution rate such as Poisson, or a fixed rate with a chance '
+      + 'percentage. Items that arrive faster than the servers can clear them back up in '
       + 'the line, so a queue is the tool for modeling bottlenecks, checkout lanes '
       + 'and contention for a scarce resource; one server is the classic '
       + 'single-lane bottleneck. Two optional limits model lost demand: a max line '
@@ -142,8 +146,11 @@ const KB_ARTICLES = [
       + 'drawn as a solid arrow. Its rate sets how much flows each time it fires — '
       + 'a fixed number, a dice roll, a formula or a random draw from a '
       + 'distribution. Resource connections are the pipes of the model: they carry '
-      + 'the stuff that pools store, drains consume and converters transform. Most '
-      + 'connections you draw will be resource connections.',
+      + 'the stuff that pools store, drains consume and converters transform. A '
+      + 'connection from one pool to another is also how you transfer holdings '
+      + 'between them — add a condition or an interval to move funds only when a '
+      + 'balance is high enough or only every few steps. Most connections you draw '
+      + 'will be resource connections.',
   },
   {
     id: 'conn-state', category: 'Connections', title: 'State connection',
@@ -494,8 +501,11 @@ const KB_ARTICLES = [
       + 'For a state connection — the dashed kind that carries information rather '
       + 'than resources — press T first, then drag the same way. Once a connection '
       + 'exists, click it to select it and set its rate, mode and other properties '
-      + 'in the panel on the right. Delete a connection by selecting it and pressing '
-      + 'Delete, or right-click and choose Delete.',
+      + 'in the panel on the right. A state connection can loop back to its own '
+      + 'node — click the same node twice with the state tool — which is how a pool '
+      + 'applies interest or decay to itself with a modifier; resource connections '
+      + 'cannot self-loop. Delete a connection by selecting it and pressing Delete, '
+      + 'or right-click and choose Delete.',
   },
   {
     id: 'groups-notes', category: 'Building diagrams', title: 'Groups and notes',

@@ -317,6 +317,38 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('dragging an interactive node during a run repositions it without firing');
   else fail('interactive drag-no-fire: ' + JSON.stringify(interDrag));
 
+  // A state connection can loop back to its own node (an in-place modifier) via
+  // click-to-click: click the node with the state tool, then click it again.
+  // Resource connections must NOT self-loop with the same gesture.
+  const selfLoop = await page.evaluate(() => {
+    window.app._clearAll();
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const ev = (type, sx, sy) => canvas.dispatchEvent(
+      new MouseEvent(type, { clientX: r.left + sx, clientY: r.top + sy, button: 0, bubbles: true }));
+    window.app.editor.setTool('place-pool'); ev('mousedown', 200, 200); ev('mouseup', 200, 200);
+    const before = window.app.diagram.connections.size;
+    // State tool: click the node, then click it again → self-loop.
+    window.app.editor.setTool('connect-state');
+    ev('mousedown', 200, 200); ev('mouseup', 200, 200);
+    ev('mousedown', 200, 200); ev('mouseup', 200, 200);
+    const afterState = window.app.diagram.connections.size;
+    const selfState = [...window.app.diagram.connections.values()]
+      .find(c => c.sourceId === c.targetId && c.type === ConnectionType.STATE);
+    // Resource tool: the same gesture must NOT create a self-loop.
+    window.app.editor.setTool('connect-resource');
+    ev('mousedown', 200, 200); ev('mouseup', 200, 200);
+    ev('mousedown', 200, 200); ev('mouseup', 200, 200);
+    const afterResource = window.app.diagram.connections.size;
+    return {
+      madeStateSelfLoop: !!selfState, addedOne: afterState === before + 1,
+      resourceRejected: afterResource === afterState,
+    };
+  });
+  if (selfLoop.madeStateSelfLoop && selfLoop.addedOne && selfLoop.resourceRejected)
+    ok('self-loop: a state connection loops to its own node via click-to-click; resource self-loop is rejected');
+  else fail('self-loop: ' + JSON.stringify(selfLoop));
+
   // Context menu: empty-canvas variant (Paste disabled with an empty clipboard,
   // Select all present) and "Save as component…" opening the Library focused.
   const ctxMenu = await page.evaluate(() => {
