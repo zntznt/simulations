@@ -1135,19 +1135,30 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     window.app._renderProps();
     const metaShown = panel.textContent.includes('Created') && panel.textContent.includes('Modified')
       && panel.textContent.includes('KB');
-    // Round-trip.
+    // Run seed: set it through the field; at step 0 the field arms the RNG and
+    // the value persists on the diagram.
+    const seedInput = panel.querySelector('input[placeholder^="blank ="]');
+    const seedSet = !!seedInput && (() => {
+      seedInput.value = 'smoke-seed';
+      seedInput.dispatchEvent(new Event('change', { bubbles: true }));
+      return window.app.diagram.seed === 'smoke-seed';
+    })();
+    // Round-trip (seed included).
     const d2 = JSON.parse(JSON.stringify(window.app.diagram.toJSON()));
     const rt = d2.meta && d2.meta.name === 'Gold Rush' && d2.meta.description === 'A mining economy.'
-      && d2.meta.scheme === 'forest' && d2.meta.bgColor === '#fdf6e3' && d2.meta.font === 'Space Grotesk';
-    // Restore defaults so later checks see the stock theme.
+      && d2.meta.scheme === 'forest' && d2.meta.bgColor === '#fdf6e3' && d2.meta.font === 'Space Grotesk'
+      && d2.seed === 'smoke-seed';
+    // Restore defaults so later checks see the stock theme and an unseeded RNG.
     window.app.diagram.meta = Diagram.defaultMeta();
+    window.app.diagram.seed = '';
+    window.app.engine.reset();
     window.app._applyMeta();
     window.app._renderProps();
-    return { titled, titleSync, accentChanged, bgApplied, fontApplied, metaShown, rt };
+    return { titled, titleSync, accentChanged, bgApplied, fontApplied, metaShown, seedSet, rt };
   });
   if (simMeta.titled && simMeta.titleSync && simMeta.accentChanged && simMeta.bgApplied
-      && simMeta.fontApplied && simMeta.metaShown && simMeta.rt)
-    ok('simulation panel: name/desc + scheme + background + font + metadata + round-trip');
+      && simMeta.fontApplied && simMeta.metaShown && simMeta.seedSet && simMeta.rt)
+    ok('simulation panel: name/desc + scheme + background + font + run seed + metadata + round-trip');
   else fail('simulation panel: ' + JSON.stringify(simMeta));
 
   // Custom variables: add one via the panel, check the array input validates,

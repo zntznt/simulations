@@ -284,6 +284,15 @@ and summarises every tracked node's final value as **mean / min / p10 / p50 / p9
 max**, plus the **goal reach‑rate** and **end‑step** statistics. It never touches the
 live diagram.
 
+**Seeding & reproducibility.** Every stochastic decision draws from `SimRandom`, a
+small seedable PRNG (mulberry32). Unseeded it delegates to `Math.random`. There are
+three ways to pin it: the diagram's **run seed** (`Diagram.seed`, edited in the
+Simulation panel) is applied by `SimEngine.reset()`, so a seeded live run replays
+identically; the **Monte Carlo** modal seeds a whole batch (each trial gets an
+independent sub‑stream `seed#n`); and the **CLI** `--seed` flag does the same from the
+terminal. A batch always restores the RNG afterwards, so it never leaks a seed into a
+later live run — and `reset()` re‑applies (or clears) the diagram seed regardless.
+
 ---
 
 ## 14. Known limitations & intentional choices

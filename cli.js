@@ -84,12 +84,15 @@ json.params = { ...(json.params || {}), ...opts.params };
 
 const diagram = new Diagram();
 diagram.loadJSON(json);
+// --seed overrides any seed saved in the diagram; reset() then applies it as the
+// single RNG authority. Without --seed the diagram's own seed (if any) still holds.
+if (opts.seed != null) diagram.seed = opts.seed;
 const engine = new SimEngine(diagram);
 const tracked = [...diagram.nodes.values()].filter(n => n.type !== NodeType.SOURCE || n.limited);
 
 if (opts.runs === 1) {
-  // Single run → per-step CSV trace on stdout.
-  if (opts.seed != null) SimRandom.seed(opts.seed);
+  // Single run → per-step CSV trace on stdout. reset() seeds SimRandom from
+  // diagram.seed (set from --seed above, or carried in the saved file).
   engine.reset();
   const header = ['step', ...tracked.map(n => csvCell(n.label || n.type))];
   process.stdout.write(header.join(',') + '\n');
