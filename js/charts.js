@@ -86,6 +86,10 @@ class TimelineChart {
     this._drag = null;
     this.onSelection = null;
     this._geom = null;
+    // Y-axis scale: 'linear' (shared 0..max), 'log' (decades — keeps small and
+    // large series both legible), or 'norm' (each series to its own min..max,
+    // for comparing shapes regardless of magnitude). Readouts stay raw.
+    this._scale = 'linear';
     // Supplied by the app: () => [{ id, name, history, visible }] — saved
     // timelines ("branches") drawn as dashed ghost traces for comparison.
     this.getBranches = null;
@@ -163,6 +167,11 @@ class TimelineChart {
   // Position of the scrub playhead (real step number), or null to hide it.
   setScrub(step) {
     this._scrubStep = step;
+    this.update();
+  }
+
+  setScale(mode) {
+    this._scale = (mode === 'log' || mode === 'norm') ? mode : 'linear';
     this.update();
   }
 
@@ -256,12 +265,21 @@ class TimelineChart {
 
     // Domain spans live run AND ghost branches, in real step units (history
     // entries may be stride-sampled, and branches can be longer than the
-    // live run).
-    let max = 1, maxStep = 1;
+    // live run). Also gather the stats the log/normalized scales need.
+    let max = 1, maxStep = 1, minPos = Infinity;
+    const nstats = new Map(nodes.map(n => [n.id, { min: Infinity, max: -Infinity }]));
     const scan = (hh) => {
       for (const snap of hh) {
         if (snap.step > maxStep) maxStep = snap.step;
-        for (const node of nodes) max = Math.max(max, snap.snap[node.id] ?? 0);
+        for (const node of nodes) {
+          const v = snap.snap[node.id];
+          if (v == null) continue;
+          if (v > max) max = v;
+          if (v > 0 && v < minPos) minPos = v;
+          const st = nstats.get(node.id);
+          if (v < st.min) st.min = v;
+          if (v > st.max) st.max = v;
+        }
       }
     };
     scan(hist);
@@ -270,17 +288,47 @@ class TimelineChart {
     const padL = 44, padT = 10, padB = 22, padR = 10;
     const plotW = w - padL - padR, plotH = h - padT - padB;
     const xAt = s => padL + (s / maxStep) * plotW;
-    const yAt = v => padT + plotH - (v / max) * plotH;
     // Expose geometry so the brush handlers can map pixels ↔ steps.
     this._geom = { padL, plotW, maxStep };
 
-    // Horizontal grid lines at 25/50/75/100%
+    const fmtTick = v => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}k`
+      : v % 1 === 0 ? String(v) : v.toFixed(1));
+
+    // Build the y-mapping and the horizontal guide lines for the active scale.
+    // `yOf(node, v)` maps a raw value to a pixel y; readouts always use raw v.
+    let yOf, guides;
+    const logOk = this._scale === 'log' && isFinite(minPos) && max > minPos;
+    if (logOk) {
+      const lo = Math.floor(Math.log10(minPos));
+      const hi = Math.max(lo + 1, Math.ceil(Math.log10(max)));
+      const span = hi - lo;
+      yOf = (node, v) => {
+        const lv = v > 0 ? Math.log10(v) : lo;
+        return padT + plotH - ((Math.max(lo, Math.min(hi, lv)) - lo) / span) * plotH;
+      };
+      guides = [];
+      for (let e = lo; e <= hi; e++) {
+        guides.push({ y: padT + plotH - ((e - lo) / span) * plotH, label: fmtTick(Math.pow(10, e)) });
+      }
+    } else if (this._scale === 'norm') {
+      yOf = (node, v) => {
+        const st = nstats.get(node.id);
+        if (!st || !isFinite(st.min) || !isFinite(st.max)) return padT + plotH;
+        if (st.max - st.min < 1e-9) return padT + plotH - 0.5 * plotH;
+        return padT + plotH - ((v - st.min) / (st.max - st.min)) * plotH;
+      };
+      guides = [0, 0.25, 0.5, 0.75, 1].map(p => ({ y: padT + plotH - p * plotH, label: `${p * 100}%` }));
+    } else {
+      yOf = (node, v) => padT + plotH - (v / max) * plotH;
+      guides = [0, 0.25, 0.5, 0.75, 1].map(p => ({ y: padT + plotH - p * plotH, label: fmtTick(max * p) }));
+    }
+
+    // Horizontal grid lines
     ctx.strokeStyle = '#1e2535';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 4]);
-    for (const pct of [0.25, 0.5, 0.75, 1.0]) {
-      const y = padT + plotH - pct * plotH;
-      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + plotW, y); ctx.stroke();
+    for (const g of guides) {
+      ctx.beginPath(); ctx.moveTo(padL, g.y); ctx.lineTo(padL + plotW, g.y); ctx.stroke();
     }
     ctx.setLineDash([]);
 
@@ -293,12 +341,7 @@ class TimelineChart {
     // Y-axis labels
     ctx.font = '11px monospace'; ctx.fillStyle = '#95a3bc';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    for (const pct of [0, 0.25, 0.5, 0.75, 1.0]) {
-      const v = max * pct;
-      const y = padT + plotH - pct * plotH;
-      const label = v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v % 1 === 0 ? String(v) : v.toFixed(1);
-      ctx.fillText(label, padL - 4, y);
-    }
+    for (const g of guides) ctx.fillText(g.label, padL - 4, g.y);
 
     // X-axis labels at round step values
     ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#95a3bc';
@@ -326,7 +369,7 @@ class TimelineChart {
       let started = false;
       for (const snap of hh) {
         if (!(node.id in snap.snap)) continue;
-        const x = xAt(snap.step), y = yAt(snap.snap[node.id] ?? 0);
+        const x = xAt(snap.step), y = yOf(node, snap.snap[node.id] ?? 0);
         if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
       }
       ctx.stroke();
@@ -417,7 +460,7 @@ class TimelineChart {
         const idx = allNodes.indexOf(node);
         const v = snap.snap[node.id] ?? 0;
         ctx.fillStyle = this._colorOf(idx);
-        ctx.beginPath(); ctx.arc(cx, yAt(v), 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx, yOf(node, v), 3, 0, Math.PI * 2); ctx.fill();
       });
 
       // Tooltip box

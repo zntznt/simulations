@@ -1536,15 +1536,31 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const info = document.getElementById('tl-compare-info');
     const clearBtn = document.getElementById('tl-compare-clear');
     const selected = !!sel && sel.bStep > sel.aStep;
-    const headerShown = !info.classList.contains('hidden') && !clearBtn.classList.contains('hidden')
+    // offsetParent === null means actually not rendered (catches a missing
+    // display:none, not just a toggled class).
+    const headerShown = info.offsetParent !== null && clearBtn.offsetParent !== null
       && /Comparing steps/.test(info.textContent);
     clearBtn.click();
-    const clearedByButton = window.app.timeline._sel === null && info.classList.contains('hidden');
+    const clearedByButton = window.app.timeline._sel === null
+      && info.offsetParent === null && clearBtn.offsetParent === null;
     return { selected, headerShown, clearedByButton };
   });
   if (compare.selected && compare.headerShown && compare.clearedByButton)
     ok('timeline compare: drag selects a window with an A→B readout; header + Clear dismiss it');
   else fail('timeline compare: ' + JSON.stringify(compare));
+
+  // Y-axis scale modes switch via the header select and re-render the chart.
+  const scale = await page.evaluate(() => {
+    const sel = document.getElementById('tl-scale');
+    const set = (v) => { sel.value = v; sel.dispatchEvent(new Event('change')); return window.app.timeline._scale; };
+    const log = set('log');
+    const norm = set('norm');
+    const lin = set('linear');
+    return { log, norm, lin, w: document.getElementById('timeline-canvas').width };
+  });
+  if (scale.log === 'log' && scale.norm === 'norm' && scale.lin === 'linear' && scale.w > 0)
+    ok('timeline scale: Linear / Log / Normalized modes switch and re-render');
+  else fail('timeline scale: ' + JSON.stringify(scale));
 
   // Minimap: toggles on, maps world→minimap coords, and clicking it re-centres
   // the main view (the viewport follows the click).

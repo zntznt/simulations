@@ -598,6 +598,13 @@ input[type="range"] {
   white-space: nowrap; font-variant-numeric: tabular-nums;
 }
 #tl-compare-clear { flex-shrink: 0; }
+#tl-compare-info.hidden, #tl-compare-clear.hidden { display: none; }
+.tl-scale {
+  flex-shrink: 0; font-size: 11px; padding: 1px 4px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-dim); cursor: pointer;
+}
+.tl-scale:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tl-legend {
   display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0;
 }

@@ -1151,6 +1151,8 @@ class App {
     this.timeline.onSelection = (sel) => this._updateCompareUI(sel);
     document.getElementById('tl-compare-clear')
       .addEventListener('click', () => this.timeline.clearSelection());
+    document.getElementById('tl-scale')
+      .addEventListener('change', (e) => this.timeline.setScale(e.target.value));
 
     // Timeline chart toggle
     const tlBtn = document.getElementById('btn-timeline');
