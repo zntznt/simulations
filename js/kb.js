@@ -644,6 +644,21 @@ const KB_ARTICLES = [
       + 'for a full usage summary. The CLI is useful for scripted balance tests, '
       + 'CI pipelines and feeding results into R, pandas or a spreadsheet.',
   },
+  {
+    id: 'seed', category: 'Running and analysis', title: 'Run seed',
+    keywords: 'seed random reproducible deterministic repeat same run rng dice distribution chance lock fixed reproduce replay',
+    body: 'A run seed locks the simulation\'s randomness so a run plays out the same '
+      + 'way every time. Set it in the Run section of the Simulation panel, which '
+      + 'shows when nothing is selected. With a seed in place, every stochastic '
+      + 'decision — dice rates, distributions, chance percentages, probabilistic '
+      + 'gates and random custom variables — draws from a seeded generator, so the '
+      + 'same seed reproduces the exact same run, bit for bit. Leave the field blank '
+      + 'for fresh randomness on each run. The seed can be any text or number and is '
+      + 'saved with the diagram, so a reloaded or shared model reproduces the same '
+      + 'outcome. A change takes effect on Reset. The run seed is the live-run '
+      + 'counterpart to the Seed field in the Monte Carlo modal, which seeds a whole '
+      + 'batch, and to the headless CLI\'s --seed flag.',
+  },
 
   // ── Saving and sharing ─────────────────────────────────────────────────────
   {

@@ -1228,6 +1228,48 @@ test('distribution rate mode moves resources stochastically', () => {
   assert(p.resources > 50 && p.resources < 200, `pool grew stochastically (got ${p.resources})`);
 });
 
+// ── Run seed (reproducible live runs) ────────────────────────────────────────
+console.log('\nRun seed');
+
+// A stochastic source→pool whose per-step dice rate draws from SimRandom. Return
+// the full per-step trace so two runs are compared trajectory-by-trajectory — a
+// single final value can collide by chance, a 30-long trace effectively cannot.
+function seededTrace(seed, n = 30) {
+  const { d, e } = setup();
+  d.seed = seed;
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p); c.rateMode = RateMode.DICE; c.dice = '3d6';
+  e.reset(); // applies d.seed to SimRandom
+  const trace = [];
+  for (let i = 0; i < n; i++) { e.doStep(); trace.push(p.resources); }
+  return trace.join(',');
+}
+
+test('a run seed makes a stochastic run reproducible', () => {
+  eq(seededTrace('abc'), seededTrace('abc'), 'same seed → identical trace');
+});
+
+test('different seeds produce different traces', () => {
+  assert(seededTrace('abc') !== seededTrace('xyz'), 'distinct seeds → distinct traces');
+});
+
+test('an empty seed leaves the RNG on Math.random', () => {
+  // With the seed cleared, reset() must restore Math.random so stubs still work.
+  SimRandom.seed('leftover');           // simulate a seed left by a prior batch
+  let v;
+  withRandom(0.5, () => {
+    const { d, e } = setup();           // d.seed === '' by default
+    const s = node(d, NodeType.SOURCE);
+    const p = node(d, NodeType.POOL);
+    const c = conn(d, s, p); c.rateMode = RateMode.DICE; c.dice = '1d6';
+    steps(e, 1);                        // reset() → SimRandom.seed(null)
+    v = p.resources;
+  });
+  SimRandom.seed(null);
+  eq(v, 4, 'floor(0.5*6)+1 = 4 from the stubbed Math.random');
+});
+
 // ── P2: gate all-outputs mode ─────────────────────────────────────────────────
 console.log('\nGate all-outputs mode');
 
@@ -1397,6 +1439,16 @@ test('time mode and per-node async fields survive JSON round-trip', () => {
   eq(s2.firePhase, 2, 'firePhase preserved');
 });
 
+test('run seed survives JSON round-trip and is omitted when empty', () => {
+  const { d } = setup();
+  assert(d.toJSON().seed === undefined, 'empty seed omitted from JSON');
+  d.seed = 'level-42';
+  const json = JSON.parse(JSON.stringify(d.toJSON()));
+  eq(json.seed, 'level-42', 'seed serialized when set');
+  const d2 = new Diagram(); d2.loadJSON(json);
+  eq(d2.seed, 'level-42', 'seed restored on load');
+});
+
 test('AI player rules survive JSON round-trip', () => {
   const { d } = setup();
   const p = node(d, NodeType.POOL); p.activation = ActivationMode.INTERACTIVE;
@@ -1417,6 +1469,7 @@ test('default (sync, no AI) diagram omits the new fields from JSON', () => {
   const json = d.toJSON();
   assert(json.timeMode === undefined, 'sync timeMode omitted');
   assert(json.aiPlayer === undefined, 'empty aiPlayer omitted');
+  assert(json.seed === undefined, 'empty seed omitted');
 });
 
 // ── P2: groups and sticky notes ───────────────────────────────────────────────

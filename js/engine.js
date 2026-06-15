@@ -24,6 +24,11 @@ class SimEngine {
 
   reset() {
     this.stop();
+    // Apply the diagram's run seed (or clear back to Math.random when unset) so
+    // a seeded run is reproducible from the very first stochastic draw — the same
+    // contract the CLI gets by seeding before its reset. This also clears any seed
+    // a prior Monte Carlo batch may have left on the shared RNG.
+    SimRandom.seed(this.diagram.seed || null);
     this.step = 0;
     this.history = [];
     this._histStride = 1;
@@ -1289,13 +1294,15 @@ class SimEngine {
 
     try {
       for (let r = 0; r < runs; r++) {
-        // Per-trial sub-seed: same batch seed → identical batch, while each
-        // trial inside it still gets an independent stream.
-        if (seeded) SimRandom.seed(`${opts.seed}#${r}`);
         const dg = new Diagram();
         // structuredClone is markedly cheaper than a JSON round-trip per trial.
         dg.loadJSON(typeof structuredClone === 'function'
           ? structuredClone(base) : JSON.parse(JSON.stringify(base)));
+        // Per-trial sub-seed on the clone: same batch seed → identical batch,
+        // while each trial gets an independent stream. Set it on the diagram so
+        // reset() (the single RNG authority) applies it; '' overrides any live
+        // run seed carried in the clone, keeping an unseeded batch random.
+        dg.seed = seeded ? `${opts.seed}#${r}` : '';
         const eng = new SimEngine(dg);
         eng.reset();
         let s = 0;

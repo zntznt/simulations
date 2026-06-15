@@ -266,6 +266,56 @@ class AppProps {
     });
     panel.appendChild(fontSel);
 
+    // ── Run ───────────────────────────────────────────────────────────────────
+    // A run seed pins the RNG so a live run is reproducible — the GUI counterpart
+    // to the CLI's --seed and the Monte Carlo modal's batch seed. Set-once and
+    // saved with the diagram, so it belongs here rather than on the mechanics rail.
+    this._sep(panel);
+    const seedLbl = document.createElement('div');
+    seedLbl.className = 'field-label field-label-row';
+    seedLbl.appendChild(document.createTextNode('Run seed'));
+    if (typeof KB_ARTICLES !== 'undefined' && KB_ARTICLES.some(a => a.id === 'seed')) {
+      const help = document.createElement('button');
+      help.className = 'props-help';
+      help.type = 'button';
+      help.innerHTML = '<i class="fa-solid fa-circle-question" aria-hidden="true"></i>';
+      help.setAttribute('aria-label', 'Learn about the run seed in the guide');
+      help.title = 'Learn about this in the guide';
+      help.addEventListener('click', () => this._openKB('seed'));
+      seedLbl.appendChild(help);
+    }
+    panel.appendChild(seedLbl);
+
+    const seedInp = document.createElement('input');
+    seedInp.type = 'text';
+    seedInp.className = 'wide-input';
+    seedInp.value = this.diagram.seed || '';
+    seedInp.placeholder = 'blank = fresh randomness each run';
+    seedInp.title = 'Any text or number — the same seed reproduces the exact same run';
+    seedInp.addEventListener('change', () => {
+      const v = seedInp.value.trim();
+      if (v === (this.diagram.seed || '')) return;
+      this.diagram.seed = v;
+      this._commit();
+      this._renderProps();
+      // Re-arm the RNG immediately when we're at the start, so the next Run is
+      // reproducible without a manual Reset. Mid-run we leave the live stream
+      // alone; the new seed then takes effect on the next Reset.
+      if (this.engine.step === 0 && !this.engine.running) {
+        this.engine.reset();
+        this.renderer.render();
+        if (this._timelineVisible) this.timeline.update();
+      }
+    });
+    panel.appendChild(seedInp);
+
+    const seedInfo = document.createElement('p');
+    seedInfo.className = 'props-info';
+    seedInfo.textContent = this.diagram.seed
+      ? 'Seeded — every run replays the same sequence. Clear the field for fresh randomness. Changes apply on Reset.'
+      : 'Set a seed to make runs reproducible; the same seed always plays out identically. Leave blank for fresh randomness each run.';
+    panel.appendChild(seedInfo);
+
     // ── File metadata ───────────────────────────────────────────────────────
     this._sep(panel);
     field('File');

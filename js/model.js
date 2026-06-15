@@ -667,6 +667,10 @@ class Diagram {
     // Time mode: 'sync' (turn-based — every automatic node fires each step) or
     // 'async' (real-time — each automatic node fires on its own fireEvery rhythm).
     this.timeMode = 'sync';
+    // Run seed: when set, every stochastic decision in a live run draws from a
+    // seeded RNG, so the run is bit-for-bit reproducible. '' = unseeded (delegates
+    // to Math.random). Applied by the engine on reset(); mirrors the CLI --seed.
+    this.seed = '';
     // Artificial player: scripted actor that fires interactive nodes during a
     // run, on an interval or when a variable condition holds.
     this.aiPlayer = { enabled: false, rules: [] };
@@ -737,6 +741,7 @@ class Diagram {
         ? this.customVars.map(r => ({ ...r, values: Array.isArray(r.values) ? [...r.values] : undefined }))
         : undefined,
       timeMode: this.timeMode !== 'sync' ? this.timeMode : undefined,
+      seed: this.seed ? this.seed : undefined,
       aiPlayer: (this.aiPlayer && this.aiPlayer.rules && this.aiPlayer.rules.length)
         ? { enabled: !!this.aiPlayer.enabled, rules: this.aiPlayer.rules.map(r => ({ ...r })) }
         : undefined,
@@ -761,6 +766,7 @@ class Diagram {
     // `randomVars` is the pre-rename key for what is now `customVars`.
     this.customVars = (data.customVars || data.randomVars || []).map(r => ({ ...r, values: Array.isArray(r.values) ? [...r.values] : [] }));
     this.timeMode = data.timeMode || 'sync';
+    this.seed = data.seed || '';
     this.aiPlayer = data.aiPlayer
       ? { enabled: !!data.aiPlayer.enabled, rules: (data.aiPlayer.rules || []).map(r => ({ ...r })) }
       : { enabled: false, rules: [] };
