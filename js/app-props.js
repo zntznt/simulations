@@ -572,13 +572,9 @@ class AppProps {
       panel.appendChild(row);
     }
 
-    const addRow = document.createElement('div');
-    addRow.className = 'prop-row';
-    addRow.appendChild(document.createElement('label'));
     const addBtn = document.createElement('button');
     addBtn.textContent = '+ Add Parameter';
-    addBtn.className = 'btn';
-    addBtn.style.flex = '1';
+    addBtn.className = 'btn var-add-btn';
     addBtn.addEventListener('click', () => {
       let k = 'param' + (Object.keys(params).length + 1);
       while (params[k] !== undefined) k += '_';
@@ -586,8 +582,7 @@ class AppProps {
       this._renderProps();
       this._commit();
     });
-    addRow.appendChild(addBtn);
-    panel.appendChild(addRow);
+    panel.appendChild(addBtn);
   }
 
   // Live variables readout (populated during a simulation run).
@@ -688,10 +683,8 @@ class AppProps {
       panel.appendChild(box);
     });
 
-    const addRow = document.createElement('div'); addRow.className = 'prop-row';
-    addRow.appendChild(document.createElement('label'));
     const add = document.createElement('button');
-    add.textContent = '+ Add rule'; add.className = 'btn'; add.style.flex = '1';
+    add.textContent = '+ Add rule'; add.className = 'btn var-add-btn';
     add.disabled = !interactives.length;
     add.addEventListener('click', () => {
       ai.rules.push({
@@ -700,7 +693,7 @@ class AppProps {
       });
       this._renderProps(); this._commit();
     });
-    addRow.appendChild(add); panel.appendChild(addRow);
+    panel.appendChild(add);
   }
 
   // Custom variables editor (diagram panel). Four kinds:
@@ -919,18 +912,14 @@ class AppProps {
       panel.appendChild(row);
     });
 
-    const addRow = document.createElement('div');
-    addRow.className = 'prop-row';
-    addRow.appendChild(document.createElement('label'));
     const add = document.createElement('button');
-    add.textContent = '+ Add Resource Type'; add.className = 'btn'; add.style.flex = '1';
+    add.textContent = '+ Add Resource Type'; add.className = 'btn var-add-btn';
     add.addEventListener('click', () => {
       const swatches = ['#ffd700', '#8d6e63', '#4caf50', '#42a5f5', '#ef5350', '#ab47bc', '#ff7043', '#26c6da'];
       types.push({ name: 'Type ' + (types.length + 1), color: swatches[types.length % swatches.length] });
       this._renderProps(); this._commit();
     });
-    addRow.appendChild(add);
-    panel.appendChild(addRow);
+    panel.appendChild(add);
 
     // Live per-type totals across the diagram.
     const tl = document.createElement('div');
