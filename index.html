@@ -407,11 +407,11 @@
       <label>from <input type="number" id="mc-sweep-from" value="0"></label>
       <label>to <input type="number" id="mc-sweep-to" value="10"></label>
       <label>values <input type="number" id="mc-sweep-count" value="5" min="2" max="11"></label>
-      <button class="btn" id="mc-sweep-run" title="Run the batch once per parameter value and compare results">Run sweep</button>
+      <button class="btn btn-primary" id="mc-sweep-run" title="Run the batch once per parameter value and compare results">Run sweep</button>
     </div>
     <div class="mc-controls mc-sweep-controls">
       <label title="Perturb every diagram parameter by ±this percent and measure each node's response">Sensitivity ±<input type="number" id="mc-sens-pct" value="10" min="1" max="50">%</label>
-      <button class="btn" id="mc-sens-run" title="Perturb each parameter ±10% and heatmap which parameters move which nodes the most">Run sensitivity</button>
+      <button class="btn btn-primary" id="mc-sens-run" title="Perturb each parameter ±10% and heatmap which parameters move which nodes the most">Run sensitivity</button>
     </div>
     <div id="mc-results"></div>
   </div>

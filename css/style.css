@@ -364,7 +364,7 @@ select.wide-input option { background: var(--panel2); }
   font-weight: 700; color: var(--accent); white-space: nowrap;
 }
 
-.var-add-btn { width: 100%; margin-top: 2px; }
+.var-add-btn { width: 100%; margin-top: 2px; margin-bottom: 10px; }
 
 /* Legacy compat — kept for any stray references */
 .randvar-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 10px; }
@@ -709,7 +709,7 @@ input[type="range"] {
   background: var(--panel2); border: 1px solid var(--border); border-radius: 3px;
   padding: 1px 4px;
 }
-.help-footer { padding: 0 18px 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+.help-footer { padding: 12px 18px 16px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; border-top: 1px solid var(--border); }
 
 /* ── Knowledge base / concept guide ── */
 #kb-overlay {
