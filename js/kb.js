@@ -404,26 +404,31 @@ const KB_ARTICLES = [
   },
   {
     id: 'timeline', category: 'Running and analysis', title: 'Timeline chart',
-    keywords: 'timeline chart graph plot history hover scrub series steps line',
-    body: 'The timeline chart plots node values over the course of a run, so you '
-      + 'can see how stocks rise, fall and settle rather than reading a single '
-      + 'snapshot. Open it from the Analysis menu and it tracks the run live, '
-      + 'updating as each step lands. Hover over the chart to read the exact value '
-      + 'of every series at that step, and scrub back through the run to revisit '
-      + 'an earlier moment without losing your place. It turns a simulation into a '
-      + 'graph you can read at a glance.',
+    keywords: 'timeline chart graph plot history hover scrub series steps line compare brush normalize log linear',
+    body: 'The timeline chart plots node values over the course of a run so you can '
+      + 'see how stocks rise, fall and settle rather than reading a single snapshot. '
+      + 'Open it from the Analysis menu and it tracks the run live. Hover the chart '
+      + 'to read every series at a step; drag across a range to compare two moments '
+      + 'in time — the panel shows each node\'s value at both ends and the delta '
+      + 'between them. Press Clear or Esc to dismiss the comparison. The Y-axis '
+      + 'scale control in the header switches between Linear (raw values on a shared '
+      + 'axis), Log (decade ticks, useful when series differ by orders of magnitude) '
+      + 'and Normalized (each series scaled 0–100%, for shape comparison). The scrub '
+      + 'slider beneath the canvas replays any past step without rerunning.',
   },
   {
     id: 'monte-carlo', category: 'Running and analysis', title: 'Monte Carlo batch',
-    keywords: 'monte carlo batch random runs mean min max histogram seed sweep statistics',
-    body: 'A Monte Carlo batch runs your model many times and reports the spread '
-      + 'of outcomes instead of a single result, which matters whenever chance is '
-      + 'involved. Set the number of runs and the steps per run, and the batch '
-      + 'reports the mean, minimum and maximum for each node along with a '
-      + 'histogram of where results landed. When the model has an end condition, '
-      + 'it also reports how often the goal was reached and how long it typically '
-      + 'took. Seed the batch to make the whole experiment reproducible. The batch '
-      + 'never disturbs your live diagram.',
+    keywords: 'monte carlo batch random runs mean min max histogram seed sweep sensitivity statistics cancel',
+    body: 'The Monte Carlo modal offers three analyses, all sharing the Runs, Steps '
+      + 'and Seed settings at the top. Batch run executes every trial and '
+      + 'summarizes where each tracked node lands: mean, min, max and a histogram. '
+      + 'Parameter sweep varies one diagram parameter across a range and runs a '
+      + 'batch for each value, showing the results side by side so you can find '
+      + 'the inflection point where the model tips. Sensitivity analysis nudges '
+      + 'every parameter up and down by a small percentage, one at a time, and '
+      + 'produces a heatmap of elasticities — which knobs move which outputs and '
+      + 'by how much. Any analysis can be cancelled mid-run. None touch the live '
+      + 'diagram; all work on copies.',
   },
   {
     id: 'sensitivity', category: 'Running and analysis', title: 'Sensitivity analysis',
@@ -462,15 +467,16 @@ const KB_ARTICLES = [
   },
   {
     id: 'editing', category: 'Building diagrams', title: 'Selecting and editing',
-    keywords: 'select marquee multi-select copy paste duplicate delete right-click context menu rubber band move nudge',
+    keywords: 'select marquee multi-select copy paste duplicate delete right-click context menu rubber band move nudge ctrl+a select all esc',
     body: 'Click a node to select it, or drag an empty patch of canvas to rubber-band '
-      + 'a group; hold Shift to add to a selection. With something selected you can '
-      + 'copy and paste it with Ctrl+C and Ctrl+V, duplicate it in place with '
+      + 'a group; hold Shift to add to a selection. Press Ctrl+A to select every '
+      + 'node at once, and Esc to clear the selection. With something selected you '
+      + 'can copy and paste it with Ctrl+C and Ctrl+V, duplicate it in place with '
       + 'Ctrl+D, nudge it with the arrow keys, or remove it with Delete. '
       + 'Right-click anything to open a context menu with those same actions close '
       + 'to hand — duplicate, copy, save the selection as a reusable component, or '
-      + 'delete — and right-click empty canvas to paste, select all or fit the view. '
-      + 'Every edit is undoable with Ctrl+Z.',
+      + 'delete — and right-click empty canvas to paste, select all (Ctrl+A) or fit '
+      + 'the view. Every edit is undoable with Ctrl+Z.',
   },
   {
     id: 'components', category: 'Building diagrams', title: 'Reusable components',
@@ -609,6 +615,17 @@ const KB_ARTICLES = [
   },
 
   // ── Saving and sharing ─────────────────────────────────────────────────────
+  {
+    id: 'library', category: 'Saving and sharing', title: 'Library and templates',
+    keywords: 'library template starter example diagram load browse manage built-in demo',
+    body: 'The Library holds starter templates, reusable components and your saved '
+      + 'diagrams. Starter templates are complete, pre-built models you can load '
+      + 'onto the canvas with one click to see a working economy in action — a good '
+      + 'way to learn how a loop is wired before building your own. Your saved '
+      + 'diagrams are entries you manage yourself: give the current canvas a name '
+      + 'and click Save diagram to keep it, then Load to restore it later. The '
+      + 'Library is reachable from the toolbar or the File menu.',
+  },
   {
     id: 'saving', category: 'Saving and sharing', title: 'Saving and loading',
     keywords: 'save load autosave library file JSON export import browser recovery banner',

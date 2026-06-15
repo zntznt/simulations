@@ -913,6 +913,11 @@ class App {
     const search = document.getElementById('kb-search-input');
     search.addEventListener('input', () => this._renderKBNav(search.value));
 
+    document.body.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-kb-article]');
+      if (btn && !btn.disabled) this._openKB(btn.dataset.kbArticle);
+    });
+
     document.getElementById('kb-nav').addEventListener('click', (e) => {
       const link = e.target.closest('.kb-link');
       if (link) this._showKBArticle(link.dataset.kbId);
@@ -1231,6 +1236,7 @@ class App {
         else if (k === 'c') { this._copy(); }
         else if (k === 'v') { e.preventDefault(); this._paste(); }
         else if (k === 'd') { e.preventDefault(); this._duplicate(); }
+        else if (k === 'a') { e.preventDefault(); this._selectAll(); }
       } else {
         // Tool shortcuts: S=select, D=delete, R=resource-connect, T=state-connect
         const toolKeys = { s: 'select', d: 'delete', r: 'connect-resource', t: 'connect-state' };

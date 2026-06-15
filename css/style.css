@@ -955,6 +955,7 @@ input[type="range"] {
 .lib-section-title {
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
   color: var(--text-dim); padding: 12px 16px 2px;
+  display: flex; align-items: center; justify-content: space-between;
 }
 .lib-row {
   display: flex; align-items: center; justify-content: space-between;
