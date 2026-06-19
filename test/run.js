@@ -2148,6 +2148,72 @@ test('trader conservation: total resources unchanged by any number of trades', (
   assert(t.trades > 0, 'trades happened');
 });
 
+// ── Gap tests: gate inside a feedback loop ──────────────────────────────────
+// A gate's output drives an activator back onto its own upstream source, so the
+// loop closes THROUGH the gate. This exercises gate routing + activator gating
+// + the engine's one-step variable lag together — a combination none of the
+// split-mode gate tests cover.
+
+test('gate feedback loop throttles its source once the sink fills (all mode)', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const g = node(d, NodeType.GATE); g.gateMode = 'all';
+  const p = node(d, NodeType.POOL);
+  conn(d, s, g).rate = 2;
+  conn(d, g, p).rate = 2;
+  // Activator: source may fire only while pool < 5.
+  const act = conn(d, p, s, ConnectionType.STATE);
+  act.activator = true; act.actOperator = '<'; act.actValue = 5;
+  e.reset();
+  for (let i = 0; i < 30; i++) e.doStep();
+  // The loop bounds PRODUCTION (the source freezes once the sink crosses the
+  // threshold). In-flight units still drain out of the gate afterward, so the
+  // pool settles at total production — not at the activator threshold.
+  const settled = s.produced;
+  assert(settled <= 14, `production is bounded by the feedback loop (got ${settled})`);
+  eq(p.resources, settled, 'every produced unit eventually lands in the bounded pool');
+  // Run further: nothing changes once the loop has shut the source off.
+  for (let i = 0; i < 10; i++) e.doStep();
+  eq(s.produced, settled, 'production stays frozen — the loop holds');
+});
+
+test('gate feedback respects one-step lag: activator reads the prior step', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const g = node(d, NodeType.GATE); g.gateMode = 'all';
+  const p = node(d, NodeType.POOL);
+  conn(d, s, g).rate = 2;
+  conn(d, g, p).rate = 2;
+  const act = conn(d, p, s, ConnectionType.STATE);
+  act.activator = true; act.actOperator = '<'; act.actValue = 5;
+  e.reset();
+  // Step the loop to exactly the point the threshold is crossed. Because the
+  // activator reads the previous step's pool value, the source fires one extra
+  // time AFTER the sink reaches the threshold — the documented one-step lag.
+  for (let i = 0; i < 6; i++) e.doStep();
+  eq(p.resources, 5, 'pool reaches the threshold');
+  eq(s.produced, 12, 'source produced through the crossing step (lag), not before');
+  e.doStep();
+  eq(s.produced, 12, 'source is now disabled — no further production');
+});
+
+test('gate feedback loop conserves what the source emitted (no leak through the gate)', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const g = node(d, NodeType.GATE); g.gateMode = 'all';
+  const p = node(d, NodeType.POOL);
+  conn(d, s, g).rate = 2;
+  conn(d, g, p).rate = 2;
+  const act = conn(d, p, s, ConnectionType.STATE);
+  act.activator = true; act.actOperator = '<'; act.actValue = 5;
+  e.reset();
+  for (let i = 0; i < 12; i++) e.doStep();
+  // Everything the source emitted is either sitting in the gate or in the pool —
+  // the gate neither created nor destroyed resources in the loop.
+  eq(g.resources + p.resources, s.produced,
+    `in-gate(${g.resources}) + in-pool(${p.resources}) = produced(${s.produced})`);
+});
+
 // ── Custom variables ─────────────────────────────────────────────────────────
 console.log('\nCustom variables');
 
