@@ -758,6 +758,96 @@ test('queue records waiting time and peak line under congestion', () => {
   assert(q.totalWait / q.processed > 1, 'average wait exceeds the uncongested minimum');
 });
 
+// ── Gap tests: queue balk / renege / loss conservation ──────────────────────
+// The waiting-line cap (maxLine) and patience (renege) paths were untested.
+// They are loss paths, so the key invariant is conservation: every unit that
+// arrives is either served, balked, reneged, or still in the system.
+
+test('queue balks arrivals when the waiting line is full', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  // Slow server, tiny line: the line fills and stays full, so most arrivals balk.
+  const q = node(d, NodeType.QUEUE); q.processTime = 5; q.servers = 1; q.maxLine = 2;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, s, q).rate = 3;     // 3 arrive/step, far more than the line + server absorb
+  conn(d, q, dr).rate = 1;
+  steps(e, 10);
+  assert(q.balked > 0, `arrivals are turned away at the full line (got ${q.balked})`);
+  // The line never exceeds its cap.
+  assert(q.maxLen <= 2, `waiting line never exceeds maxLine (got ${q.maxLen})`);
+});
+
+test('queue balk conserves units: arrived = served + balked + in-system', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE); q.processTime = 4; q.servers = 1; q.maxLine = 2;
+  const dr = node(d, NodeType.DRAIN);
+  const inConn = conn(d, s, q); inConn.rate = 3;
+  conn(d, q, dr).rate = 1;
+  const N = 12;
+  steps(e, N);
+  // A fixed-rate source emits `rate` every step it fires (N steps).
+  const arrived = inConn.rate * N;
+  const accounted = dr.drained + q.balked + q.resources;
+  eq(accounted, arrived,
+    `served(${dr.drained}) + balked(${q.balked}) + in-system(${q.resources}) = arrived(${arrived})`);
+});
+
+test('queue reneges units that wait past their patience', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  // One slow server, no line cap, short patience: units that pile up behind the
+  // server give up before they ever reach it.
+  const q = node(d, NodeType.QUEUE); q.processTime = 6; q.servers = 1; q.patience = 2;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, s, q).rate = 3;
+  conn(d, q, dr).rate = 1;
+  steps(e, 12);
+  assert(q.reneged > 0, `impatient units leave the line (got ${q.reneged})`);
+});
+
+test('queue with infinite patience never reneges', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE); q.processTime = 6; q.servers = 1; q.patience = 0;
+  const dr = node(d, NodeType.DRAIN);
+  conn(d, s, q).rate = 3;
+  conn(d, q, dr).rate = 1;
+  steps(e, 12);
+  eq(q.reneged, 0, 'patience 0 means infinite patience — nobody gives up');
+});
+
+test('queue renege conserves units: arrived = served + reneged + in-system', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE); q.processTime = 5; q.servers = 1; q.patience = 3;
+  const dr = node(d, NodeType.DRAIN);
+  const inConn = conn(d, s, q); inConn.rate = 2;
+  conn(d, q, dr).rate = 1;
+  const N = 14;
+  steps(e, N);
+  const arrived = inConn.rate * N;
+  const accounted = dr.drained + q.reneged + q.resources;
+  eq(accounted, arrived,
+    `served(${dr.drained}) + reneged(${q.reneged}) + in-system(${q.resources}) = arrived(${arrived})`);
+});
+
+test('queue with both a line cap and patience conserves across all loss paths', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const q = node(d, NodeType.QUEUE);
+  q.processTime = 5; q.servers = 1; q.maxLine = 3; q.patience = 4;
+  const dr = node(d, NodeType.DRAIN);
+  const inConn = conn(d, s, q); inConn.rate = 4;
+  conn(d, q, dr).rate = 1;
+  const N = 16;
+  steps(e, N);
+  const arrived = inConn.rate * N;
+  const accounted = dr.drained + q.balked + q.reneged + q.resources;
+  eq(accounted, arrived,
+    `served(${dr.drained}) + balked(${q.balked}) + reneged(${q.reneged}) + in-system(${q.resources}) = arrived(${arrived})`);
+});
+
 test('queue servers round-trip through JSON', () => {
   const { d } = setup();
   const q = node(d, NodeType.QUEUE); q.processTime = 4; q.servers = 3;
