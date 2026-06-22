@@ -107,7 +107,10 @@ class App {
       }
 
       if (fired.length) this.renderer.setFiring(fired);
-      else this.renderer.render();
+      // ponytail: a tick with no fires and no transfers changes no node value, so
+      // render() would only re-walk the DOM to repaint identical numbers. Skip it.
+      // Keep rendering when charts exist — their x-axis still extends at rest.
+      else if (transfers.length || this.diagram.charts.size) this.renderer.render();
 
       this._updateSparklines();
       if (this._timelineVisible) this.timeline.update();

@@ -7,6 +7,29 @@ land. Priorities: **P1** = core parity / high value, **P2** = valuable,
 
 ---
 
+## 🎯 Next up — prioritized (effort / impact)
+
+The open items below, ranked best effort-to-impact first. Impact is weighted for
+**new-user adoption** (the current priority); effort is sized against the code
+(S = a few dozen lines, M = new methods across files + authoring, L = touches the
+core loop or vendoring). Full detail for each lives in its section further down.
+
+| # | Item | Effort | Impact | Notes |
+|---|------|--------|--------|-------|
+| 1 | **Hand-off card previews** — flash each destination (Library/rail/Batch) instead of only pointing | S | High | Cheapest "aha" right after the tour; add `enter()` hooks to 3 existing cards |
+| 2 | **Branch the welcome by intent** — "Build from scratch" vs "Tour a finished economy" | S/M | High | First screen a new user sees; one overlay choice + routing |
+| 3 | **Tour Part 2 — walk a real economy** (annotate the F2P demo) | M | High | Closes the persona study's main gap: teaches the *model*, not just the gesture |
+| 4 | **Plugin hooks** (`onNodeFire`/`onTransfer`/`onStepEnd`) | S | Med | Tiny diff (3 callbacks + guards); power-user impact, off the adoption lens |
+| 5 | **Web-worker engine** — move the tick loop off-thread | S | Med | Engine is already DOM-free; perf win, not adoption |
+| 6 | **Reusable subgraph components** (parameterized insert) | S | Med | Small extension of the existing component insert; power-user |
+| 7 | **Animated GIF export** | M | Med | Reach/shareability; needs a vendored encoder (gif.js) — acceptable per pragmatic dep policy |
+| — | **Machinations.io importer** | M | Niche | Parked: effort dominated by reverse-engineering their format; narrow audience |
+
+**Suggested first sprint: items 1–3** — all serve new-user adoption; 1 and 2 are
+small, 3 is the one larger investment worth making for that audience.
+
+---
+
 ## ✅ Implemented
 
 ### Nodes
@@ -247,7 +270,8 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
       **Analysis → Batch (Monte Carlo)** — the depth that was previously
       undiscoverable to a new user.
 
-  *Tour — open follow-ups (refine before deciding what else to add):*
+  *Tour — open follow-ups (refine before deciding what else to add).
+  Ranked in the [Next up](#-next-up--prioritized-effort--impact) table — items 1–3:*
   - [ ] **Refine the hand-off cards (P0 #2).** They're a first cut — revisit
         wording, placement, and whether each card should *preview* its
         destination (e.g. flash the Library open) rather than only point at it.
@@ -257,11 +281,10 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
   - [ ] **Branch the welcome by intent** — "Build from scratch" vs. "Tour a
         finished economy", routing to the basics tour or Part 2.
   - [ ] **Usability snags surfaced by the persona pass (not tour-specific):**
-        re-selecting a connection is still fiddly despite the 24px hit area; the
-        welcome glossary lists 5 node types while the palette shows more
-        (Gate/Converter/Register/Delay/Queue/Trader); consider surfacing a
-        connection's configured rate at rest, not only the flow badge while
-        running.
+        re-selecting a connection is still fiddly despite the 24px hit area.
+        _(Two earlier snags here have since shipped: the welcome glossary now
+        lists all nine node types, and connections show their configured rate
+        at rest — `renderer.js` ~L1143 — not only the flow badge while running.)_
 
 ## ✅ Sensitivity analysis
 
@@ -278,13 +301,16 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
 ## 🔮 Council backlog — bigger ideas worth designing
 
 Ideas from a design review ("council of geniuses" pass). The sensitivity
-dashboard has since shipped (above); the rest are unstarted.
+dashboard and run-comparison overlay (as Scenario branching) have since
+shipped (above); the rest are unstarted. The actionable ones are ranked in the
+[Next up](#-next-up--prioritized-effort--impact) table (items 4–7 + importer).
 
 - **Reusable subgraph components.** Define a module (e.g. a loot-drop pipeline)
   once, instantiate it many times with different parameters via a
   `ComponentRef` node.
-- **Run comparison overlay.** Pin a run as baseline; later runs draw over it as
-  ghost traces in the timeline.
+- ~~**Run comparison overlay.** Pin a run as baseline; later runs draw over it as
+  ghost traces in the timeline.~~ ✅ Shipped as **Scenario branching** (checkpoint /
+  fork / ghost-branch overlays) — see the section above.
 - **Web-worker / WASM engine.** Move the tick loop off the main thread, then
   (much later) to WASM for 100k-step sweeps.
 - **Live collaboration.** CRDT-backed multi-user editing (Yjs/Automerge) over
@@ -310,9 +336,6 @@ dashboard has since shipped (above); the rest are unstarted.
   "resume past goal" mode yet.
 - **Place tool stays active** after placing a node (rapid placement) unless the
   "↩ Auto" toggle is on, which snaps back to Select after one placement.
-- **Sub-unit fairness remainder** is handed out round-robin in connection
-  order within one pool's outputs; only matters when a pool is too scarce
-  to give every output one unit.
 - **Capacity-blocked shares aren't re-routed mid-tick** when two connections
   target the *same* full node (rare); resources stay in the source pool and are
   retried next step (never lost).
