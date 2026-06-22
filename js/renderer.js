@@ -908,7 +908,7 @@ class Renderer {
     this._updateResizeHandles(el, chart, isSel);
 
     const plot = el.querySelector('.chart-plot');
-    while (plot.firstChild) plot.removeChild(plot.firstChild);
+    const clearPlot = () => { while (plot.firstChild) plot.removeChild(plot.firstChild); };
 
     const clearHover = () => {
       el._chartCtx = null;
@@ -917,6 +917,7 @@ class Renderer {
     };
 
     const hint = (msg) => {
+      clearPlot();
       const t = svgEl('text', {
         x: String(chart.x + chart.w / 2), y: String(chart.y + chart.h / 2 + 6),
         'text-anchor': 'middle', 'font-size': '10', 'font-family': 'var(--font)', fill: '#556070',
@@ -926,10 +927,22 @@ class Renderer {
     };
 
     const ids = (chart.nodeIds || []).filter(id => this.diagram.nodes.has(id));
-    if (!ids.length) { clearHover(); hint('Pick nodes in the panel →'); return; }
+    if (!ids.length) { clearHover(); el._plotSig = null; hint('Pick nodes in the panel →'); return; }
 
     const hist = (this.engine && this.engine.history) ? this.engine.history : [];
-    if (hist.length < 2) { clearHover(); hint('Run the simulation to plot'); return; }
+    if (hist.length < 2) { clearHover(); el._plotSig = null; hint('Run the simulation to plot'); return; }
+
+    // ponytail: the plot DOM is rebuilt from scratch below — skip it when nothing
+    // that affects the drawing changed. Signature folds in everything _drawPlot reads:
+    // series set, history length, last value per series (catches scrub edits), type,
+    // and box size. Cheaper than rebuilding a growing path on every settled tick.
+    const last = hist[hist.length - 1].snap;
+    const sig = `${ids.join(',')}|${hist.length}|${chart.chartType || 'line'}|`
+      + `${chart.x},${chart.y},${chart.w},${chart.h}|`
+      + ids.map(id => last[id] ?? 0).join(',');
+    if (el._plotSig === sig) { this._drawChartHover(el); return; }
+    el._plotSig = sig;
+    clearPlot();
 
     // Plot geometry (relative to the chart box).
     const padL = 28, padT = 22, padB = 10, padR = 8;
@@ -1204,12 +1217,19 @@ class Renderer {
       label.setAttribute('y', lp.y);
       label.setAttribute('fill', color);
       try {
-        const bb = label.getBBox();
+        // ponytail: getBBox() forces a synchronous layout flush; the label's size
+        // depends only on its text (anchor=middle/central, so it's centred on lp).
+        // Cache size keyed on text and reflow only when the string changes.
+        let sz = label._sizeCache;
+        if (!sz || sz.txt !== txt) {
+          const bb = label.getBBox();
+          sz = label._sizeCache = { txt, w: bb.width, h: bb.height };
+        }
         const px = 6, py = 3;
-        labelBg.setAttribute('x', bb.x - px);
-        labelBg.setAttribute('y', bb.y - py);
-        labelBg.setAttribute('width', bb.width + px * 2);
-        labelBg.setAttribute('height', bb.height + py * 2);
+        labelBg.setAttribute('x', lp.x - sz.w / 2 - px);
+        labelBg.setAttribute('y', lp.y - sz.h / 2 - py);
+        labelBg.setAttribute('width', sz.w + px * 2);
+        labelBg.setAttribute('height', sz.h + py * 2);
         labelBg.setAttribute('fill', isSel ? 'rgba(255,255,255,0.14)' : 'rgba(18,18,18,0.85)');
         labelBg.setAttribute('stroke', color);
         labelBg.setAttribute('stroke-width', '1');
