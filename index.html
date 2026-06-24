@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Simulations — Economy Designer</title>
+  <title>Simulations Economy Designer</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="vendor/fontawesome/css/fontawesome.min.css">
   <link rel="stylesheet" href="vendor/fontawesome/css/solid.min.css">
@@ -44,7 +44,7 @@
     <div class="analysis-controls">
       <div class="menu" id="menu-analysis">
         <button class="btn" id="btn-analysis-menu" aria-haspopup="true" aria-expanded="false"
-                title="Analysis — timeline chart &amp; Monte Carlo"><i class="fa-solid fa-chart-column" aria-hidden="true"></i> Analysis <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
+                title="Analysis (timeline chart and Monte Carlo)"><i class="fa-solid fa-chart-column" aria-hidden="true"></i> Analysis <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
         <div class="menu-popup align-left hidden" role="menu" aria-label="Analysis">
           <button class="menu-item menu-item-toggle" role="menuitemcheckbox" aria-checked="false" id="btn-timeline"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Timeline chart</button>
           <button class="menu-item" role="menuitem" id="btn-batch"><i class="fa-solid fa-dice" aria-hidden="true"></i> Batch (Monte Carlo)…</button>
@@ -53,7 +53,7 @@
       <span class="tb-sep" aria-hidden="true"></span>
       <div class="zoom-cluster" role="group" aria-label="Zoom controls">
         <button class="btn zoom-btn" id="btn-zoom-out" title="Zoom out" aria-label="Zoom out"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>
-        <button class="btn zoom-level" id="btn-zoom-level" title="Reset to 100%" aria-label="Current zoom — click to reset to 100%">100%</button>
+        <button class="btn zoom-level" id="btn-zoom-level" title="Reset to 100%" aria-label="Current zoom. Click to reset to 100%">100%</button>
         <button class="btn zoom-btn" id="btn-zoom-in" title="Zoom in" aria-label="Zoom in"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
         <button class="btn" id="btn-fit" title="Fit diagram to view (Ctrl+0)"><i class="fa-solid fa-expand" aria-hidden="true"></i> Fit</button>
         <button class="btn" id="btn-minimap" title="Toggle minimap overview" aria-pressed="false"><i class="fa-solid fa-map" aria-hidden="true"></i> Map</button>
@@ -61,7 +61,7 @@
       <span class="tb-sep" aria-hidden="true"></span>
       <div class="menu" id="menu-view">
         <button class="btn" id="btn-view-menu" aria-haspopup="true" aria-expanded="false"
-                title="View options — grid snap, auto-select, flow readout"><i class="fa-solid fa-sliders" aria-hidden="true"></i> View <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
+                title="View options (grid snap, auto-select, flow readout)"><i class="fa-solid fa-sliders" aria-hidden="true"></i> View <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
         <div class="menu-popup align-left hidden" role="menu" aria-label="View options">
           <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-snap" aria-checked="false" title="Align nodes to the grid as you place and drag them"><i class="fa-solid fa-border-all" aria-hidden="true"></i> Snap to grid</button>
           <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-autoselect" aria-checked="true" title="After placing a node, switch back to the Select tool"><i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i> Auto-select after place</button>
@@ -78,7 +78,7 @@
 
       <div class="menu" id="menu-file">
         <button class="btn" id="btn-file-menu" aria-haspopup="true" aria-expanded="false"
-                title="File — open, save, export, share">File <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
+                title="File (open, save, export, share)">File <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
         <div class="menu-popup hidden" role="menu" aria-label="File">
           <button class="menu-item" role="menuitem" id="btn-load">Open file…</button>
           <div class="menu-sep" role="separator"></div>
@@ -149,7 +149,7 @@
         <button class="palette-header" aria-expanded="true" aria-controls="pal-nodes">Nodes</button>
         <div class="palette-items" id="pal-nodes">
 
-      <button data-tool="place-pool" title="Pool — stores a resource amount (a container)">
+      <button data-tool="place-pool" title="Pool stores a resource amount (a container)">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="16" r="13" fill="#1a3a6b" stroke="#4a9eff" stroke-width="2"/>
@@ -159,7 +159,7 @@
         Pool
       </button>
 
-      <button data-tool="place-source" title="Source — produces resources (a faucet)">
+      <button data-tool="place-source" title="Source produces resources (a faucet)">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <polygon points="16,3 29,27 3,27" fill="#1a4a2a" stroke="#4caf50" stroke-width="2"/>
@@ -169,7 +169,7 @@
         Source
       </button>
 
-      <button data-tool="place-drain" title="Drain — consumes resources (a sink)">
+      <button data-tool="place-drain" title="Drain consumes resources (a sink)">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <polygon points="16,29 3,5 29,5" fill="#4a1a1a" stroke="#ef5350" stroke-width="2"/>
@@ -179,7 +179,7 @@
         Drain
       </button>
 
-      <button data-tool="place-gate" title="Gate — splits incoming flow across its outputs">
+      <button data-tool="place-gate" title="Gate splits incoming flow across its outputs">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <polygon points="16,3 29,16 16,29 3,16" fill="#3a1a5a" stroke="#ba68c8" stroke-width="2"/>
@@ -188,7 +188,7 @@
         Gate
       </button>
 
-      <button data-tool="place-converter" title="Converter — turns N input resources into a new output">
+      <button data-tool="place-converter" title="Converter turns N input resources into a new output">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <circle cx="10" cy="16" r="10" fill="#4a2a00" stroke="#ffa726" stroke-width="2"/>
@@ -199,7 +199,7 @@
         Converter
       </button>
 
-      <button data-tool="place-register" title="Register — a value computed live from a formula">
+      <button data-tool="place-register" title="Register is a value computed live from a formula">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <rect x="3" y="9" width="26" height="14" rx="3" fill="#1a2a38" stroke="#78909c" stroke-width="2"/>
@@ -209,7 +209,7 @@
         Register
       </button>
 
-      <button data-tool="place-delay" title="Delay — holds a batch, then releases it after N steps">
+      <button data-tool="place-delay" title="Delay holds a batch, then releases it after N steps">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="16" r="13" fill="#004a4a" stroke="#26c6da" stroke-width="2"/>
@@ -220,7 +220,7 @@
         Delay
       </button>
 
-      <button data-tool="place-queue" title="Queue — serves one item at a time, FIFO (a line)">
+      <button data-tool="place-queue" title="Queue serves one item at a time, FIFO (a line)">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="16" r="13" fill="#2a2a4a" stroke="#7c83ff" stroke-width="2"/>
@@ -233,7 +233,7 @@
         Queue
       </button>
 
-      <button data-tool="place-trader" title="Trader — swaps resources between two partners (an exchange)">
+      <button data-tool="place-trader" title="Trader swaps resources between two partners (an exchange)">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="16" r="13" fill="#3a1530" stroke="#f06292" stroke-width="2"/>
@@ -306,31 +306,31 @@
     <!-- Far-right rail: diagram-level settings -->
     <nav id="diagram-rail" aria-label="Diagram settings">
       <div class="rail-title" title="Diagram-wide settings: parameters, variables, resource types, the artificial player, scenario branches, and a live variable monitor">Setup</div>
-      <button class="rail-btn" data-feature="time" title="Time mode — sync / async">
+      <button class="rail-btn" data-feature="time" title="Time mode (sync or async)">
         <div class="tool-icon"><i class="fa-solid fa-clock" aria-hidden="true"></i></div>
         Time
       </button>
-      <button class="rail-btn" data-feature="params" title="Parameters — named constants">
+      <button class="rail-btn" data-feature="params" title="Parameters (named constants)">
         <div class="tool-icon"><i class="fa-solid fa-sliders" aria-hidden="true"></i></div>
         Params
       </button>
-      <button class="rail-btn" data-feature="vars" title="Variables — random &amp; computed">
+      <button class="rail-btn" data-feature="vars" title="Variables (random and computed)">
         <div class="tool-icon"><i class="fa-solid fa-square-root-variable" aria-hidden="true"></i></div>
         Vars
       </button>
-      <button class="rail-btn" data-feature="resources" title="Resource types — named, coloured resources">
+      <button class="rail-btn" data-feature="resources" title="Resource types (named, coloured resources)">
         <div class="tool-icon"><i class="fa-solid fa-tags" aria-hidden="true"></i></div>
         Types
       </button>
-      <button class="rail-btn" data-feature="player" title="Artificial player — scripted actor">
+      <button class="rail-btn" data-feature="player" title="Artificial player (scripted actor)">
         <div class="tool-icon"><i class="fa-solid fa-robot" aria-hidden="true"></i></div>
         Player
       </button>
-      <button class="rail-btn" data-feature="branches" title="Scenario branches — checkpoint a run, fork variants, compare">
+      <button class="rail-btn" data-feature="branches" title="Scenario branches checkpoint a run, fork variants and compare">
         <div class="tool-icon"><i class="fa-solid fa-code-branch" aria-hidden="true"></i></div>
         Branch
       </button>
-      <button class="rail-btn" data-feature="monitor" title="Live variables — runtime readout">
+      <button class="rail-btn" data-feature="monitor" title="Live variables (runtime readout)">
         <div class="tool-icon"><i class="fa-solid fa-eye" aria-hidden="true"></i></div>
         Watch
       </button>
@@ -358,7 +358,7 @@
     <div id="tl-scrub">
       <button class="btn" id="tl-play" title="Replay the run" aria-label="Replay the run" disabled><i class="fa-solid fa-play" aria-hidden="true"></i></button>
       <input type="range" id="tl-range" min="0" max="0" value="0" step="1" aria-label="Scrub through run history" disabled>
-      <span id="tl-scrub-label" class="tb-chip">—</span>
+      <span id="tl-scrub-label" class="tb-chip">live</span>
       <button class="btn" id="tl-live" title="Return to the live state" disabled>Live</button>
     </div>
   </div>
@@ -401,7 +401,7 @@
 <div id="mc-overlay" class="hidden">
   <div id="mc-modal" role="dialog" aria-modal="true" aria-labelledby="mc-title">
     <div class="mc-head">
-      <span id="mc-title"><i class="fa-solid fa-dice" aria-hidden="true"></i> Monte Carlo — batch runs</span>
+      <span id="mc-title"><i class="fa-solid fa-dice" aria-hidden="true"></i> Monte Carlo batch runs</span>
       <div style="display:flex;align-items:center;gap:4px">
         <button class="btn" data-kb-article="monte-carlo" title="Learn about Monte Carlo in the guide" aria-label="Learn about Monte Carlo in the guide"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
         <button class="btn" id="mc-close" aria-label="Close Monte Carlo"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
@@ -411,7 +411,7 @@
     <div class="mc-settings">
       <label>Runs <input type="number" id="mc-runs" value="100" min="1" max="5000"></label>
       <label>Steps <input type="number" id="mc-steps" value="200" min="1" max="5000"></label>
-      <label>Seed <input type="text" id="mc-seed" placeholder="optional" title="Any text/number — the same seed reproduces the exact same batch"></label>
+      <label>Seed <input type="text" id="mc-seed" placeholder="optional" title="Any text or number. The same seed reproduces the exact same batch."></label>
     </div>
 
     <div class="mc-section">
@@ -557,14 +557,14 @@
       <button class="btn" id="welcome-close" aria-label="Close welcome"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
     <div class="welcome-body">
-      <p class="welcome-lede">Design a <b>game economy or system</b> as a diagram, then press <b>Run</b> to watch resources flow, pile up, convert, and feed back — live.</p>
+      <p class="welcome-lede">Design a <b>game economy or system</b> as a diagram, then press <b>Run</b> to watch resources flow, pile up, convert and feed back in real time.</p>
       <div class="welcome-cols">
         <div class="welcome-col">
           <h3>The 3-step loop</h3>
           <ol>
             <li>Pick a node from the left palette and <b>click the canvas</b> to place it.</li>
             <li>Choose the <b>Resource (R)</b> tool, then <b>drag from one node to another</b> to connect them.</li>
-            <li>Press <b>Run</b> — numbers move, tokens flow, charts draw.</li>
+            <li>Press <b>Run</b>. Numbers move, tokens flow, charts draw.</li>
           </ol>
           <p class="welcome-note">New here? <b>Browse templates</b> to open a ready-made model and press Run.</p>
         </div>

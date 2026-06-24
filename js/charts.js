@@ -291,7 +291,7 @@ class TimelineChart {
       // is recoverable from the legend's Show all chip.
       const hasData = hist.length >= 2 || branches.length;
       const msg = (hasData && allNodes.length && !nodes.length)
-        ? 'All series hidden — click “Show all” in the legend to bring them back.'
+        ? 'All series hidden. Click “Show all” in the legend to bring them back.'
         : 'Run the simulation to plot node values over time.';
       ctx.fillText(msg, 12, h / 2);
       return;

@@ -52,7 +52,7 @@ class AppClipboard {
 
   _selectAll() {
     const ids = [...this.diagram.nodes.keys()];
-    if (!ids.length) { this._toast('Nothing to select yet — place a node first.'); return; }
+    if (!ids.length) { this._toast('Nothing to select yet. Place a node first.'); return; }
     this.editor._setSelection(ids, ids.length === 1 ? ids[0] : null, 'node');
   }
 
@@ -183,7 +183,7 @@ class AppClipboard {
     this.editor._select(null, null);
     this.renderer.render();
     this._commit();
-    this._toast('Deleted — press Ctrl+Z to undo');
+    this._toast('Deleted. Press Ctrl+Z to undo.');
   }
 
   // "Save as component…" from the context menu: open the Library and drop the

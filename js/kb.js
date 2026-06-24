@@ -30,7 +30,7 @@ const KB_ARTICLES = [
   {
     id: 'node-source', category: 'Nodes', title: 'Source',
     keywords: 'produce faucet generate spawn infinite unlimited limited stock',
-    body: 'A source produces new resources and feeds them into the model — think '
+    body: 'A source produces new resources and feeds them into the model. Think '
       + 'of it as a faucet. By default a source is unlimited and never runs dry, '
       + 'pushing resources out every step for as long as the simulation runs; how '
       + 'many it emits is set by the rate on its outgoing connection, not on the '
@@ -42,8 +42,8 @@ const KB_ARTICLES = [
   {
     id: 'node-drain', category: 'Nodes', title: 'Drain',
     keywords: 'consume sink remove destroy spend loss decay output throughput',
-    body: 'A drain consumes resources and removes them from the model permanently '
-      + '— the opposite of a source. Resources that reach a drain are gone for '
+    body: 'A drain consumes resources and removes them from the model permanently, '
+      + 'the opposite of a source. Resources that reach a drain are gone for '
       + 'good, so drains are how you model spending, decay, loss or any sink that '
       + 'should not feed back into the system. A drain records how much it has '
       + 'consumed, a figure you can chart or read through a state connection to '
@@ -54,7 +54,7 @@ const KB_ARTICLES = [
     keywords: 'split route distribute weight deterministic probabilistic random branch',
     body: 'A gate routes incoming resources to its outputs without storing '
       + 'anything itself. Each outgoing connection carries a weight, and the gate '
-      + 'splits the flow by those weights normalized against their sum — so weights '
+      + 'splits the flow by those weights normalized against their sum, so weights '
       + 'of three and one send three-quarters of the flow one way and one-quarter '
       + 'the other, and weights of 70, 22, 7 and 1 split it into 70%, 22%, 7% and '
       + '1%. In deterministic mode that proportional split happens every step. In '
@@ -63,7 +63,7 @@ const KB_ARTICLES = [
       + 'zero never chosen; over many units the shares converge on the same '
       + 'percentages. A weight can be a fixed number or a formula over diagram '
       + 'variables, just like a connection rate. A formula weight is re-evaluated '
-      + 'each step, so the split can shift as the run unfolds — route more flow down '
+      + 'each step, so the split can shift as the run unfolds. Route more flow down '
       + 'the hard branch as difficulty climbs, for example. Switch a gate output '
       + 'between a fixed weight and a formula in its properties panel.',
   },
@@ -74,8 +74,8 @@ const KB_ARTICLES = [
       + 'consuming a fixed amount each conversion. In single-input mode the '
       + '"Input / conversion" number sets how many aggregate resources are consumed per '
       + 'batch and every output fires in the converter\'s output color. For crafting '
-      + 'recipes that require specific resource types — 2 wood and 1 stone to make a '
-      + 'building, for example — click "Add multi-ingredient recipe" to switch to recipe '
+      + 'recipes that require specific resource types (2 wood and 1 stone to make a '
+      + 'building, for example), click "Add multi-ingredient recipe" to switch to recipe '
       + 'mode: define each ingredient with its color and amount, and the converter only '
       + 'fires when it holds all of them simultaneously. Each outgoing connection can '
       + 'produce a different color by setting its Output color in the connection '
@@ -90,7 +90,7 @@ const KB_ARTICLES = [
       + 'stock of resources. Feed it the values it needs through state '
       + 'connections, give each one a variable name, then write a formula such as '
       + 'gold * 2 that the register recomputes every step. Registers are useful '
-      + 'for derived numbers — a score, a price, a difficulty level — that depend '
+      + 'for derived numbers (a score, a price, a difficulty level) that depend '
       + 'on the rest of the model. Chained registers resolve in the same step, so '
       + 'a register can build on another register’s result without a lag.',
   },
@@ -111,7 +111,7 @@ const KB_ARTICLES = [
     body: 'A queue is a single waiting line that feeds one or more servers, first '
       + 'in, first out. Its process time sets how long each server takes per item '
       + 'and the server count sets how many it works at once, so throughput is '
-      + 'servers divided by process time — one server with a process time of three '
+      + 'servers divided by process time. One server with a process time of three '
       + 'releases about one item every three steps, while three servers triple '
       + 'that. To feed it with random arrivals, give the incoming connection a '
       + 'distribution rate such as Poisson, or a fixed rate with a chance '
@@ -133,8 +133,8 @@ const KB_ARTICLES = [
     keywords: 'trade exchange swap barter atomic partners deal market',
     body: 'A trader performs an atomic exchange between two partners, swapping '
       + 'resources only when both sides can pay in full. It pairs its incoming '
-      + 'connections with its outgoing ones in order — the first in with the first '
-      + 'out — and each pair trades only if both partners can afford their rate '
+      + 'connections with its outgoing ones in order (the first in with the first '
+      + 'out), and each pair trades only if both partners can afford their rate '
       + 'and have room to receive what they get. If either side falls short, '
       + 'nothing moves; there are no partial trades. The trader holds no resources '
       + 'of its own and simply counts the deals it closes.',
@@ -145,12 +145,12 @@ const KB_ARTICLES = [
     id: 'conn-resource', category: 'Connections', title: 'Resource connection',
     keywords: 'flow pipe arrow rate move transfer solid',
     body: 'A resource connection moves actual resources from one node to another, '
-      + 'drawn as a solid arrow. Its rate sets how much flows each time it fires — '
-      + 'a fixed number, a dice roll, a formula or a random draw from a '
+      + 'drawn as a solid arrow. Its rate sets how much flows each time it fires, '
+      + 'whether a fixed number, a dice roll, a formula or a random draw from a '
       + 'distribution. Resource connections are the pipes of the model: they carry '
       + 'the stuff that pools store, drains consume and converters transform. A '
       + 'connection from one pool to another is also how you transfer holdings '
-      + 'between them — add a condition or an interval to move funds only when a '
+      + 'between them, so you can add a condition or an interval to move funds only when a '
       + 'balance is high enough or only every few steps. Most connections you draw '
       + 'will be resource connections.',
   },
@@ -172,7 +172,7 @@ const KB_ARTICLES = [
       + 'distinct kinds of resource through the same network. A source emits one '
       + 'color, a converter stamps its output with another and pools keep a '
       + 'separate tally for each color they hold. Put a color filter on a '
-      + 'connection to pass only matching resources and block the rest — the way '
+      + 'connection to pass only matching resources and block the rest, which is the way '
       + 'to route gold one direction and wood another. Without a filter, a '
       + 'connection moves resources of any color.',
   },
@@ -194,7 +194,7 @@ const KB_ARTICLES = [
     body: 'A trigger is a state connection that fires its target the moment its '
       + 'source fires, letting one event set off another. It is the way to drive '
       + 'passive nodes: when the source acts, the trigger passes the activation '
-      + 'along. Tune it so it does not fire every time — set it to fire only every '
+      + 'along. Tune it so it does not fire every time, setting it to fire only every '
       + 'Nth activation, or give it a percentage chance so it fires at random. '
       + 'Triggers cascade safely, and the engine guards against loops so two nodes '
       + 'that trigger each other will not hang the simulation.',
@@ -204,7 +204,7 @@ const KB_ARTICLES = [
     keywords: 'reverse fail failure empty shortage fallback alarm else',
     body: 'A reverse trigger is the mirror image of a trigger: it fires its target '
       + 'when the source fails to act rather than when it succeeds. A source fails '
-      + 'when it cannot do its job — most often a pool that is empty or lacks the '
+      + 'when it cannot do its job, most often a pool that is empty or lacks the '
       + 'resources its outgoing connection needs. Use a reverse trigger to react '
       + 'to shortages, raise an alarm when a stock runs out or kick off a fallback '
       + 'when the usual path is blocked. It turns failure into a signal you can '
@@ -220,7 +220,7 @@ const KB_ARTICLES = [
       + 'the gatekeepers of a model: use one to keep a process idle until a '
       + 'resource builds up, to shut a feature off once a limit is reached or to '
       + 'model prerequisites and unlocks. The source can be any node, including a '
-      + 'register, so you can gate on a computed value — unlock a stage only once a '
+      + 'register, so you can gate on a computed value, unlocking a stage only once a '
       + 'level register reaches 5, say. When the test fails, the target simply does '
       + 'nothing that step.',
   },
@@ -228,7 +228,7 @@ const KB_ARTICLES = [
     id: 'conditions', category: 'Logic and control', title: 'Conditions, chance and intervals',
     keywords: 'condition chance probability interval gate fire compare threshold variable',
     body: 'A connection can gate its own firing in three ways. A condition '
-      + 'compares a value — the source’s amount or a named variable — against '
+      + 'compares a value (the source’s amount or a named variable) against '
       + 'a threshold and fires only when the test passes. A chance gives the '
       + 'connection a percentage probability of firing each time, for randomness. '
       + 'An interval fires the connection only every few steps rather than '
@@ -239,7 +239,7 @@ const KB_ARTICLES = [
     id: 'capacity', category: 'Logic and control', title: 'Capacity',
     keywords: 'capacity limit cap ceiling full maximum storage overflow work-conserving',
     body: 'Capacity is the most a node can hold. Once a node reaches its capacity, '
-      + 'it refuses further inflow, and the engine is work-conserving — resources '
+      + 'it refuses further inflow, and the engine is work-conserving, so resources '
       + 'that cannot fit are offered to other nodes or stay with their source '
       + 'rather than vanishing. Leave capacity unlimited for an open-ended '
       + 'stockpile, or set a ceiling to model storage limits, maximum health or '
@@ -264,7 +264,7 @@ const KB_ARTICLES = [
     keywords: 'end goal win lose finish halt stop target operator victory',
     body: 'An end condition halts the whole simulation the moment a node’s '
       + 'value meets a target you set. Pick a node, choose an operator and a '
-      + 'value, and the run stops as soon as the test passes — for instance, when '
+      + 'value, and the run stops as soon as the test passes, for instance when '
       + 'a score reaches 100 or a health pool hits zero. End conditions define '
       + 'what winning, losing or finishing means for your model, and the status '
       + 'bar reports which node ended the run and on what step. In a Monte Carlo '
@@ -274,29 +274,29 @@ const KB_ARTICLES = [
   {
     id: 'feedback-loops', category: 'Logic and control', title: 'Feedback loops',
     keywords: 'feedback loop self regulating logistic growth balancing reinforcing oscillate carrying capacity wire influence',
-    body: 'A feedback loop is where a quantity influences its own future — the heart '
+    body: 'A feedback loop is where a quantity influences its own future, the heart '
       + 'of most interesting models. To wire one, publish a value as a variable with '
       + 'a state connection, then use that variable in a formula that feeds back into '
       + 'the same value. The smallest example is logistic growth: a pool of rabbits '
       + 'that publishes its count as r, with a step-mode self-modifier of '
       + 'round(0.3 * r * (1 - r / 100)). When r is small the pool grows fast; as it '
       + 'nears 100 the bracket falls to zero and growth stops, so the population '
-      + 'regulates itself. Couple two such loops — foxes that eat rabbits and starve '
-      + 'without them — and the one-step lag turns the coupling into boom-and-bust '
+      + 'regulates itself. Couple two such loops (foxes that eat rabbits and starve '
+      + 'without them) and the one-step lag turns the coupling into boom-and-bust '
       + 'oscillation. Reinforcing loops, where a value feeds its own growth, explode '
       + 'or collapse; balancing loops, where growth throttles itself, settle.',
   },
   {
     id: 'losses', category: 'Logic and control', title: 'Losses, debt and negative values',
     keywords: 'negative below zero debt loss overdraft deficit floor clamp downside drain spend minimum volatile',
-    body: 'Resource counts never go below zero in this model — there is no debt or '
+    body: 'Resource counts never go below zero in this model, so there is no debt or '
       + 'negative balance. A pool asked to give more than it holds simply gives what '
       + 'it has and stops at zero. To model spending, loss or a shrinking stock, '
       + 'route resources into a drain or apply a negative-factor modifier, which '
       + 'decays the pool but floors at zero. Random rates are non-negative as well, '
       + 'so model a volatile, sometimes-falling quantity with a negative modifier or '
       + 'a drain rather than a negative rate. If you genuinely need a value that can '
-      + 'sit below zero — a temperature, a profit-and-loss line — track it as an '
+      + 'sit below zero (a temperature, a profit-and-loss line), track it as an '
       + 'offset from a baseline instead.',
   },
 
@@ -307,13 +307,13 @@ const KB_ARTICLES = [
     body: 'A modifier is a state connection that changes a target’s quantity '
       + 'directly, in place, instead of moving resources into it. It has four '
       + 'modes. Rate, the default, adds factor times the source value each step, '
-      + 'where factor is a fraction — enter 0.05 for 5% — which models interest, or '
+      + 'where factor is a fraction (enter 0.05 for 5%) that models interest, or '
       + 'decay with a negative factor. Step adds a flat amount every step. Pulse '
       + 'adds a flat amount only on steps when the source fires. Delta adds the '
       + 'factor times the change in the source since the last step. The amount can '
       + 'be a formula instead of a number. Modifiers act only on pools and '
       + 'converters, never push a target below zero, and round their per-step '
-      + 'change to a whole number — so a tiny percentage of a small pool can round '
+      + 'change to a whole number, so a tiny percentage of a small pool can round '
       + 'to nothing until the pool grows. Point a modifier from a node back to '
       + 'itself for compounding interest, steady decay or a homemade clock.',
   },
@@ -332,8 +332,8 @@ const KB_ARTICLES = [
     id: 'formulas', category: 'Values and formulas', title: 'Formulas',
     keywords: 'formula expression math function round min max variable register rate',
     body: 'Formulas let you compute values from the rest of the model using '
-      + 'ordinary math. Write expressions with the usual operators and functions — '
-      + 'addition, multiplication, round, min, max and more — referring to any '
+      + 'ordinary math. Write expressions with the usual operators and functions '
+      + '(addition, multiplication, round, min, max and more), referring to any '
       + 'variable in scope by name. Registers use formulas to derive a value, '
       + 'connections use them to set a rate and modifiers use them to size a '
       + 'change. The editor lists the variables you can reference and flags an '
@@ -346,7 +346,7 @@ const KB_ARTICLES = [
     body: 'Parameters are named constants that belong to the whole model, set once '
       + 'in the simulation’s properties. Any formula can read a parameter by '
       + 'name, which makes them ideal for the numbers you want to tune in one '
-      + 'place — a base income, a starting price, a difficulty multiplier. Change '
+      + 'place, such as a base income, a starting price or a difficulty multiplier. Change '
       + 'a parameter and every formula that uses it updates, so you can balance a '
       + 'design without hunting through individual nodes. Parameters are the dials '
       + 'of your model.',
@@ -356,8 +356,8 @@ const KB_ARTICLES = [
     keywords: 'custom variable list array lookup table sequence curve index values',
     body: 'Custom variables let you define your own named values, including lists '
       + 'of numbers, for formulas to draw on. They are handy for lookup tables and '
-      + 'sequences — a curve of level-up costs, a schedule of payouts, a set of '
-      + 'weights — that would be awkward to wire up as nodes. Reference a variable '
+      + 'sequences (a curve of level-up costs, a schedule of payouts, a set of '
+      + 'weights) that would be awkward to wire up as nodes. Reference a variable '
       + 'by name in any formula, and index into a list when you need a particular '
       + 'entry. The editor validates a variable’s definition and warns you '
       + 'when a list is malformed.',
@@ -365,7 +365,7 @@ const KB_ARTICLES = [
   {
     id: 'time-clocks', category: 'Values and formulas', title: 'Time, clocks and seasons',
     keywords: 'time step tick clock counter age countdown season seasonal cycle periodic sine wave when current',
-    body: 'Formulas cannot read the current step number on their own — there is no '
+    body: 'Formulas cannot read the current step number on their own, so there is no '
       + 'built-in time variable. When a model needs a sense of time, build a clock: '
       + 'a pool with a step-mode self-modifier of plus one, published through a '
       + 'state connection as a variable such as t. The pool counts up by one each '
@@ -382,8 +382,8 @@ const KB_ARTICLES = [
       + 'is a common early mistake. A register is recomputed from its formula every '
       + 'step: it holds an instantaneous value and cannot see its own previous '
       + 'result, so it is ideal for a derived number like a price or a score but '
-      + 'useless as a running total. To accumulate or compound a value over time — a '
-      + 'cumulative tally, an inflation index, a savings balance — use a pool with a '
+      + 'useless as a running total. To accumulate or compound a value over time '
+      + '(a cumulative tally, an inflation index, a savings balance), use a pool with a '
       + 'self-modifier instead: the pool carries the value forward and the modifier '
       + 'grows or shrinks it each step. The rule of thumb: a register computes, a '
       + 'pool remembers.',
@@ -405,7 +405,7 @@ const KB_ARTICLES = [
     keywords: 'interactive click button player choice ability play prototype pulse',
     body: 'An interactive node fires only when you click it during a run, turning '
       + 'your model into something you can play. Set a node’s activation to '
-      + 'interactive, press Run, then click the node to make it act on demand — '
+      + 'interactive, press Run, then click the node to make it act on demand, '
       + 'the basis for buttons, abilities and player decisions. Pulse modifiers '
       + 'attached to an interactive node apply on each click, so a single press '
       + 'can add to a score or spend from a stockpile. It is how a diagram becomes '
@@ -420,7 +420,7 @@ const KB_ARTICLES = [
       + 'legend chip above the chart: click one to hide or show its line, or use the '
       + 'Show all / Hide all chip to toggle every series at once when the chart gets '
       + 'crowded. Hover the chart to read every series at a step; drag across a range '
-      + 'to compare two moments in time — the panel shows each node\'s value at both '
+      + 'to compare two moments in time, where the panel shows each node\'s value at both '
       + 'ends and the delta between them. Press Clear or Esc to dismiss the '
       + 'comparison. The Y-axis scale control in the header switches between Linear '
       + '(raw values on a shared axis), Log (decade ticks, useful when series differ '
@@ -438,7 +438,7 @@ const KB_ARTICLES = [
       + 'batch for each value, showing the results side by side so you can find '
       + 'the inflection point where the model tips. Sensitivity analysis nudges '
       + 'every parameter up and down by a small percentage, one at a time, and '
-      + 'produces a heatmap of elasticities — which knobs move which outputs and '
+      + 'produces a heatmap of elasticities, showing which knobs move which outputs and '
       + 'by how much. Any analysis can be cancelled mid-run. None touch the live '
       + 'diagram; all work on copies.',
   },
@@ -448,8 +448,8 @@ const KB_ARTICLES = [
     body: 'A sensitivity analysis tells you which parameters matter most. It nudges '
       + 'every parameter up and down by a small percentage, one at a time, then '
       + 'measures how far each node’s average outcome moves in response. The result '
-      + 'is a heatmap of elasticities — the percent change in a node per 1% change '
-      + 'in a parameter — so a value near 1 means the two move together in lockstep, '
+      + 'is a heatmap of elasticities (the percent change in a node per 1% change '
+      + 'in a parameter), so a value near 1 means the two move together in lockstep, '
       + 'a larger value marks a powerful lever, and a value near zero means the '
       + 'parameter barely matters. Green marks a node that rises with the parameter '
       + 'and red one that falls; the brighter the cell, the stronger the link. Like '
@@ -460,8 +460,8 @@ const KB_ARTICLES = [
     keywords: 'scenario branch checkpoint fork ghost what-if capture restore compare',
     body: 'Scenario branching lets you capture the state of a run as a checkpoint '
       + 'and explore different futures from the same starting point. Save a '
-      + 'checkpoint mid-run, then fork from it to try an alternative — a different '
-      + 'choice, a tweaked parameter, a stroke of luck — without throwing away '
+      + 'checkpoint mid-run, then fork from it to try an alternative (a different '
+      + 'choice, a tweaked parameter, a stroke of luck) without throwing away '
       + 'where you were. Earlier branches stay on the timeline as ghosts so you '
       + 'can compare paths side by side. It is the tool for asking what if without '
       + 'rebuilding the run by hand.',
@@ -486,8 +486,8 @@ const KB_ARTICLES = [
       + 'can copy and paste it with Ctrl+C and Ctrl+V, duplicate it in place with '
       + 'Ctrl+D, nudge it with the arrow keys, or remove it with Delete. '
       + 'Right-click anything to open a context menu with those same actions close '
-      + 'to hand — duplicate, copy, save the selection as a reusable component, or '
-      + 'delete — and right-click empty canvas to paste, select all (Ctrl+A) or fit '
+      + 'to hand (duplicate, copy, save the selection as a reusable component, or '
+      + 'delete), and right-click empty canvas to paste, select all (Ctrl+A) or fit '
       + 'the view. Every edit is undoable with Ctrl+Z.',
   },
   {
@@ -497,7 +497,7 @@ const KB_ARTICLES = [
       + 'nodes and connections, then stamp onto the canvas as many times as you '
       + 'like. Select the nodes you want to reuse, open the Library, give the '
       + 'component a name and click Save component. Each time you click Insert, '
-      + 'the app places a fresh independent copy — new node IDs, ready to edit — '
+      + 'the app places a fresh independent copy (new node IDs, ready to edit) '
       + 'so modifying a placed copy never touches the saved original or any other '
       + 'instance. Components are a fast way to build repeated patterns such as a '
       + 'source–pool–drain trio, a feedback loop or a probability gate, without '
@@ -509,11 +509,11 @@ const KB_ARTICLES = [
     body: 'To draw a connection, select the resource connection tool by pressing R, '
       + 'then drag from one node to another. A green highlight appears when the '
       + 'cursor reaches a valid endpoint; releasing the mouse completes the arrow. '
-      + 'For a state connection — the dashed kind that carries information rather '
-      + 'than resources — press T first, then drag the same way. Once a connection '
+      + 'For a state connection (the dashed kind that carries information rather '
+      + 'than resources), press T first, then drag the same way. Once a connection '
       + 'exists, click it to select it and set its rate, mode and other properties '
       + 'in the panel on the right. A state connection can loop back to its own '
-      + 'node — click the same node twice with the state tool — which is how a pool '
+      + 'node (click the same node twice with the state tool), which is how a pool '
       + 'applies interest or decay to itself with a modifier; resource connections '
       + 'cannot self-loop. Delete a connection by selecting it and pressing Delete, '
       + 'or right-click and choose Delete.',
@@ -524,7 +524,7 @@ const KB_ARTICLES = [
     body: 'A group is a labeled container you place over a region of the canvas to '
       + 'give a set of nodes a shared name and a visible border. Drag its corner '
       + 'handle to resize it; move it and the nodes inside travel with it. A note '
-      + 'is a free-form text comment you can place anywhere on the canvas — useful '
+      + 'is a free-form text comment you can place anywhere on the canvas, useful '
       + 'for explaining what a part of the model does, narrating behavior or leaving '
       + 'a reminder. Both are added from the palette, saved with the diagram and can '
       + 'be selected and deleted like any other element.',
@@ -536,15 +536,15 @@ const KB_ARTICLES = [
       + 'buttons in the toolbar. Click the zoom level readout to reset to 100%, or '
       + 'press Ctrl+0 to fit the whole diagram in view. Pan by holding the middle '
       + 'mouse button and dragging, or hold Ctrl and drag with the left button. The '
-      + 'minimap in the corner shows a scaled-down overview of the whole canvas — '
+      + 'minimap in the corner shows a scaled-down overview of the whole canvas, so '
       + 'click or drag inside it to jump to any area. On a touchscreen, pinch with '
       + 'two fingers to zoom and drag with one to pan.',
   },
   {
     id: 'undo-redo', category: 'Building diagrams', title: 'Undo and redo',
     keywords: 'undo redo history ctrl+z ctrl+y stack revert mistake recover edit',
-    body: 'Every structural edit — adding or moving a node, changing a property, '
-      + 'loading a template — is recorded in a history stack. Press Ctrl+Z to undo '
+    body: 'Every structural edit (adding or moving a node, changing a property, '
+      + 'loading a template) is recorded in a history stack. Press Ctrl+Z to undo '
       + 'the last change, and Ctrl+Shift+Z or Ctrl+Y to redo it. The stack holds '
       + '100 steps, enough for a long editing session. History is session-only and '
       + 'does not survive a page reload, though autosave preserves the latest '
@@ -557,11 +557,11 @@ const KB_ARTICLES = [
     id: 'time-modes', category: 'Logic and control', title: 'Time modes',
     keywords: 'time mode sync async synchronous asynchronous fire every phase offset rhythm rate turn-based',
     body: 'In the default sync mode, every automatic node fires together on each '
-      + 'step — a turn-based rhythm where the whole model advances in lockstep. '
+      + 'step, a turn-based rhythm where the whole model advances in lockstep. '
       + 'Switch the diagram to async mode and each automatic node runs on its own '
       + 'schedule instead, set by a fire-every count and an optional phase offset '
       + 'that staggers the start. Use async when parts of the system run at '
-      + 'different rates — a quarterly income and a daily spending loop, for '
+      + 'different rates, such as a quarterly income and a daily spending loop, for '
       + 'example. Passive, interactive and starting nodes are unaffected by the '
       + 'time mode; they still fire only when triggered or clicked.',
   },
@@ -576,7 +576,7 @@ const KB_ARTICLES = [
       + 'Resource Types section of the diagram settings rail; each type maps to one '
       + 'color and appears as a row in any node’s property panel, live-updating as '
       + 'the simulation runs. Types do not change how the engine moves or routes '
-      + 'resources — that still works by color — but they make the diagram easier '
+      + 'resources (that still works by color), but they make the diagram easier '
       + 'to read and give you a clear breakdown of what each pool holds.',
   },
 
@@ -600,7 +600,7 @@ const KB_ARTICLES = [
       + 'through the recorded history without rerunning the simulation. Drag the '
       + 'slider left and the canvas, charts and property readouts all update to '
       + 'show what the model looked like at that tick. Click Live to jump back to '
-      + 'the end of the run. Scrubbing is read-only — it does not alter the '
+      + 'the end of the run. Scrubbing is read-only, so it does not alter the '
       + 'simulation state, so you can review any past step and then press Run to '
       + 'continue forward from where the run finished.',
   },
@@ -609,7 +609,7 @@ const KB_ARTICLES = [
     keywords: 'artificial player actor bot scripted auto-click rule interval condition stress test interactive',
     body: 'The artificial player is a scripted actor that fires interactive nodes '
       + 'automatically during a run, so you can stress-test a design without '
-      + 'clicking by hand. Add rules in the artificial player panel — each rule '
+      + 'clicking by hand. Add rules in the artificial player panel, where each rule '
       + 'picks an interactive node and sets when it fires: on a fixed interval or '
       + 'while a named variable meets a condition such as gold being greater than '
       + '100. Multiple rules run in order each step. It is how you simulate a '
@@ -619,9 +619,9 @@ const KB_ARTICLES = [
   {
     id: 'live-vars', category: 'Running and analysis', title: 'Live variables',
     keywords: 'live variables watch monitor readout values store parameter register state custom inspect debug',
-    body: 'The live variables panel lists every named value in the shared store — '
-      + 'parameters, register outputs, custom variables and the variables published '
-      + 'by state connections — and updates each one as the simulation runs. Open it '
+    body: 'The live variables panel lists every named value in the shared store '
+      + '(parameters, register outputs, custom variables and the variables published '
+      + 'by state connections) and updates each one as the simulation runs. Open it '
       + 'from the diagram settings rail to watch the numbers behind the model change '
       + 'in real time, the quickest way to see why a formula or a feedback loop '
       + 'behaves as it does. It is a read-only view: the panel reports values but '
@@ -635,8 +635,8 @@ const KB_ARTICLES = [
     body: 'The model and engine are DOM-free, so any diagram saved as a JSON file can '
       + 'be simulated from the terminal without a browser. Save a diagram with '
       + 'File → Save as JSON, then run it with `node cli.js diagram.json`. A single '
-      + 'run prints a CSV trace to stdout — one column for each tracked node, one row '
-      + 'per step — which you can pipe to a file or directly into another tool. '
+      + 'run prints a CSV trace to stdout (one column for each tracked node, one row '
+      + 'per step) which you can pipe to a file or directly into another tool. '
       + 'The --steps flag sets how many ticks to run (default 200). For Monte Carlo '
       + 'analysis, --runs N executes N isolated trials and prints a summary table '
       + 'with mean, min, max and percentiles; add --csv to get raw per-run final '
@@ -652,8 +652,8 @@ const KB_ARTICLES = [
     body: 'A run seed locks the simulation\'s randomness so a run plays out the same '
       + 'way every time. Set it in the Run section of the Simulation panel, which '
       + 'shows when nothing is selected. With a seed in place, every stochastic '
-      + 'decision — dice rates, distributions, chance percentages, probabilistic '
-      + 'gates and random custom variables — draws from a seeded generator, so the '
+      + 'decision (dice rates, distributions, chance percentages, probabilistic '
+      + 'gates and random custom variables) draws from a seeded generator, so the '
       + 'same seed reproduces the exact same run, bit for bit. Leave the field blank '
       + 'for fresh randomness on each run. The seed can be any text or number and is '
       + 'saved with the diagram, so a reloaded or shared model reproduces the same '
@@ -668,7 +668,7 @@ const KB_ARTICLES = [
     keywords: 'library template starter example diagram load browse manage built-in demo',
     body: 'The Library holds starter templates, reusable components and your saved '
       + 'diagrams. Starter templates are complete, pre-built models you can load '
-      + 'onto the canvas with one click to see a working economy in action — a good '
+      + 'onto the canvas with one click to see a working economy in action, a good '
       + 'way to learn how a loop is wired before building your own. Your saved '
       + 'diagrams are entries you manage yourself: give the current canvas a name '
       + 'and click Save diagram to keep it, then Load to restore it later. The '
@@ -680,7 +680,7 @@ const KB_ARTICLES = [
     body: 'The diagram saves to the browser automatically on every change, so '
       + 'closing the tab does not lose your work. On your next visit, a banner '
       + 'offers to restore the last session if the canvas is empty. To keep '
-      + 'multiple named diagrams, open the Library and click Save diagram — each '
+      + 'multiple named diagrams, open the Library and click Save diagram, and each '
       + 'entry is stored independently in the browser and can be loaded, renamed '
       + 'or deleted at any time. Use File → Save as JSON to download the current '
       + 'diagram as a portable file, and File → Load JSON to bring a saved file '
@@ -691,10 +691,10 @@ const KB_ARTICLES = [
     keywords: 'share URL link embed export SVG PNG publish present encode hash clipboard',
     body: 'Click Share in the File menu to encode the current diagram into the '
       + 'URL. The link contains the whole diagram, so anyone you send it to opens '
-      + 'the same model in their browser — no sign-in or file transfer required. '
+      + 'the same model in their browser, with no sign-in or file transfer required. '
       + 'For a clean view without the editing chrome, add ?embed to the URL or '
       + 'append #embed to the hash; all the toolbars and panels hide, leaving only '
-      + 'the canvas — useful for a presentation or a published page. SVG and PNG '
+      + 'the canvas, useful for a presentation or a published page. SVG and PNG '
       + 'options in the File menu export a snapshot of the canvas for use outside '
       + 'the app.',
   },

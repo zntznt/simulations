@@ -107,7 +107,7 @@ class AppProps {
       rootStyle.removeProperty('--font');
     }
 
-    document.title = meta.name ? `${meta.name} — Simulations` : 'Simulations — Economy Designer';
+    document.title = meta.name ? `${meta.name} (Simulations)` : 'Simulations Economy Designer';
   }
 
   // Rasterize the live SVG canvas into a small data-URL thumbnail. Async:
@@ -291,7 +291,7 @@ class AppProps {
     seedInp.className = 'wide-input';
     seedInp.value = this.diagram.seed || '';
     seedInp.placeholder = 'blank = fresh randomness each run';
-    seedInp.title = 'Any text or number — the same seed reproduces the exact same run';
+    seedInp.title = 'Any text or number. The same seed reproduces the exact same run.';
     seedInp.addEventListener('change', () => {
       const v = seedInp.value.trim();
       if (v === (this.diagram.seed || '')) return;
@@ -312,7 +312,7 @@ class AppProps {
     const seedInfo = document.createElement('p');
     seedInfo.className = 'props-info';
     seedInfo.textContent = this.diagram.seed
-      ? 'Seeded — every run replays the same sequence. Clear the field for fresh randomness. Changes apply on Reset.'
+      ? 'Seeded. Every run replays the same sequence. Clear the field for fresh randomness. Changes apply on Reset.'
       : 'Set a seed to make runs reproducible; the same seed always plays out identically. Leave blank for fresh randomness each run.';
     panel.appendChild(seedInfo);
 
@@ -321,7 +321,7 @@ class AppProps {
     field('File');
     const metaList = document.createElement('div');
     metaList.className = 'sim-meta';
-    const fmtDate = ts => ts ? new Date(ts).toLocaleString() : '—';
+    const fmtDate = ts => ts ? new Date(ts).toLocaleString() : 'n/a';
     const sizeKB = (JSON.stringify(this.diagram.toJSON()).length / 1024).toFixed(1);
     const rows = [
       ['Created', fmtDate(meta.created)],
@@ -342,9 +342,9 @@ class AppProps {
     this._sep(panel);
     const p = document.createElement('p');
     p.className = 'props-empty';
-    p.innerHTML = 'Mechanics — <b>time mode</b>, <b>parameters</b>, <b>variables</b>, '
-      + '<b>resource types</b>, the <b>artificial player</b>, and a live '
-      + '<b>variable watch</b> — are on the rail to the right <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>';
+    p.innerHTML = 'The mechanics are on the rail to the right: <b>time mode</b>, <b>parameters</b>, '
+      + '<b>variables</b>, <b>resource types</b>, the <b>artificial player</b>, and a live '
+      + '<b>variable watch</b> <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>';
     panel.appendChild(p);
   }
 
@@ -413,11 +413,11 @@ class AppProps {
   _branchesPanel(panel) {
     this._info(panel, 'Checkpoint the simulation mid-run, fork back to it with tweaks, and '
       + 'compare timelines as dashed ghost traces in the timeline chart. Kept for this '
-      + 'session only — not saved with the diagram.');
+      + 'session only and not saved with the diagram.');
 
     const cpBtn = document.createElement('button');
     cpBtn.className = 'btn branch-action-btn';
-    cpBtn.append(this._faIcon('flag'), ` Checkpoint now — step ${this.engine.step}`);
+    cpBtn.append(this._faIcon('flag'), ` Checkpoint now (step ${this.engine.step})`);
     cpBtn.addEventListener('click', () => this._addCheckpoint());
     panel.appendChild(cpBtn);
 
@@ -543,7 +543,7 @@ class AppProps {
 
   _saveBranch(name) {
     if (this.engine.history.length < 2) {
-      this._toast('Run the simulation first — nothing to save yet.');
+      this._toast('Run the simulation first. Nothing to save yet.');
       return null;
     }
     const br = {
@@ -580,7 +580,7 @@ class AppProps {
     if (kept && !this._timelineVisible) document.getElementById('btn-timeline').click();
     if (this._timelineVisible) this.timeline.update();
     this._toast(kept
-      ? `Forked from "${cp.name}" — previous run kept as "${kept.name}"`
+      ? `Forked from "${cp.name}". Previous run kept as "${kept.name}".`
       : `Back at "${cp.name}" (step ${cp.step})`);
     this._renderProps();
   }
@@ -637,7 +637,7 @@ class AppProps {
 
   // Live variables readout (populated during a simulation run).
   _liveVarsReadout(panel) {
-    this._info(panel, 'Every named value in the shared store — parameters, state-connection variables, custom variables, and register outputs — updated as the simulation runs.');
+    this._info(panel, 'Every named value in the shared store (parameters, state-connection variables, custom variables and register outputs), updated as the simulation runs.');
     const vars = Object.entries(this.diagram.variables);
     if (!vars.length) {
       const p = document.createElement('p');
@@ -663,7 +663,7 @@ class AppProps {
   _diagramAI(panel) {
     const ai = this.diagram.aiPlayer || (this.diagram.aiPlayer = { enabled: false, rules: [] });
     this._checkRow(panel, 'Enabled', ai.enabled, v => { ai.enabled = v; this._commit(); });
-    this._info(panel, 'Scripted actor: fires interactive nodes automatically during a run — every N steps, or when a variable condition holds.');
+    this._info(panel, 'Scripted actor: fires interactive nodes automatically during a run, every N steps or when a variable condition holds.');
 
     const interactives = [...this.diagram.nodes.values()]
       .filter(n => n.activation === ActivationMode.INTERACTIVE);
@@ -754,12 +754,12 @@ class AppProps {
   // The random kinds pick a distribution (uniform / gaussian); all pick an
   // update rhythm ('step' = fresh value every step, 'play' = per Run press).
   _customVarsEditor(panel) {
-    this._info(panel, 'Named values usable in any formula — random (interval, array, dice) or computed (math). Re-evaluated every step, or once each time Run is pressed.');
+    this._info(panel, 'Named values usable in any formula, either random (interval, array, dice) or computed (math). Re-evaluated every step, or once each time Run is pressed.');
 
     const vars = this.diagram.customVars;
     const KINDS = ['interval', 'array', 'dice', 'math'];
     const KIND_LABELS = { interval: 'Interval', array: 'Array', dice: 'Dice', math: 'Math ƒ' };
-    const fmtVal = v => isFinite(v) ? (Number.isInteger(v) ? String(v) : parseFloat(v.toFixed(4)).toString()) : '—';
+    const fmtVal = v => isFinite(v) ? (Number.isInteger(v) ? String(v) : parseFloat(v.toFixed(4)).toString()) : 'n/a';
 
     const mkChipGroup = (choices, current, onChange) => {
       const grp = document.createElement('div');
@@ -1025,8 +1025,8 @@ class AppProps {
       ['In service', String(inService)],
       ['Waiting in line', String(waiting)],
       ['Processed', String(processed)],
-      ['Avg wait', processed > 0 ? `${avgWait} steps` : '—'],
-      ['Max wait', processed > 0 ? `${node.maxWait || 0} steps` : '—'],
+      ['Avg wait', processed > 0 ? `${avgWait} steps` : 'n/a'],
+      ['Max wait', processed > 0 ? `${node.maxWait || 0} steps` : 'n/a'],
       ['Peak line', String(node.maxLen || 0)],
     ];
     if (node.maxLine > 0) rows.push(['Balked (line full)', String(node.balked || 0)]);
@@ -1257,7 +1257,7 @@ class AppProps {
           node.setCount(Math.max(0, parseInt(v) || 0), node.resourceColor || DEFAULT_COLOR);
           this.renderer.render();
         });
-        this._info(panel, 'Finite starting stock — the source runs dry when depleted.');
+        this._info(panel, 'Finite starting stock. The source runs dry when depleted.');
       }
     }
 
@@ -1348,7 +1348,7 @@ class AppProps {
             const ts = document.createElement('select');
             ts.style.cssText = 'flex:1;font-size:11px;min-width:0;';
             const blank = document.createElement('option');
-            blank.value = ''; blank.textContent = '— type —';
+            blank.value = ''; blank.textContent = '(type)';
             ts.appendChild(blank);
             const cur = (ing.color || '').toLowerCase();
             for (const t of this.diagram.resourceTypes) {
@@ -1433,7 +1433,7 @@ class AppProps {
       panel.appendChild(stat);
       this._info(panel, 'Completed exchanges this run. Wire A → Trader → B: '
         + 'when the trader fires, A pays the incoming connection\'s rate to B and B pays '
-        + 'the outgoing connection\'s rate back to A — all or nothing. Extra in/out pairs '
+        + 'the outgoing connection\'s rate back to A, all or nothing. Extra in/out pairs '
         + 'trade in wiring order.');
     }
 
@@ -1462,7 +1462,7 @@ class AppProps {
       if (node.gateMode === 'random') node.gateMode = 'probabilistic';
       this._select2(panel, 'Gate mode', ['deterministic', 'probabilistic', 'all'], node.gateMode,
         v => { node.gateMode = v; });
-      this._info(panel, 'Outputs split by each connection\'s Weight — deterministic = proportional share; probabilistic = weighted random per unit; all = each output gets its full weight per firing.');
+      this._info(panel, 'Outputs split by each connection\'s Weight. Deterministic gives a proportional share; probabilistic is weighted random per unit; all gives each output its full weight per firing.');
     }
 
     if (node.type === NodeType.REGISTER) {
@@ -1553,8 +1553,8 @@ class AppProps {
     styleGroup.className = 'conn-style-group';
     for (const { key, icon, tip } of [
       { key: 'straight', icon: 'minus', tip: 'Straight line' },
-      { key: 'curve',    icon: 'bezier-curve', tip: 'Curved — drag handle to reshape' },
-      { key: 'ortho',   icon: 'turn-up', tip: 'Right-angle turns — drag any segment; end segments add bends' },
+      { key: 'curve',    icon: 'bezier-curve', tip: 'Curved. Drag handle to reshape' },
+      { key: 'ortho',   icon: 'turn-up', tip: 'Right-angle turns. Drag any segment; end segments add bends' },
     ]) {
       const btn = document.createElement('button');
       btn.className = 'conn-style-btn' + ((conn.pathStyle || 'curve') === key ? ' active' : '');
@@ -1807,10 +1807,10 @@ class AppProps {
         const ml = document.createElement('label'); ml.textContent = 'When';
         const ms = document.createElement('select');
         for (const [v, t] of [
-          ['step',  'Every step — flat amount'],
-          ['pulse', 'When source fires — flat amount'],
-          ['delta', 'When source changes — × the change'],
-          ['rate',  'Every step — × source value'],
+          ['step',  'Every step (flat amount)'],
+          ['pulse', 'When source fires (flat amount)'],
+          ['delta', 'When source changes (× the change)'],
+          ['rate',  'Every step (× source value)'],
         ]) {
           const o = document.createElement('option');
           o.value = v; o.textContent = t;

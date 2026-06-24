@@ -189,7 +189,7 @@ class App {
     try { seen = localStorage.getItem('sim_seen_mc_hint') === '1'; } catch { /* ignore */ }
     if (seen || !this._hasRandomness()) return;
     try { localStorage.setItem('sim_seen_mc_hint', '1'); } catch { /* ignore */ }
-    this._toast('This model has randomness — try Analysis ▸ Batch (Monte Carlo) to run it many times and see the spread of outcomes.');
+    this._toast('This model has randomness. Try Analysis ▸ Batch (Monte Carlo) to run it many times and see the spread of outcomes.');
   }
 
   // ── Interactive tour ─────────────────────────────────────────────────────────
@@ -252,7 +252,7 @@ class App {
         // The connection is auto-selected after the drag, so its Rate field is on
         // screen. Teach the single most important economy knob: the flow rate.
         target: '[data-tour="rate"]',
-        text: 'With the connection selected, find its <b>Rate</b> on the right — that\'s how many resources move each step, your faucet\'s strength. <b>Change it from 1 to 5.</b>',
+        text: 'With the connection selected, find its <b>Rate</b> on the right. That\'s how many resources move each step, your faucet\'s strength. <b>Change it from 1 to 5.</b>',
         enter: () => { this._tour.rateBase = this._rateSnapshot(); },
         done: () => {
           const base = this._tour.rateBase || {};
@@ -265,7 +265,7 @@ class App {
       },
       {
         target: '#btn-run',
-        text: 'Press <b>Run</b> — watch resources stream from the Source into the Pool at the rate you set, live.',
+        text: 'Press <b>Run</b> to watch resources stream from the Source into the Pool at the rate you set, live.',
         done: () => this.engine.running || this.engine.step > this._tour.base.step,
       },
       // ── Hand-off: point at where the real power lives, so a "graduate" doesn't
@@ -273,17 +273,17 @@ class App {
       {
         target: '#btn-library',
         info: true,
-        text: 'That\'s the loop: <b>place → connect → set a rate → Run</b>. Now the payoff — the <b>Library</b> has ready-made economies (try <b>F2P Mobile Economy</b>) you can open and pull apart.',
+        text: 'That\'s the loop: <b>place → connect → set a rate → Run</b>. Now the payoff. The <b>Library</b> has ready-made economies (try <b>F2P Mobile Economy</b>) you can open and pull apart.',
       },
       {
         target: '#diagram-rail',
         info: true,
-        text: 'This rail holds the model\'s brains: <b>Parameters</b> and <b>Variables</b> to drive formulas, <b>Resource types</b>, and a live <b>monitor</b>. Rates can be formulas, dice, or distributions too — not just fixed numbers.',
+        text: 'This rail holds the model\'s brains: <b>Parameters</b> and <b>Variables</b> to drive formulas, <b>Resource types</b>, and a live <b>monitor</b>. Rates can be formulas, dice or distributions too, not just fixed numbers.',
       },
       {
         target: '#btn-analysis-menu',
         info: true,
-        text: 'Balancing an economy? <b>Analysis → Batch (Monte Carlo)</b> runs your model hundreds of times and shows the spread of outcomes — the fastest way to tune a curve.',
+        text: 'Balancing an economy? <b>Analysis → Batch (Monte Carlo)</b> runs your model hundreds of times and shows the spread of outcomes, the fastest way to tune a curve.',
       },
       {
         target: '#btn-run',
@@ -413,7 +413,7 @@ class App {
     window.removeEventListener('resize', this._tourReposition);
     window.removeEventListener('keydown', this._tourKey, true);
     try { localStorage.setItem('sim_seen_tour', '1'); } catch { /* ignore */ }
-    if (completed) this._toast('Tour complete — happy building!');
+    if (completed) this._toast('Tour complete. Happy building!');
   }
 
   // ── Undo / redo ─────────────────────────────────────────────────────────────
@@ -494,7 +494,7 @@ class App {
     if (!results || results.querySelector('.mc-empty') || results.querySelector('.mc-stale-badge')) return;
     const badge = document.createElement('p');
     badge.className = 'mc-stale-badge';
-    badge.textContent = 'Diagram changed — these results may be outdated.';
+    badge.textContent = 'Diagram changed. These results may be outdated.';
     results.prepend(badge);
   }
 
@@ -568,7 +568,7 @@ class App {
       label.textContent = `Step ${hist[this._scrubIndex]?.step ?? 0}`;
     } else {
       range.value = range.max;
-      label.textContent = usable ? 'Live' : '—';
+      label.textContent = usable ? 'Live' : 'live';
     }
   }
 

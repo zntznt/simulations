@@ -221,7 +221,7 @@ class AppFields {
       // No vars yet — make "Parameter" a live link to the rail panel where they
       // live, so the formula→Params connection is discoverable at the moment of
       // need (a usability pass found the rail otherwise easy to miss entirely).
-      hint.appendChild(document.createTextNode('No variables yet — '));
+      hint.appendChild(document.createTextNode('No variables yet. '));
       const link = document.createElement('button');
       link.type = 'button';
       link.className = 'formula-hint-link';
@@ -258,7 +258,7 @@ class AppFields {
       const ts = document.createElement('select');
       ts.style.flex = '1';
       const blank = document.createElement('option');
-      blank.value = ''; blank.textContent = '— custom —';
+      blank.value = ''; blank.textContent = '(custom)';
       ts.appendChild(blank);
       const cur = value ? String(value).toLowerCase() : '';
       for (const t of this.diagram.resourceTypes) {

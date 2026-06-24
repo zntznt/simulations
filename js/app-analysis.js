@@ -20,7 +20,7 @@ class AppAnalysis {
     sel.innerHTML = '';
     const names = Object.keys(this.diagram.params || {});
     if (!names.length) {
-      sel.appendChild(new Option('— no parameters —', ''));
+      sel.appendChild(new Option('(no parameters)', ''));
       sel.disabled = true;
       document.getElementById('mc-sweep-run').disabled = true;
       sel.title = 'Define parameters in the Params rail panel to sweep them';
@@ -109,12 +109,12 @@ class AppAnalysis {
 
       const mcName = this.diagram.meta.name || 'Untitled';
       let html = `<p class="mc-summary">${res.runs} runs × ${res.maxSteps} steps`
-        + ` — <b>${this._esc(mcName)}</b>`
-        + (res.seed ? ` — seed <b>${this._esc(res.seed)}</b>` : '')
+        + ` for <b>${this._esc(mcName)}</b>`
+        + (res.seed ? `, seed <b>${this._esc(res.seed)}</b>` : '')
         + ` <span style="color:var(--text-dim)">(${ms} ms)</span>`;
       if (res.endStep) {
         html += `<br>Goal reached in <b>${Math.round(res.endedRate * 100)}%</b> of runs`
-          + ` — end step mean <b>${res.endStep.mean}</b> (min ${res.endStep.min}, max ${res.endStep.max}).`;
+          + `, with an end-step mean of <b>${res.endStep.mean}</b> (min ${res.endStep.min}, max ${res.endStep.max}).`;
       }
       html += '</p>';
 
@@ -122,7 +122,7 @@ class AppAnalysis {
       // rather than leaving the user puzzling over min==max across the board.
       const noSpread = res.nodes.length > 0 && res.nodes.every(n => n.min === n.max);
       if (noSpread) {
-        html += '<p class="mc-stale-badge">All runs are identical — this model is '
+        html += '<p class="mc-stale-badge">All runs are identical. This model is '
           + 'deterministic (no randomness). Add a Dice or Distribution rate, a chance %, '
           + 'a probabilistic gate, or a random variable to see a distribution.</p>';
       }
@@ -227,15 +227,15 @@ class AppAnalysis {
           seed,
           shouldCancel: () => this._mcCancel,
           onProgress: (done, total) => this._mcSetProgress(out,
-            `Sweeping ${name} = ${values[i]} (${i + 1}/${values.length}) — ${done}/${total}`),
+            `Sweeping ${name} = ${values[i]} (${i + 1}/${values.length}), run ${done}/${total}`),
         });
         if (!res) { out.innerHTML = '<p class="mc-empty">Cancelled.</p>'; return; }
         results.push(res);
       }
 
       let html = `<p class="mc-summary">Sweep <b>${this._esc(name)}</b> ∈ [${values[0]} … ${values[values.length - 1]}]`
-        + ` — ${runs} runs × ${steps} steps per value`
-        + (seed ? ` — seed <b>${this._esc(seed)}</b>` : '') + '<br>'
+        + `, ${runs} runs × ${steps} steps per value`
+        + (seed ? `, seed <b>${this._esc(seed)}</b>` : '') + '<br>'
         + '<span style="color:var(--text-dim)">Cells show the mean final value across runs.</span></p>';
       html += '<table><thead><tr><th>Node</th>'
         + values.map(v => `<th>${name}=${v}</th>`).join('') + '</tr></thead><tbody>';
@@ -302,12 +302,12 @@ class AppAnalysis {
     const totalBatches = 1 + params.length * 2;
     let batch = 0;
     const prog = (label) => (done, total) => this._mcSetProgress(out,
-      `Sensitivity — ${label} (batch ${batch}/${totalBatches}) — ${done}/${total}`);
+      `Sensitivity: ${label} (batch ${batch}/${totalBatches}), run ${done}/${total}`);
     const cancelled = () => { out.innerHTML = '<p class="mc-empty">Cancelled.</p>'; };
 
     try {
       batch = 1;
-      this._mcBeginProgress(out, 'Sensitivity — baseline…');
+      this._mcBeginProgress(out, 'Sensitivity: baseline…');
       const baseRes = await this.engine.runMonteCarloAsync(runs, steps, {
         baseJSON: base, seed, shouldCancel: () => this._mcCancel, onProgress: prog('baseline'),
       });
@@ -382,8 +382,8 @@ class AppAnalysis {
     });
     const fmt = e => (Math.abs(e) >= 100 ? String(Math.round(e)) : String(Math.round(e * 100) / 100));
 
-    let html = `<p class="mc-summary">Sensitivity — each parameter perturbed <b>±${pct}%</b>`
-      + ` — ${runs} runs × ${steps} steps per batch — seed <b>${esc(seed)}</b><br>`
+    let html = `<p class="mc-summary">Sensitivity: each parameter perturbed <b>±${pct}%</b>`
+      + `, ${runs} runs × ${steps} steps per batch, seed <b>${esc(seed)}</b><br>`
       + '<span style="color:var(--text-dim)">Cells show <b>elasticity</b>: the % change in a node’s '
       + 'mean final value per 1% change in the parameter. '
       + 'Green = moves the same way, red = moves the opposite way; brighter = stronger.</span></p>';
@@ -392,14 +392,14 @@ class AppAnalysis {
       html += `<p class="sens-top">Most influential parameter: <b>${esc(topName)}</b> `
         + `(mean |elasticity| ${topScore.toFixed(2)}).</p>`;
     } else {
-      html += '<p class="mc-stale-badge">No parameter measurably moved any node — the perturbed '
+      html += '<p class="mc-stale-badge">No parameter measurably moved any node. The perturbed '
         + 'parameters may be unused, or their effect rounds away at this scale.</p>';
     }
 
     html += '<div class="sens-legend"><span>opposite</span>'
       + '<span class="sens-grad" role="img" aria-label="red to green elasticity scale"></span>'
       + '<span>same direction</span>'
-      + '<span style="margin-left:auto">“—” = baseline ≈ 0 (undefined)</span></div>';
+      + '<span style="margin-left:auto">“n/a” = baseline ≈ 0 (undefined)</span></div>';
 
     html += '<table class="sens-table"><thead><tr><th>Node</th>'
       + params.map((name, p) => `<th title="mean |elasticity| ${paramScore[p].toFixed(2)}">${esc(name)}</th>`).join('')
@@ -410,7 +410,7 @@ class AppAnalysis {
       for (let p = 0; p < params.length; p++) {
         const e = matrix[p][i];
         if (e == null || !isFinite(e)) {
-          html += '<td class="sens-na" title="baseline ≈ 0 — relative sensitivity is undefined">—</td>';
+          html += '<td class="sens-na" title="baseline ≈ 0, so relative sensitivity is undefined">n/a</td>';
         } else {
           html += `<td class="sens-cell" style="background:${this._sensColor(e)}" `
             + `title="${esc(params[p])} → ${label}: elasticity ${fmt(e)}">${fmt(e)}</td>`;
@@ -421,7 +421,7 @@ class AppAnalysis {
     html += '</tbody></table>';
 
     if (skipped && skipped.length) {
-      html += `<p class="mc-stale-badge">Skipped (value 0 — can’t scale by a percent): `
+      html += `<p class="mc-stale-badge">Skipped (value 0, can’t scale by a percent): `
         + `${skipped.map(esc).join(', ')}.</p>`;
     }
     html += '<p class="mc-actions"><button class="btn" id="mc-export-sens">'

@@ -131,5 +131,15 @@ for whole-diagram swaps).
 - **localStorage keys:** `sim_library`, `sim_components`, `sim_autosave`,
   `sim_palette_sections`, `sim_seen_welcome`, `sim_seen_tour`, `sim_seen_mc_hint`,
   `sim_seen_tl_compare`.
+- **User-facing copy: no em dashes (`—`), ever.** Every string a user reads on screen
+  (labels, tooltips, hints, toasts, placeholders, knowledge-base and demo text in
+  `index.html`, `js/kb.js`, `js/app*.js`, `renderer`/`editor`/`charts`) must be written
+  without an em dash. Do not swap one for an en dash (`–`), hyphen, or other symbol —
+  rephrase so the sentence stands on its own: split it with a period, use a comma or
+  parentheses for a true aside, or join with a conjunction. For a bare `—` placeholder
+  (a null/empty value) use a word like `n/a`; for dropdown framing like `— type —` use
+  `(type)`. Keep meaningful notation (`→ × ± ∈ ≈ ·`, Greek letters). Follow AP style
+  (no serial comma, sentence case). This rule covers user-facing copy only, not code
+  comments or this file.
 - Develop on a feature branch and keep the model/engine DOM-free; run the matching
   test (`run.js` for engine changes, `smoke.js` for UI changes) before committing.

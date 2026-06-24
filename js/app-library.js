@@ -14,15 +14,15 @@ class AppLibrary {
     // Starter templates live in the Library now (no separate dropdown). Each
     // entry builds a sample diagram via its existing loader.
     this._templates = [
-      { name: 'Predator & Prey', desc: 'Two populations lock into a self-sustaining oscillation — a stable limit cycle.', load: () => this._demoEcosystem() },
+      { name: 'Predator & Prey', desc: 'Two populations lock into a self-sustaining oscillation, a stable limit cycle.', load: () => this._demoEcosystem() },
       { name: 'Epidemic (SIR)', desc: 'The outbreak curve: infections peak as Rₑ falls through 1, then fade.', load: () => this._demoEpidemic() },
-      { name: 'Supply Chain', desc: 'A 2:1 smelter and a shipping delay — pipeline latency, then steady output.', load: () => this._demoSupplyChain() },
+      { name: 'Supply Chain', desc: 'A 2:1 smelter and a shipping delay produce pipeline latency, then steady output.', load: () => this._demoSupplyChain() },
       { name: 'Barter Economy', desc: 'Two towns swap grain for timber through a Trader; watch the colours mix.', load: () => this._demoTradeNetwork() },
-      { name: 'Service Desk', desc: 'A single-server queue with random arrivals — the line builds and clears.', load: () => this._demoQueue() },
+      { name: 'Service Desk', desc: 'A single-server queue with random arrivals. The line builds and clears.', load: () => this._demoQueue() },
       { name: 'F2P Mobile Economy', desc: 'A sprawling free-to-play live-ops loop: energy→levels→Gold/XP, a sqrt level curve gating Elite content, a probabilistic gacha gate, and a DAU/IAP economy.', load: () => this._demoF2P() },
       { name: 'Civilization Empire', desc: 'A 4X economy in one diagram: logistic population, five yields, building converters, and a Science-gated tech tree (irrigation, drama, banking, university).', load: () => this._demoCiv() },
-      { name: 'Megafactory Line', desc: 'A 4-tier auto-factory: ore → smelting → components → widgets. A tiny circuit buffer + slow assembly station back the line up — watch the bottleneck.', load: () => this._demoFactory() },
-      { name: 'Business Cycle', desc: 'A full circular-flow macroeconomy — households, firms, banks, government and a central bank. Countercyclical stimulus through a policy lag drives a boom-bust cycle.', load: () => this._demoBusinessCycle() },
+      { name: 'Megafactory Line', desc: 'A 4-tier auto-factory: ore → smelting → components → widgets. A tiny circuit buffer and a slow assembly station back the line up. Watch the bottleneck.', load: () => this._demoFactory() },
+      { name: 'Business Cycle', desc: 'A full circular-flow macroeconomy with households, firms, banks, government and a central bank. Countercyclical stimulus through a policy lag drives a boom-bust cycle.', load: () => this._demoBusinessCycle() },
       { name: 'Food Web', desc: 'A four-trophic ecosystem: producers, grazers, carnivores, an apex predator and a nutrient-recycling loop. Ten species lock into coupled, bounded oscillations.', load: () => this._demoFoodWeb() },
       { name: 'Auction Economy', desc: 'A player-driven MMO economy: gather, refine and craft goods, then watch the auction house prices and stocks oscillate as supply meets price-elastic demand.', load: () => this._demoAuction() },
     ];

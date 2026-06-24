@@ -59,7 +59,7 @@ class AppDemos {
     b.chart(370, 470, 470, 170, 'Populations', [rabbits.id, foxes.id]);
     b.note(980, 165, 250, 250,
       'Foxes eat rabbits; rabbits breed (slowing as they crowd their range); ' +
-      'foxes starve without food.\n\nNo target was set — yet the two populations ' +
+      'foxes starve without food.\n\nNo target was set, yet the two populations ' +
       'lock into a self-sustaining oscillation, foxes peaking just after rabbits. ' +
       'Press Run and watch the cycle.');
     this.renderer.render();
@@ -71,7 +71,7 @@ class AppDemos {
   _demoEpidemic() {
     const b = this._demo();
     b.d.params = { beta: 0.6, gamma: 0.18, N: 600 };
-    b.group(240, 70, 840, 540, 'Epidemic — SIR Model', '#ef5350');
+    b.group(240, 70, 840, 540, 'Epidemic (SIR Model)', '#ef5350');
 
     const reff = b.node(NodeType.REGISTER, 640, 165, 'Reff',
       n => { n.formula = '(beta/gamma) * S / N'; });
@@ -90,7 +90,7 @@ class AppDemos {
     b.chart(380, 470, 520, 150, 'S / I / R', [sus.id, inf.id, rec.id]);
     b.note(1110, 165, 250, 270,
       'Each infected person infects susceptibles at rate β·S·I/N and recovers at ' +
-      'rate γ·I.\n\nWatch infections crest the instant Rₑ drops below 1 — the herd-' +
+      'rate γ·I.\n\nWatch infections crest the instant Rₑ drops below 1, the herd-' +
       'immunity threshold. A slice of the population is never infected. ' +
       'Open the Timeline to trace all three curves.');
     this.renderer.render();
@@ -121,7 +121,7 @@ class AppDemos {
     b.chart(250, 470, 560, 180, 'Ore · Ingots · Sold', [ore.id, ingots.id, market.id]);
     b.note(880, 470, 300, 180,
       'The Smelter converts 2 ore → 1 ingot; Shipping is a 3-step delay before ' +
-      'the Market buys.\n\nNothing sells until the pipeline fills — then output ' +
+      'the Market buys.\n\nNothing sells until the pipeline fills. Then output ' +
       'holds steady at 1/step. Speed up the Mine and the Ore buffer (cap 12) ' +
       'backs up: a bottleneck.');
     this.renderer.render();
@@ -153,9 +153,9 @@ class AppDemos {
     b.res(yard, sawmill, c => { c.rate = 2; c.colorFilter = '#fdd835'; c.label = 'grain'; });
 
     b.note(1030, 250, 250, 280,
-      'The Granary makes grain, the Lumberyard makes timber — but each needs the ' +
+      'The Granary makes grain, the Lumberyard makes timber, but each needs the ' +
       "other.\n\nThe Market is a Trader: it swaps 2 grain for 2 timber atomically " +
-      '(all-or-nothing). Imported goods are then consumed. Select a storehouse — ' +
+      '(all-or-nothing). Imported goods are then consumed. Select a storehouse. ' +
       'it now holds BOTH colours, proof the barter flowed.');
     this.renderer.render();
   }
@@ -179,7 +179,7 @@ class AppDemos {
     b.chart(330, 470, 480, 160, 'Waiting · Served', [desk.id, served.id]);
     b.note(900, 250, 270, 220,
       'Customers arrive at random (Poisson, ~0.35/step); one server takes 2 steps ' +
-      'each.\n\nThe line breathes — building when arrivals cluster, draining when ' +
+      'each.\n\nThe line breathes, building when arrivals cluster, draining when ' +
       'they thin. Run it again for a different trace, or open Batch Analysis to ' +
       'see the distribution of queue lengths across many runs.');
     this.renderer.render();
@@ -487,13 +487,13 @@ class AppDemos {
     b.st(techDrama, buildTheater, c => { c.activator = true; c.actOperator = '>='; c.actValue = 1; c.label = '⊢ drama'; });
 
     // ───────────────────────── CHARTS & NOTES ─────────────────────────
-    b.chart(150, 470, 320, 200, 'Empire — Population · Food · Culture', [population.id, foodStore.id, culture.id]);
+    b.chart(150, 470, 320, 200, 'Empire: Population · Food · Culture', [population.id, foodStore.id, culture.id]);
     b.chart(920, 730, 540, 175, 'Tech unlocks (0->1): Irrigation · Drama · Banking · University',
       [techIrrigation.id, techDrama.id, techBanking.id, techUniversity.id]);
     b.note(120, 720, 480, 120,
       'A turn-based empire as one living economy. Food sets the carrying capacity; ' +
       'Population grows LOGISTICALLY toward it and stalls when Happiness runs out. ' +
-      'Production builds Granaries, Libraries, Markets and Theaters — each boosting a yield.');
+      'Production builds Granaries, Libraries, Markets and Theaters, each boosting a yield.');
     b.note(620, 720, 280, 120,
       'Research accumulates and trips four TECH ACTIVATORS in sequence. Irrigation ' +
       'lifts farms; Drama unlocks Theaters; Banking compounds gold; University ' +
@@ -675,11 +675,11 @@ class AppDemos {
     b.note(800, 880, 400, 150,
       'BOTTLENECK: the Circuits buffer holds only 6 and is drained by the slow Assembly '+
       'Station (1 unit / 3 steps). Circuits pin at 6 while the Circuit Lab idles and '+
-      'Gears / Wire swell to their caps — classic back-pressure. The Steel Beams buffer '+
+      'Gears / Wire swell to their caps. Classic back-pressure. The Steel Beams buffer '+
       'is a milder second one (the Frame Welder is slow). '+
       'FIX: raise the Circuits cap and/or lower the station processTime.');
     b.note(1230, 880, 380, 150,
-      'Iron & Copper mines are FINITE — they deplete over a long run. Coal fuels the '+
+      'Iron & Copper mines are FINITE; they deplete over a long run. Coal fuels the '+
       'smelters via an activator (no fuel -> no smelting). The Warehouse PULLS finished '+
       'widgets & frames on demand; Spare Parts is a competing pull on gears. The QC '+
       'Sorter is a probabilistic ~90/10 pass/scrap gate; yieldPct tracks the pass rate.');
@@ -712,7 +712,7 @@ class AppDemos {
     ];
 
     // ── Groups ──
-    b.group(120, 110, 980, 600, 'Real Economy — Circular Flow', '#43a047');
+    b.group(120, 110, 980, 600, 'Real Economy: Circular Flow', '#43a047');
     b.group(120, 760, 1360, 320, 'Banking & Credit', '#1e88e5');
     b.group(1140, 110, 800, 600, 'Government & Central Bank', '#fb8c00');
     b.group(1520, 760, 420, 320, 'Foreign Sector', '#26a69a');
@@ -825,12 +825,12 @@ class AppDemos {
     b.chart(1140, 790, 360, 270, 'GDP · Money · Employment', [gdp.id, moneySupply.id, employment.id]);
     b.note(140, 130, 300, 150,
       'CIRCULAR FLOW. Household income splits at the gate into Consumption (C -> firms), ' +
-      'Saving (S -> banks) and Taxes (T -> treasury). Firms pay Wages back to households — ' +
+      'Saving (S -> banks) and Taxes (T -> treasury). Firms pay Wages back to households, ' +
       'a closed loop that conserves money exactly.');
     b.note(1560, 130, 350, 150,
       'BUSINESS CYCLE. When GDP dips below target the Central Bank injects money (QE) ' +
       'through a 6-step Policy Lag, while banks lend more (accelerator). The lag makes ' +
-      'output OVERSHOOT, then an inflation tax cools it — a self-sustaining cycle.');
+      'output OVERSHOOT, then an inflation tax cools it, a self-sustaining cycle.');
     this.renderer.render();
   }
 
@@ -881,7 +881,7 @@ class AppDemos {
     };
 
     // ───── groups ─────
-    b.group(60, 60, 540, 990, 'Abiotic — Nutrient Cycle & Light', '#26a69a');
+    b.group(60, 60, 540, 990, 'Abiotic: Nutrient Cycle & Light', '#26a69a');
     b.group(660, 60, 720, 400, 'Producers & Herbivores', '#7cb342');
     b.group(660, 480, 720, 400, 'Carnivores & Apex', '#ef5350');
     b.group(1440, 600, 360, 320, 'Ecosystem Diagnostics', '#78909c');
@@ -1053,7 +1053,7 @@ class AppDemos {
     b.note(60, 1060, 540, 130,
       'Predation uses Lotka-Volterra formula rates (coef·prey·pred); growth & death use ' +
       'register+modifier pairs. Two periodic drivers (sunFactor, rainFactor) force the ' +
-      'producers. No goal is set — yet all ten populations lock into coupled, bounded ' +
+      'producers. No goal is set, yet all ten populations lock into coupled, bounded ' +
       'oscillations, predator peaks lagging prey. Press Run.');
     this.renderer.render();
   }
