@@ -59,8 +59,17 @@ class Sparkline {
   destroy() { this.canvas.remove(); }
 }
 
-// Distinct colors for timeline series (cycled by node order).
+// Distinct colors for chart series (cycled by node order).
 const CHART_PALETTE = ['#4a9eff', '#4caf50', '#ef5350', '#ffa726', '#ba68c8', '#26c6da', '#ffeb3b', '#7c83ff', '#ff7043', '#9ccc65'];
+
+// One color per node, keyed by its creation order in the diagram, shared by
+// every chart surface (on-canvas charts, timeline, legends, hover readouts)
+// so the same node always gets the same hue everywhere.
+function chartSeriesColor(diagram, nodeId) {
+  let i = 0;
+  for (const id of diagram.nodes.keys()) { if (id === nodeId) break; i++; }
+  return CHART_PALETTE[i % CHART_PALETTE.length];
+}
 
 // Dash patterns for ghost-branch overlays (cycled by branch order) — same hue
 // as the live node, different dash, so "same color = same node" holds across
@@ -96,8 +105,8 @@ class TimelineChart {
     this._bindHover();
   }
 
-  _colorOf(globalIdx) {
-    return CHART_PALETTE[globalIdx % CHART_PALETTE.length];
+  _colorOf(node) {
+    return chartSeriesColor(this.diagram, node.id);
   }
 
   _bindHover() {
@@ -214,11 +223,11 @@ class TimelineChart {
       allBtn.addEventListener('click', () => this.toggleAllNodes());
       el.appendChild(allBtn);
     }
-    this._cachedNodes.forEach((node, idx) => {
+    this._cachedNodes.forEach((node) => {
       const chip = document.createElement('button');
       const off = this._hidden.has(node.id);
       chip.className = 'tl-chip' + (off ? ' tl-chip-off' : '');
-      chip.style.setProperty('--chip-color', this._colorOf(idx));
+      chip.style.setProperty('--chip-color', this._colorOf(node));
       chip.textContent = node.label || node.type;
       chip.title = (off ? 'Show' : 'Hide') + ` "${node.label || node.type}"`;
       chip.setAttribute('aria-pressed', String(!off));
@@ -381,8 +390,12 @@ class TimelineChart {
     ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#95a3bc';
     const maxLabels = Math.max(2, Math.floor(plotW / 45));
     const tickStep = Math.max(1, Math.ceil(maxStep / maxLabels));
+    // The final step gets its own label below, so skip any tick close enough
+    // to collide with it (e.g. "80" mashed against "81" at the live edge).
+    const lastLabelX = maxStep % tickStep !== 0 ? xAt(maxStep) : Infinity;
     for (let s = 0; s <= maxStep; s += tickStep) {
       const x = xAt(s);
+      if (lastLabelX - x < 30) continue;
       ctx.fillText(String(s), x, padT + plotH + 5);
       ctx.strokeStyle = '#2a3550'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, padT + plotH); ctx.lineTo(x, padT + plotH + 3); ctx.stroke();
@@ -396,8 +409,7 @@ class TimelineChart {
     // Draw one timeline's series, step-based on x. Entries missing a node's
     // id (e.g. a node added after a branch was saved) are skipped.
     const drawSeries = (hh, node, width) => {
-      const idx = allNodes.indexOf(node);
-      ctx.strokeStyle = this._colorOf(idx);
+      ctx.strokeStyle = this._colorOf(node);
       ctx.lineWidth = width;
       ctx.beginPath();
       let started = false;
@@ -468,7 +480,7 @@ class TimelineChart {
         ctx.fillStyle = '#4a9eff';
         ctx.fillText('A·' + snapA.step, Math.max(padL + 12, Math.min(padL + plotW - 12, xa)), padT + 1);
         ctx.fillText('B·' + snapB.step, Math.max(padL + 12, Math.min(padL + plotW - 12, xb)), padT + 1);
-        this._drawComparePanel(ctx, w, padL, padT, plotW, plotH, l, r, snapA, snapB, nodes, allNodes);
+        this._drawComparePanel(ctx, w, padL, padT, plotW, plotH, l, r, snapA, snapB, nodes);
       }
     }
 
@@ -491,9 +503,8 @@ class TimelineChart {
 
       // Dot per series at this step
       nodes.forEach((node) => {
-        const idx = allNodes.indexOf(node);
         const v = snap.snap[node.id] ?? 0;
-        ctx.fillStyle = this._colorOf(idx);
+        ctx.fillStyle = this._colorOf(node);
         ctx.beginPath(); ctx.arc(cx, yOf(node, v), 3, 0, Math.PI * 2); ctx.fill();
       });
 
@@ -516,7 +527,7 @@ class TimelineChart {
 
       ctx.textAlign = 'left'; ctx.textBaseline = 'top';
       lines.forEach((line, i) => {
-        ctx.fillStyle = i === 0 ? '#9aa3b2' : this._colorOf(allNodes.indexOf(nodes[i - 1]));
+        ctx.fillStyle = i === 0 ? '#9aa3b2' : this._colorOf(nodes[i - 1]);
         ctx.fillText(line, tx + 9, ty + 5 + i * 14);
       });
     }
@@ -524,7 +535,7 @@ class TimelineChart {
 
   // Floating panel listing each visible series' value at A and B, the change,
   // and the % change. Placed opposite the selected band so it never covers it.
-  _drawComparePanel(ctx, w, padL, padT, plotW, plotH, bandL, bandR, snapA, snapB, nodes, allNodes) {
+  _drawComparePanel(ctx, w, padL, padT, plotW, plotH, bandL, bandR, snapA, snapB, nodes) {
     const fmt = v => (v % 1 === 0 ? String(v) : (Math.round(v * 100) / 100).toFixed(2));
     const rows = nodes.map(node => {
       const vA = snapA.snap[node.id] ?? 0, vB = snapB.snap[node.id] ?? 0;
@@ -533,7 +544,7 @@ class TimelineChart {
       const arrow = d > 0 ? '▲' : d < 0 ? '▼' : '–';
       const pctStr = pct === null ? '' : ` (${pct > 0 ? '+' : ''}${pct.toFixed(Math.abs(pct) < 10 ? 1 : 0)}%)`;
       return {
-        color: this._colorOf(allNodes.indexOf(node)),
+        color: this._colorOf(node),
         main: `${node.label || node.type}: ${fmt(vA)} → ${fmt(vB)}`,
         delta: `  ${arrow} ${d > 0 ? '+' : ''}${fmt(d)}${pctStr}`,
         dcolor: d > 0 ? '#4caf50' : d < 0 ? '#ef5350' : '#95a3bc',

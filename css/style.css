@@ -32,9 +32,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 /* ── Topbar ── */
 #topbar {
-  display: flex; align-items: center; gap: 16px; padding: 0 16px;
-  height: 48px; background: var(--panel); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 16px; padding: 4px 16px;
+  min-height: 48px; background: var(--panel); border-bottom: 1px solid var(--border);
   flex-shrink: 0; z-index: 10;
+  /* Wrap clusters onto a second row on narrow windows. The page never scrolls
+     (body is overflow:hidden), so anything pushed past the right edge would be
+     unreachable, including File and Library. */
+  flex-wrap: wrap; row-gap: 2px;
 }
 
 .logo {
@@ -76,6 +80,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   font-family: monospace; font-size: 12px; color: var(--text);
   background: var(--panel2); border: 1px solid var(--border);
   border-radius: 6px; padding: 4px 10px; min-width: 76px; text-align: center;
+  white-space: nowrap; /* growing step numbers must widen the chip, not wrap inside it */
 }
 
 #sim-status {
@@ -91,6 +96,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   width: 72px; background: var(--panel); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; align-items: center; padding: 8px 0;
   gap: 2px; flex-shrink: 0; overflow-y: auto;
+  /* Always-visible thin scrollbar: on short windows half the toolbox sits below
+     the fold, and macOS overlay scrollbars give no hint that it scrolls. */
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
 }
 
 /* Collapsible palette sections */

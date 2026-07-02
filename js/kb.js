@@ -22,9 +22,10 @@ const KB_ARTICLES = [
       + 'connections compete for a limited stock, the pool shares what it has '
       + 'fairly rather than letting the first connection drain everything. Give a '
       + 'pool a capacity to cap how much it can hold. The Starting amount field '
-      + 'sets what the pool holds when the run begins, and Reset returns to it; the '
-      + 'plus and minus buttons beside it nudge the live amount during a run without '
-      + 'changing that starting baseline. A pool never drops below zero, so model '
+      + 'sets what the pool holds when the run begins, and Reset returns to it. '
+      + 'During a run the field is relabeled Amount (live) and shows the current '
+      + 'count; edits and the plus and minus buttons beside it nudge that live '
+      + 'amount without changing the starting baseline. A pool never drops below zero, so model '
       + 'spending or loss by draining resources out, not by letting it go negative.',
   },
   {
