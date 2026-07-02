@@ -42,6 +42,8 @@ class AppDemos {
   _demoEcosystem() {
     const b = this._demo();
     b.d.params = { breedRate: 0.45, carrying: 200, hunt: 0.008 };
+    // Name the resource colors so panels show "Rabbits", not a raw hex code.
+    b.d.resourceTypes = [{ name: 'Rabbits', color: '#7cb342' }, { name: 'Foxes', color: '#ef5350' }];
     b.group(250, 70, 700, 590, 'Predator–Prey Ecosystem', '#7cb342');
 
     const births = b.node(NodeType.REGISTER, 470, 165, 'births',

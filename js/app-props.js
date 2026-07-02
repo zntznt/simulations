@@ -1133,8 +1133,6 @@ class AppProps {
   }
 
   _chartProps(panel, chart) {
-    const palette = (typeof CHART_PALETTE !== 'undefined') ? CHART_PALETTE
-      : ['#4a9eff', '#4caf50', '#ef5350', '#ffa726', '#ba68c8', '#26c6da', '#ffeb3b', '#7c83ff', '#ff7043', '#9ccc65'];
 
     this._titleTyped(panel, 'Canvas widget', chart.label || 'Chart', '#26c6da', 'canvas-charts');
     this._info(panel, 'A live chart drawn on the canvas. Pick nodes below to plot their values over the run.');
@@ -1166,12 +1164,12 @@ class AppProps {
     // Existing series, each with its plot color and a remove button.
     chart.nodeIds = (chart.nodeIds || []).filter(id => this.diagram.nodes.has(id));
     if (!chart.nodeIds.length) this._info(panel, 'No nodes tracked yet. Add one below.');
-    chart.nodeIds.forEach((id, idx) => {
+    chart.nodeIds.forEach((id) => {
       const node = this.diagram.nodes.get(id);
       const row = document.createElement('div');
       row.className = 'prop-row';
       const sw = document.createElement('span');
-      sw.style.cssText = `flex:0 0 12px;width:12px;height:12px;border-radius:2px;background:${palette[idx % palette.length]};`;
+      sw.style.cssText = `flex:0 0 12px;width:12px;height:12px;border-radius:2px;background:${chartSeriesColor(this.diagram, id)};`;
       const name = document.createElement('span');
       name.style.cssText = 'flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
       name.textContent = node.label || node.type;
@@ -1263,7 +1261,9 @@ class AppProps {
 
     if (node.type !== NodeType.SOURCE && node.type !== NodeType.REGISTER
       && node.type !== NodeType.DRAIN && node.type !== NodeType.TRADER) {
-      this._field(panel, 'Starting amount', 'number', node.resources, v => {
+      // node.resources is the live count once a run has stepped; only at rest
+      // does this field set the baseline that Reset returns to. Label it honestly.
+      this._field(panel, this.engine.step > 0 ? 'Amount (live)' : 'Starting amount', 'number', node.resources, v => {
         node.setCount(Math.max(0, parseInt(v) || 0));
         this.renderer.render();
       });

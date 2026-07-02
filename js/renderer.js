@@ -884,8 +884,12 @@ class Renderer {
   }
 
   _updateChartEl(el, chart) {
-    const palette = (typeof CHART_PALETTE !== 'undefined') ? CHART_PALETTE
-      : ['#4a9eff', '#4caf50', '#ef5350', '#ffa726', '#ba68c8', '#26c6da', '#ffeb3b', '#7c83ff', '#ff7043', '#9ccc65'];
+    // Shared per-node color (charts.js) so on-canvas charts match the timeline;
+    // fall back to a local palette if charts.js isn't loaded (tests, embeds).
+    const fallback = ['#4a9eff', '#4caf50', '#ef5350', '#ffa726', '#ba68c8', '#26c6da', '#ffeb3b', '#7c83ff', '#ff7043', '#9ccc65'];
+    const colorOf = (id, idx) => (typeof chartSeriesColor === 'function')
+      ? chartSeriesColor(this.diagram, id)
+      : fallback[idx % fallback.length];
     const isSel = this.selectedId === chart.id;
     el.setAttribute('class', `chart-elem${isSel ? ' selected' : ''}`);
 
@@ -975,7 +979,7 @@ class Renderer {
     const type = chart.chartType || 'line';
     const baseY = y0 + plotH;
     ids.forEach((id, idx) => {
-      const color = palette[idx % palette.length];
+      const color = colorOf(id, idx);
       const vals = hist.map(snap => snap.snap[id] ?? 0);
 
       if (type === 'bars') {
@@ -1020,7 +1024,7 @@ class Renderer {
     // Stash the plot geometry so the hover handler can map cursor → step and
     // read values without recomputing, then refresh the overlay in case this
     // chart is the one currently hovered.
-    el._chartCtx = { x0, y0, plotW, plotH, max, n: hist.length, ids, palette, hist, chart, type };
+    el._chartCtx = { x0, y0, plotW, plotH, max, n: hist.length, ids, colors: ids.map(colorOf), hist, chart, type };
     this._drawChartHover(el);
   }
 
@@ -1067,7 +1071,7 @@ class Renderer {
     const rows = [{ t: `Step ${snap.step}`, color: '#9aa3b2' }];
     ctx.ids.forEach((id, k) => {
       const v = snap.snap[id] ?? 0;
-      const color = ctx.palette[k % ctx.palette.length];
+      const color = ctx.colors[k];
       hov.appendChild(svgEl('circle', { cx: cx.toFixed(1), cy: yAt(v).toFixed(1), r: '2.5', fill: color }));
       const node = this.diagram.nodes.get(id);
       rows.push({ t: `${node ? (node.label || node.type) : id}: ${fmt(v)}`, color });

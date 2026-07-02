@@ -1006,6 +1006,10 @@ class App {
       document.body.appendChild(t);
     }
     t.textContent = msg;
+    // Sit above the timeline panel when it's open so the toast doesn't cover
+    // the chart's x-axis; '' falls back to the stylesheet's bottom: 24px.
+    const tl = document.getElementById('timeline');
+    t.style.bottom = (tl && !tl.classList.contains('hidden')) ? `${tl.offsetHeight + 12}px` : '';
     t.classList.add('show');
     clearTimeout(this._toastTimer);
     this._toastTimer = setTimeout(() => t.classList.remove('show'), Math.max(3000, msg.length * 60));
