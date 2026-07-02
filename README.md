@@ -1,5 +1,7 @@
 # Simulations — an economy & game-systems designer
 
+[![tests](https://github.com/zntznt/simulations/actions/workflows/tests.yml/badge.svg)](https://github.com/zntznt/simulations/actions/workflows/tests.yml)
+
 A browser-based, [Machinations](https://machinations.io/)-style tool for modelling
 resource economies and game-system feedback loops, then **simulating** them step by
 step. Draw nodes and connections on a canvas, press Run, and watch resources flow,
