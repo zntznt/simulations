@@ -13,8 +13,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+      # The repo gitignores package-lock.json on purpose, so npm ci is out.
+      - run: npm install
       - name: Unit tests (engine/model)
         run: npm test
       - name: Install Chromium for the smoke test
