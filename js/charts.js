@@ -62,6 +62,15 @@ class Sparkline {
 // Distinct colors for chart series (cycled by node order).
 const CHART_PALETTE = ['#4a9eff', '#4caf50', '#ef5350', '#ffa726', '#ba68c8', '#26c6da', '#ffeb3b', '#7c83ff', '#ff7043', '#9ccc65'];
 
+// Canvas fonts can't reference CSS variables, so resolve the UI font family
+// (`--font` on body) once and reuse it for every canvas label.
+let _chartFontFamily = null;
+function chartFont(px) {
+  if (!_chartFontFamily)
+    _chartFontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif';
+  return `${px}px ${_chartFontFamily}`;
+}
+
 // One color per node, keyed by its creation order in the diagram, shared by
 // every chart surface (on-canvas charts, timeline, legends, hover readouts)
 // so the same node always gets the same hue everywhere.
@@ -276,8 +285,8 @@ class TimelineChart {
     for (const b of branches) collect(b.history);
     const allNodes = ids.map(id => this.diagram.nodes.get(id)).filter(Boolean);
 
-    // Refresh legend only when the node list or branch set changes
-    const newKey = allNodes.map(n => n.id).join(',') + '|'
+    // Refresh legend only when the node list (ids or labels) or branch set changes
+    const newKey = allNodes.map(n => n.id + ':' + n.label).join(',') + '|'
       + allBranches.map(b => b.id + (b.visible ? '+' : '-') + b.name).join(',');
     if (newKey !== this._cachedNodeIds) {
       // Remove hidden entries for nodes that no longer exist
@@ -293,7 +302,7 @@ class TimelineChart {
 
     if ((hist.length < 2 && !branches.length) || !nodes.length) {
       ctx.fillStyle = '#95a3bc';
-      ctx.font = '12px var(--font)';
+      ctx.font = chartFont(12);
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
       // Distinguish "no data yet" from "everything is toggled off" — the latter

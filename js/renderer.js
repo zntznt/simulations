@@ -462,6 +462,7 @@ class Renderer {
     this.selectedId = null;        // primary selection (node or connection)
     this.selectedIds = new Set();  // multi-selected node ids
     this._firing = new Set();
+    this._firingTimer = null;      // pending setFiring clear (see setFiring)
     this._nodeEls = new Map();
     this._connEls = new Map();
     this._groupEls = new Map();
@@ -657,7 +658,9 @@ class Renderer {
   setFiring(ids) {
     this._firing = new Set(ids);
     this.render();
-    setTimeout(() => { this._firing.clear(); this.render(); }, 250);
+    // Cancel the previous flash's timer so a stale one can't clear this set early.
+    clearTimeout(this._firingTimer);
+    this._firingTimer = setTimeout(() => { this._firing.clear(); this.render(); }, 250);
   }
 
   // Preview a recorded history snapshot ({ nodeId: value }) on the nodes, or
@@ -1574,9 +1577,11 @@ class Renderer {
     // Hit-test in reverse paint order (topmost-painted wins), so you select
     // what you see. Layer paint order is groups < conns < nodes < charts <
     // notes, so the test order is notes → charts → nodes → conns → groups.
+    // Within a layer the cache Maps hold insertion (= paint) order, so each
+    // loop walks its cache in reverse to test the topmost element first.
 
     // Notes paint on top of everything except transient overlays.
-    for (const [id] of this._noteEls) {
+    for (const id of [...this._noteEls.keys()].reverse()) {
       const note = this.diagram.notes.get(id);
       if (!note) continue;
       if (x >= note.x && x <= note.x + note.w && y >= note.y && y <= note.y + note.h)
@@ -1584,7 +1589,7 @@ class Renderer {
     }
 
     // Charts paint above nodes/connections.
-    for (const [id] of this._chartEls) {
+    for (const id of [...this._chartEls.keys()].reverse()) {
       const chart = this.diagram.charts.get(id);
       if (!chart) continue;
       if (x >= chart.x && x <= chart.x + chart.w && y >= chart.y && y <= chart.y + chart.h)
@@ -1592,7 +1597,7 @@ class Renderer {
     }
 
     // Nodes paint above connections and groups.
-    for (const [id] of this._nodeEls) {
+    for (const id of [...this._nodeEls.keys()].reverse()) {
       const node = this.diagram.nodes.get(id);
       if (!node) continue;
       const dx = x - node.x, dy = y - node.y;
@@ -1610,7 +1615,7 @@ class Renderer {
     }
 
     // Sample along each connection's real path so the whole line is clickable.
-    for (const [id, g] of this._connEls) {
+    for (const [id, g] of [...this._connEls].reverse()) {
       if (!this.diagram.connections.has(id)) continue;
       const pathEl = g.querySelector('.conn-path');
       if (!pathEl) continue;
@@ -1625,7 +1630,7 @@ class Renderer {
     }
 
     // Groups are lowest priority — match any click inside their rect.
-    for (const [id] of this._groupEls) {
+    for (const id of [...this._groupEls.keys()].reverse()) {
       const grp = this.diagram.groups.get(id);
       if (!grp) continue;
       if (x >= grp.x && x <= grp.x + grp.w && y >= grp.y && y <= grp.y + grp.h)
