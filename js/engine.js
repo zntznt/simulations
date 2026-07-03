@@ -37,7 +37,15 @@ class SimEngine {
       const infiniteSource = n.type === NodeType.SOURCE && !n.limited;
       n.resources = n._initialResources ?? (infiniteSource ? Infinity : 0);
       n.colorMap = { ...(n._initialColorMap || {}) };
-      if (n.type === NodeType.DELAY) n._queue = [];
+      if (n.type === NodeType.DELAY) {
+        // Rebuild in-flight batches from any pre-loaded resources (e.g. a
+        // diagram saved mid-run keeps its counts but not its _queue): one
+        // batch per color holding the full amount, releasing after the node's
+        // delay — mirrors the QUEUE _fifo rebuild below. Without this the
+        // resources would sit in the node forever, never released.
+        n._queue = Object.entries(n.colorMap).filter(([, a]) => a > 0)
+          .map(([color, amount]) => ({ amount, color, stepsLeft: n.delay }));
+      }
       if (n.type === NodeType.QUEUE) {
         n._procs = [];
         n.processed = 0; n.totalWait = 0; n.maxWait = 0; n.maxLen = 0;
@@ -87,6 +95,9 @@ class SimEngine {
       histStride: this._histStride,
       ended: this.ended,
       history: this.history,
+      // Seeded RNG position (null when unseeded), so a restored seeded run
+      // replays the exact same stochastic draws it originally would have.
+      rng: SimRandom.getState(),
       vars: this.diagram.variables,
       trigCounts: [...(this._trigCounts || new Map())],
       prevStateVals: [...(this._prevStateVals || new Map())],
@@ -112,6 +123,7 @@ class SimEngine {
     this.ended = s.ended;
     this._trigCounts = new Map(s.trigCounts);
     this._prevStateVals = new Map(s.prevStateVals);
+    SimRandom.setState(s.rng ?? null);
   }
 
   doStep() {
@@ -663,7 +675,10 @@ class SimEngine {
   // Max-min fair integer allocation of `available` across `wants`.
   _fairAllocate(available, wants) {
     const alloc = wants.map(() => 0);
-    let remaining = available;
+    // The engine moves whole units; a fractional `available` (e.g. a capacity
+    // of 5.5) must round down or the remainder loop would hand out an extra
+    // unit and overfill the target.
+    let remaining = Math.floor(available);
     let active = wants.map((w, i) => i).filter(i => wants[i] > 0);
 
     while (remaining > 0 && active.length) {
@@ -690,11 +705,14 @@ class SimEngine {
   // Split `total` into integer shares proportional to `weights` (remainder
   // distributed round-robin). Zero total weight falls back to an even split.
   _proportionalShares(total, weights) {
-    const n = weights.length;
     const wSum = weights.reduce((a, b) => a + b, 0);
     const shares = weights.map(w => wSum > 0 ? Math.floor(total * w / wSum) : 0);
     let rem = total - shares.reduce((a, b) => a + b, 0);
-    for (let i = 0; rem > 0 && n; i++, rem--) shares[i % n]++;
+    // Remainder goes round-robin over the weighted outputs only — a zero
+    // weight routes nothing. With no positive weight at all, fall back to an
+    // even split across every output.
+    const idx = weights.map((_, i) => i).filter(i => wSum <= 0 || weights[i] > 0);
+    for (let k = 0; rem > 0 && idx.length; k++, rem--) shares[idx[k % idx.length]]++;
     return shares;
   }
 
@@ -1263,8 +1281,12 @@ class SimEngine {
     }
     this.history.push({ step: this.step, snap });
     if (this.history.length >= 600) {
-      this.history = this.history.filter((_, i) => i % 2 === 0);
+      // Halve the sampling rate, dropping the snapshots that fall off the new
+      // grid. Filter by step (not array index): an index-based cut would
+      // strand the retained steps at the wrong phase for the doubled stride,
+      // skipping the samples right after each doubling and leaving a gap.
       this._histStride *= 2;
+      this.history = this.history.filter(h => h.step % this._histStride === 0);
     }
   }
 
