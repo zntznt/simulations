@@ -37,6 +37,7 @@ const RateMode = {
 // stub Math.random working).
 const SimRandom = {
   _fn: null, // null → delegate to Math.random
+  _a: 0,     // mulberry32 state (32-bit), advanced on every seeded draw
   random() { return this._fn ? this._fn() : Math.random(); },
   // Seed with any string/number; null/'' clears back to Math.random.
   seed(s) {
@@ -47,8 +48,19 @@ const SimRandom = {
     const str = String(s);
     for (let i = 0; i < str.length; i++) a = ((a * 31) + str.charCodeAt(i)) >>> 0;
     if (a === 0) a = 0x9e3779b9;
+    this.setState(a);
+  },
+  // Checkpoint support: the internal 32-bit state, so captureState /
+  // restoreState can put a seeded stream back at its exact position.
+  // null ↔ unseeded (Math.random has no position to save).
+  getState() { return this._fn ? this._a : null; },
+  setState(state) {
+    if (state == null) { this._fn = null; return; }
+    this._a = state >>> 0;
+    const self = this;
     this._fn = function () {
-      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let a = self._a | 0; a = (a + 0x6d2b79f5) | 0;
+      self._a = a;
       let t = Math.imul(a ^ (a >>> 15), 1 | a);
       t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -87,6 +99,37 @@ const VALID_IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 // so existing diagrams keep working unchanged.
 const _mathCompileCache = new Map();   // expr → compiled math.js code (or null if unparseable)
 
+// Formula randomness routed through SimRandom: these shadow math.js's own
+// random()/randomInt()/pickRandom() (which are Math.random-backed) via the
+// evaluation scope, so seeded runs stay reproducible when a formula rolls
+// randomness. Injected per evaluation — never baked into compiled code —
+// because _mathCompileCache is shared across Monte Carlo trials.
+function _formulaRandomScope() {
+  return {
+    // random() → [0,1); random(max) → [0,max); random(min,max) → [min,max)
+    random: (min, max) => {
+      if (min === undefined) return SimRandom.random();
+      if (max === undefined) { max = min; min = 0; }
+      return min + SimRandom.random() * (max - min);
+    },
+    // randomInt(max) → [0,max); randomInt(min,max) → [min,max); integers
+    randomInt: (min, max) => {
+      if (max === undefined) { max = min; min = 0; }
+      return Math.floor(min + SimRandom.random() * (max - min));
+    },
+    // pickRandom([…]) → one element (math.js matrices unwrap to arrays)
+    pickRandom: (arr) => {
+      const a = arr && typeof arr.toArray === 'function' ? arr.toArray() : arr;
+      if (!Array.isArray(a) || !a.length) return 0;
+      return a[Math.floor(SimRandom.random() * a.length)];
+    },
+  };
+}
+
+// `Math` stand-in whose random() draws from SimRandom (everything else is
+// inherited); shadows the global in the legacy Function-based evaluator.
+const _seededMath = Object.create(Math, { random: { value: () => SimRandom.random() } });
+
 function _evalMathJS(expr, vars) {
   if (typeof math === 'undefined' || !math.compile) return undefined;
   let code = _mathCompileCache.get(expr);
@@ -100,6 +143,8 @@ function _evalMathJS(expr, vars) {
   for (const [k, v] of Object.entries(vars || {})) {
     if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)) scope[k] = v;
   }
+  // Seeded randomness (scope functions take precedence over math.js built-ins).
+  Object.assign(scope, _formulaRandomScope());
   try {
     let r = code.evaluate(scope);
     if (r && typeof r === 'object' && typeof r.toNumber === 'function') r = r.toNumber();
@@ -113,13 +158,19 @@ function evalFormula(expr, vars = {}) {
   if (!expr || typeof expr !== 'string' || !expr.trim()) return 0;
   const viaMath = _evalMathJS(expr.trim(), vars);
   if (viaMath !== undefined) return viaMath;
-  // Legacy fallback: plain JS expression over the same variables.
+  // Legacy fallback: plain JS expression over the same variables. The seeded
+  // random helpers are passed in too, and `Math` is shadowed so Math.random()
+  // also draws from SimRandom (seeded runs stay reproducible on this path).
+  const rng = _formulaRandomScope();
   const keys = [], vals = [];
   for (const [k, v] of Object.entries(vars || {})) {
-    if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)) {
+    if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)
+      && !(k in rng) && k !== 'Math') {
       keys.push(k); vals.push(v);
     }
   }
+  for (const [k, fn] of Object.entries(rng)) { keys.push(k); vals.push(fn); }
+  keys.push('Math'); vals.push(_seededMath);
   try {
     // eslint-disable-next-line no-new-func
     const fn = new Function(...keys, `"use strict"; return (${expr.trim()});`);
@@ -183,7 +234,9 @@ function rollDice(expr) {
   const s = String(expr).trim().toLowerCase();
   const m = s.match(/^(\d+)\s*d\s*(\d+)$/);
   if (!m) { const n = parseFloat(s); return isNaN(n) ? 0 : n; }
-  const count = parseInt(m[1]), sides = parseInt(m[2]);
+  // Cap the dice count (like sampleDist's poisson loop) so a pathological
+  // expression such as 999999999d6 can't freeze the tick.
+  const count = Math.min(10000, parseInt(m[1])), sides = parseInt(m[2]);
   if (sides < 1) return 0;
   let sum = 0;
   for (let i = 0; i < count; i++) sum += Math.floor(SimRandom.random() * sides) + 1;

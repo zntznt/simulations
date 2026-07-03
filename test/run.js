@@ -217,6 +217,15 @@ test('pool allocation is work-conserving when one target is full', () => {
   eq(a.resources, 1, 'A stays full');
 });
 
+test('a fractional capacity is floored, never overfilled', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL); p.capacity = 5.5;
+  conn(d, s, p).rate = 10;
+  steps(e, 3);
+  eq(p.resources, 5, 'pool fills to floor(capacity) only');
+});
+
 // ── Multi-ingredient recipe converter ────────────────────────────────────────
 console.log('\nConverter recipes');
 
@@ -538,6 +547,21 @@ test('deterministic gate splits proportionally to weights', () => {
   eq(g.resources, 0, 'gate emptied');
 });
 
+test('deterministic gate remainder never lands on a zero-weight output', () => {
+  const { d, e } = setup();
+  const g = node(d, NodeType.GATE); g.setCount(4); g.gateMode = 'deterministic';
+  const p0 = node(d, NodeType.POOL);
+  const p1 = node(d, NodeType.POOL);
+  const p2 = node(d, NodeType.POOL);
+  conn(d, g, p0).weight = 0;
+  conn(d, g, p1).weight = 2;
+  conn(d, g, p2).weight = 3;
+  steps(e, 1);
+  eq(p0.resources, 0, 'zero-weight output routes nothing');
+  eq(p1.resources + p2.resources, 4, 'all units routed to the weighted outputs');
+  eq(g.resources, 0, 'gate emptied');
+});
+
 test('probabilistic gate never routes to a zero-weight output', () => {
   withRandom(0.5, () => {
     const { d, e } = setup();
@@ -665,6 +689,28 @@ test('toJSON/loadJSON preserves new fields', () => {
   assert(av, 'activator preserved');
   eq(av.actOperator, '<=', 'actOperator preserved');
   eq(av.actValue, 9, 'actValue preserved');
+});
+
+test('delay in-flight resources survive a JSON round-trip and still release', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.setCount(2);
+  const dl = node(d, NodeType.DELAY); dl.delay = 3;
+  const b = node(d, NodeType.POOL);
+  conn(d, a, dl).rate = 2;
+  conn(d, dl, b).rate = 2;
+  e.reset();
+  e.doStep(); // the 2 units are now in flight inside the delay
+  eq(d.nodes.get(dl.id).resources, 2, 'delay holds the units');
+
+  // Saving keeps the node's counts but not its _queue; reset() must rebuild
+  // the in-flight batch or the units would sit in the node forever.
+  const d2 = new Diagram();
+  d2.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  const e2 = new SimEngine(d2);
+  e2.reset();
+  for (let i = 0; i < 10; i++) e2.doStep();
+  eq(d2.nodes.get(b.id).resources, 2, 'units arrive downstream after the round-trip');
+  eq(d2.nodes.get(dl.id).resources, 0, 'delay drained');
 });
 
 // ── P1: finite source / queue / modifiers ──────────────────────────────────
@@ -1449,6 +1495,48 @@ test('different seeds produce different traces', () => {
   assert(seededTrace('abc') !== seededTrace('xyz'), 'distinct seeds → distinct traces');
 });
 
+// Formula randomness must draw from SimRandom too — math.js's own random
+// functions are Math.random-backed and would break seeded reproducibility.
+function formulaTrace(seed, n = 10) {
+  const { d, e } = setup();
+  d.seed = seed;
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p); c.rateMode = RateMode.FORMULA; c.formula = 'randomInt(1,100)';
+  e.reset();
+  const trace = [];
+  for (let i = 0; i < n; i++) { e.doStep(); trace.push(p.resources); }
+  SimRandom.seed(null);
+  return trace.join(',');
+}
+
+test('a randomInt() formula rate is reproducible under the run seed', () => {
+  eq(formulaTrace('abc'), formulaTrace('abc'), 'same seed → identical trace');
+  assert(formulaTrace('abc') !== formulaTrace('xyz'), 'distinct seeds → distinct traces');
+});
+
+test('random()/pickRandom() in formulas draw from the seeded stream too', () => {
+  SimRandom.seed('f2');
+  const a = [evalFormula('random()'), evalFormula('random(5,10)'), evalFormula('pickRandom([10,20,30])')];
+  SimRandom.seed('f2');
+  const b = [evalFormula('random()'), evalFormula('random(5,10)'), evalFormula('pickRandom([10,20,30])')];
+  SimRandom.seed(null);
+  eq(a.join(','), b.join(','), 'same seed → identical formula draws');
+  assert(a[1] >= 5 && a[1] < 10, 'random(min,max) stays in range');
+  assert([10, 20, 30].includes(a[2]), 'pickRandom returns a list element');
+});
+
+test('legacy-fallback formulas (Math.random) are seeded as well', () => {
+  // math.js cannot evaluate `Math.*`, so this takes the Function fallback,
+  // where the shadowed Math draws from SimRandom.
+  SimRandom.seed('legacy');
+  const a = [evalFormula('Math.round(Math.random()*1000)'), evalFormula('Math.round(Math.random()*1000)')];
+  SimRandom.seed('legacy');
+  const b = [evalFormula('Math.round(Math.random()*1000)'), evalFormula('Math.round(Math.random()*1000)')];
+  SimRandom.seed(null);
+  eq(a.join(','), b.join(','), 'same seed → identical legacy draws');
+});
+
 test('an empty seed leaves the RNG on Math.random', () => {
   // With the seed cleared, reset() must restore Math.random so stubs still work.
   SimRandom.seed('leftover');           // simulate a seed left by a prior batch
@@ -1892,6 +1980,13 @@ test('a NaN connection rate moves nothing and never corrupts node state', () => 
   steps(e, 3);
   assert(isFinite(p.resources), 'pool resources stay finite');
   eq(p.resources, 0, 'no resources moved by a NaN rate');
+});
+
+test('a huge dice count is capped and returns promptly', () => {
+  const t0 = Date.now();
+  const v = rollDice('999999999d6');
+  assert(Date.now() - t0 < 1000, 'rollDice returns promptly');
+  assert(v >= 10000 && v <= 60000, `sum bounded by the 10000-dice cap (got ${v})`);
 });
 
 // ── Sweep fixes: delay honours a finite capacity ──────────────────────────────
@@ -2427,6 +2522,20 @@ test('history uses adaptive stride: long runs keep full-range coverage, bounded 
   for (let i = 1; i < steps.length; i++) assert(steps[i] > steps[i - 1], 'steps strictly increasing');
 });
 
+test('history stays uniformly spaced across decimations (no post-doubling gaps)', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  conn(d, s, p).rate = 1;
+  e.reset();
+  for (let i = 0; i < 1300; i++) e.doStep();
+  const st = e.history.map(h => h.step);
+  // After each doubling the retained snapshots must stay on the new stride's
+  // grid, so recording continues seamlessly — every gap equals the stride.
+  for (let i = 1; i < st.length; i++)
+    eq(st[i] - st[i - 1], e._histStride, `uniform spacing at #${i} (${st[i - 1]}→${st[i]})`);
+});
+
 test('diagram JSON carries a schema version and loads without one (legacy)', () => {
   const { d } = setup();
   eq(d.toJSON().version, 1, 'version written');
@@ -2499,6 +2608,25 @@ test('captureState carries in-flight delay queue contents', () => {
   // Releases continue on the original schedule after the fork.
   for (let i = 0; i < 6; i++) e.doStep();
   assert(d.nodes.get(p.id).resources > 0, 'delayed batches still release after restore');
+});
+
+test('captureState/restoreState replays a seeded run identically (RNG position)', () => {
+  const { d, e } = setup();
+  d.seed = 'fork';
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL);
+  const c = conn(d, s, p);
+  c.rateMode = RateMode.DICE; c.dice = '2d6';
+  e.reset();
+  for (let i = 0; i < 3; i++) e.doStep();
+  const snap = e.captureState();
+  const t1 = [];
+  for (let i = 0; i < 2; i++) { e.doStep(); t1.push(d.nodes.get(p.id).resources); }
+  e.restoreState(snap);
+  const t2 = [];
+  for (let i = 0; i < 2; i++) { e.doStep(); t2.push(d.nodes.get(p.id).resources); }
+  SimRandom.seed(null);
+  eq(t2.join(','), t1.join(','), 'post-restore trace matches the original branch');
 });
 
 test('restoreState restores structure removed after the checkpoint', () => {
