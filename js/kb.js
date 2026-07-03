@@ -532,14 +532,15 @@ const KB_ARTICLES = [
   },
   {
     id: 'navigation', category: 'Building diagrams', title: 'Navigation and zoom',
-    keywords: 'pan zoom scroll wheel fit minimap overview touch pinch drag middle button navigate view',
+    keywords: 'pan zoom scroll wheel fit minimap overview touch pinch drag middle button alt space navigate view',
     body: 'Scroll the mouse wheel to zoom in and out, or use the plus and minus '
       + 'buttons in the toolbar. Click the zoom level readout to reset to 100%, or '
-      + 'press Ctrl+0 to fit the whole diagram in view. Pan by holding the middle '
-      + 'mouse button and dragging, or hold Ctrl and drag with the left button. The '
-      + 'minimap in the corner shows a scaled-down overview of the whole canvas, so '
-      + 'click or drag inside it to jump to any area. On a touchscreen, pinch with '
-      + 'two fingers to zoom and drag with one to pan.',
+      + 'press Ctrl+0 to fit the whole diagram in view. Pan by dragging with the '
+      + 'middle mouse button, or hold Alt or Space and drag with the left button. '
+      + 'The minimap in the corner shows a scaled-down overview of the whole canvas, '
+      + 'so click or drag inside it to jump to any area. On a touchscreen, pinch '
+      + 'with two fingers to zoom and drag with two fingers to pan; a single finger '
+      + 'selects and moves elements.',
   },
   {
     id: 'undo-redo', category: 'Building diagrams', title: 'Undo and redo',
@@ -684,7 +685,7 @@ const KB_ARTICLES = [
       + 'multiple named diagrams, open the Library and click Save diagram, and each '
       + 'entry is stored independently in the browser and can be loaded, renamed '
       + 'or deleted at any time. Use File → Save as JSON to download the current '
-      + 'diagram as a portable file, and File → Load JSON to bring a saved file '
+      + 'diagram as a portable file, and File → Open file to bring a saved file '
       + 'back onto the canvas.',
   },
   {

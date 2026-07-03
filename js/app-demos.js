@@ -167,6 +167,7 @@ class AppDemos {
   // clears — the M/D/1 queue behind every checkout and call centre.
   _demoQueue() {
     const b = this._demo();
+    b.d.resourceTypes = [{ name: 'Customers', color: '#7c83ff' }];
     b.group(260, 180, 600, 230, 'Single-Server Queue', '#7c83ff');
 
     const arrivals = b.node(NodeType.SOURCE, 360, 290, 'Arrivals', n => { n.resourceColor = '#7c83ff'; });
@@ -211,6 +212,7 @@ class AppDemos {
       {name:'Energy',color:C_ENERGY},{name:'Gold',color:C_GOLD},{name:'Gems',color:C_GEM},
       {name:'XP',color:C_XP},{name:'Common',color:C_COMMON},{name:'Rare',color:C_RARE},
       {name:'Epic',color:C_EPIC},{name:'Legendary',color:C_LEG},{name:'Players',color:C_PLAYER},
+      {name:'Wins',color:C_WIN},{name:'Gear',color:C_GEAR},{name:'Pass XP',color:C_PASS},
     ];
 
     // ── GROUPS ────────────────────────────────────────────────────────────────
@@ -313,7 +315,7 @@ class AppDemos {
     const dau      = b.node(NodeType.POOL,   1280, 840, 'Active Players', n=>{ n.setCount(700,C_PLAYER); n.capacity=8000; });
     const churn    = b.node(NodeType.DRAIN,  1500, 840, 'Churned');
     b.res(installs, dau, c=>{ c.rateMode=RateMode.FORMULA; c.formula='round(installRate * (1 + level/6))'; c.interval=3; c.label='installs'; });
-    b.res(dau, churn, c=>{ c.flowMode='push'; c.rateMode=RateMode.FORMULA; c.formula='round(dauVal * churnRate)'; c.label='churn'; });
+    b.res(dau, churn, c=>{ c.rateMode=RateMode.FORMULA; c.formula='round(dauVal * churnRate)'; c.label='churn'; });
     b.st(dau, dau, c=>{ c.variableName='dauVal'; c.label='dauVal'; });
 
     // IAP: a small % of DAU convert and pay → buy Gems (faucet scaled by DAU).
