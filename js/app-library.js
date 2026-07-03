@@ -37,7 +37,10 @@ class AppLibrary {
       const name = document.getElementById('lib-name').value.trim() || 'Untitled';
       const lib = this._getLibrary();
       lib.push({ name, date: new Date().toLocaleString(), json: this._snapshot() });
-      this._saveLibrary(lib);
+      if (!this._saveLibrary(lib)) {
+        this._toast(`Could not save “${name}”. Browser storage is full or blocked.`);
+        return;
+      }
       document.getElementById('lib-name').value = '';
       this._renderLibraryList();
       this._toast(`Saved “${name}” to your Library`);
@@ -57,8 +60,10 @@ class AppLibrary {
     try { return JSON.parse(localStorage.getItem('sim_library') || '[]'); } catch { return []; }
   }
 
+  // Returns false when the write fails (storage full or blocked) so callers
+  // can tell the user instead of toasting a false "Saved".
   _saveLibrary(lib) {
-    try { localStorage.setItem('sim_library', JSON.stringify(lib)); } catch {}
+    try { localStorage.setItem('sim_library', JSON.stringify(lib)); return true; } catch { return false; }
   }
 
   // ── Components (reusable subgraphs) ──────────────────────────────────────────
@@ -67,8 +72,9 @@ class AppLibrary {
     try { return JSON.parse(localStorage.getItem('sim_components') || '[]'); } catch { return []; }
   }
 
+  // Same contract as _saveLibrary: false = the write did not stick.
   _saveComponents(list) {
-    try { localStorage.setItem('sim_components', JSON.stringify(list)); } catch {}
+    try { localStorage.setItem('sim_components', JSON.stringify(list)); return true; } catch { return false; }
   }
 
   _saveComponent() {
@@ -80,7 +86,10 @@ class AppLibrary {
       .filter(c => ids.has(c.sourceId) && ids.has(c.targetId)).map(c => c.toJSON());
     const list = this._getComponents();
     list.push({ name, date: new Date().toLocaleString(), nodes, conns });
-    this._saveComponents(list);
+    if (!this._saveComponents(list)) {
+      this._toast(`Could not save "${name}". Browser storage is full or blocked.`);
+      return;
+    }
     document.getElementById('comp-name').value = '';
     this._renderComponentsList();
     this._toast(`Saved "${name}" as a component`);
@@ -139,7 +148,7 @@ class AppLibrary {
       delBtn.className = 'btn';
       delBtn.addEventListener('click', () => {
         list.splice(i, 1);
-        this._saveComponents(list);
+        if (!this._saveComponents(list)) this._toast('Could not update components. Browser storage is blocked.');
         this._renderComponentsList();
       });
       btns.appendChild(insertBtn);
@@ -211,19 +220,27 @@ class AppLibrary {
       loadBtn.className = 'btn';
       loadBtn.addEventListener('click', async () => {
         if (!await this._confirmGuard(`Load "${entry.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`, 'Load from library')) return;
+        // Parse + validate on a throwaway Diagram BEFORE wiping the current
+        // one, so a corrupt entry can't leave a wrecked diagram behind.
+        let data;
+        try {
+          data = JSON.parse(entry.json);
+          new Diagram().loadJSON(data);
+        } catch (err) {
+          this._toast(`Could not load "${entry.name}": ${err.message}. Your current diagram is unchanged.`);
+          return;
+        }
         const prev = this._snapshot();
         this._clearAll();
-        try {
-          this.diagram.loadJSON(JSON.parse(entry.json));
-          this._applyMeta();
-          this.engine.reset();
-          this.renderer.balls.clear();
-          this.renderer.flowFx.clear();
-          this._clearSparklines();
-          this.editor._select(null, null);
-          this.renderer.render();
-          this.renderer.fitView();
-        } catch (err) { alert('Failed to load: ' + err.message); }
+        this.diagram.loadJSON(data);
+        this._applyMeta();
+        this.engine.reset();
+        this.renderer.balls.clear();
+        this.renderer.flowFx.clear();
+        this._clearSparklines();
+        this.editor._select(null, null);
+        this.renderer.render();
+        this.renderer.fitView();
         this._commitReplace(prev);
         this._hideModal('lib-overlay');
       });
@@ -233,7 +250,7 @@ class AppLibrary {
       delBtn.className = 'btn';
       delBtn.addEventListener('click', () => {
         lib.splice(i, 1);
-        this._saveLibrary(lib);
+        if (!this._saveLibrary(lib)) this._toast('Could not update the Library. Browser storage is blocked.');
         this._renderLibraryList();
       });
       btns.appendChild(loadBtn);

@@ -420,6 +420,15 @@ class App {
 
   _snapshot() { return JSON.stringify(this.diagram.toJSON()); }
 
+  // True when a parsed payload loads cleanly into a throwaway Diagram. Used to
+  // validate untrusted input (files, library entries, autosave, share URLs)
+  // BEFORE it touches the real diagram: loadJSON clears everything first, so
+  // letting it throw mid-load would leave a wrecked diagram behind for the
+  // next autosave to persist.
+  _canLoadDiagram(data) {
+    try { new Diagram().loadJSON(data); return true; } catch { return false; }
+  }
+
   // Decorative Font Awesome icon element (hidden from the accessibility tree).
   _faIcon(name) {
     const i = document.createElement('i');
@@ -451,6 +460,7 @@ class App {
   // undo stack and the freshly loaded one becomes the new baseline. Unlike
   // _resetHistory(), this preserves the ability to Ctrl+Z back to what you had.
   _commitReplace(prevSnap) {
+    this._dropScenarioState();
     const snap = this._snapshot();
     if (snap === prevSnap) { this._lastState = snap; this._updateUndoButtons(); return; }
     if (prevSnap != null) {
@@ -518,6 +528,9 @@ class App {
     this.diagram.loadJSON(JSON.parse(json));
     this._applyMeta();
     this.engine.reset();
+    // Undo/redo may land mid-replay: leave scrub mode so the renderer stops
+    // overriding node values with the dead run's history and the slider syncs.
+    this._exitScrub();
     this._syncRunButton();
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
@@ -632,6 +645,17 @@ class App {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
+  // Drop session-only scenario state (checkpoints + ghost branches). They
+  // snapshot the current diagram, so any whole-diagram replacement makes them
+  // stale: forking an old checkpoint would resurrect the replaced diagram.
+  _dropScenarioState() {
+    if (!this._checkpoints.length && !this._branches.length) return;
+    this._checkpoints = [];
+    this._branches = [];
+    if (this._timelineVisible) this.timeline.update();
+    if (this._activeFeature === 'branches') this._renderProps();
+  }
+
   _clearAll() {
     this.diagram.nodes.clear();
     this.diagram.connections.clear();
@@ -643,10 +667,15 @@ class App {
     this.diagram.params = {};
     this.diagram.customVars = [];
     this.diagram.timeMode = 'sync';
+    this.diagram.seed = '';
     this.diagram.aiPlayer = { enabled: false, rules: [] };
     this.diagram.meta = Diagram.defaultMeta();
     this._applyMeta();
+    this._dropScenarioState();
     this.engine.reset();
+    // A New/replace while replaying a run must leave scrub mode, or the
+    // renderer keeps painting the dead run's values over the fresh diagram.
+    this._exitScrub();
     this._syncRunButton();
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
@@ -667,37 +696,38 @@ class App {
     }
 
     // A diagram encoded in the URL hash (#d=…) takes precedence over autosave.
+    // Validated on a throwaway Diagram first so a corrupt payload can't leave
+    // a half-loaded diagram behind before the fallback runs.
     const shared = this._decodeDiagram();
-    if (shared) {
-      try {
-        this.diagram.loadJSON(shared);
-        this._applyMeta();
-        this.engine.reset();
-        this.renderer.render();
-        this.renderer.fitView();
-        this._resetHistory();
-        this._renderProps();
-        return;
-      } catch { /* fall through to autosave or demo */ }
+    if (shared && this._canLoadDiagram(shared)) {
+      this.diagram.loadJSON(shared);
+      this._applyMeta();
+      this.engine.reset();
+      this.renderer.render();
+      this.renderer.fitView();
+      this._resetHistory();
+      this._renderProps();
+      return;
     }
 
     // Autosave found → restore silently so the diagram persists across reloads.
-    const saved = localStorage.getItem('sim_autosave');
-    if (saved) {
-      try {
-        this.diagram.loadJSON(JSON.parse(saved));
-        this._applyMeta();
-        this.engine.reset();
-        this.renderer.balls.clear();
-        this.renderer.flowFx.clear();
-        this._clearSparklines();
-        this.editor._select(null, null);
-        this.renderer.render();
-        this.renderer.fitView();
-        this._resetHistory();
-        this._renderProps();
-        return;
-      } catch { /* corrupted save → fall through to demo */ }
+    // getItem can throw under blocked storage (Safari private mode / embedded
+    // iframe); a corrupt save falls through to the empty canvas untouched.
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem('sim_autosave') || 'null'); } catch { /* blocked storage or corrupted save */ }
+    if (saved && this._canLoadDiagram(saved)) {
+      this.diagram.loadJSON(saved);
+      this._applyMeta();
+      this.engine.reset();
+      this.renderer.balls.clear();
+      this.renderer.flowFx.clear();
+      this._clearSparklines();
+      this.editor._select(null, null);
+      this.renderer.render();
+      this.renderer.fitView();
+      this._resetHistory();
+      this._renderProps();
+      return;
     }
 
     // No autosave (fresh session): start on an empty canvas so first-time users
@@ -1061,8 +1091,18 @@ class App {
       this.engine.speed = parseFloat(speedEl.value);
       document.getElementById('speed-label').textContent = `${speedEl.value}×`;
       if (this.engine.running) {
+        // Restart the tick interval at the new speed. run() resamples 'on
+        // play' custom variables (a fresh Run press should), but a speed
+        // change mid-run is not a new run: preserve their sampled values.
+        const keep = (this.diagram.customVars || [])
+          .filter(rv => (rv.update || 'step') === 'play')
+          .map(rv => [rv, rv.value]);
         this.engine.stop();
         this.engine.run();
+        for (const [rv, val] of keep) {
+          rv.value = val;
+          if (rv.name && VALID_IDENT.test(rv.name) && isFinite(val)) this.diagram.variables[rv.name] = val;
+        }
         this._syncRunButton();
       }
     });
@@ -1140,18 +1180,27 @@ class App {
         if (!file) return;
         const reader = new FileReader();
         reader.onload = ev => {
+          // Parse + validate on a throwaway Diagram BEFORE touching the current
+          // one: loadJSON clears everything first, so a corrupt file would
+          // otherwise wreck the diagram (and the next autosave persists that).
+          let data;
           try {
-            this.diagram.loadJSON(JSON.parse(ev.target.result));
-            this._applyMeta();
-            this.engine.reset();
-            this.renderer.balls.clear();
-            this.renderer.flowFx.clear();
-            this._clearSparklines();
-            this.editor._select(null, null);
-            this.renderer.render();
-            this.renderer.fitView();
-            this._resetHistory();
-          } catch (err) { alert('Invalid file: ' + err.message); }
+            data = JSON.parse(ev.target.result);
+            new Diagram().loadJSON(data);
+          } catch (err) {
+            this._toast(`Invalid file: ${err.message}. Your current diagram is unchanged.`);
+            return;
+          }
+          this.diagram.loadJSON(data);
+          this._applyMeta();
+          this.engine.reset();
+          this.renderer.balls.clear();
+          this.renderer.flowFx.clear();
+          this._clearSparklines();
+          this.editor._select(null, null);
+          this.renderer.render();
+          this.renderer.fitView();
+          this._resetHistory();
         };
         reader.readAsText(file);
       };
@@ -1233,7 +1282,8 @@ class App {
 
     // Keyboard: tool shortcuts (plain) + undo/redo/etc (mod).
     window.addEventListener('keydown', (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       if (mod) {
