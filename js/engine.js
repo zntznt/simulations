@@ -12,6 +12,10 @@ class SimEngine {
     // Terminal state when a node's end/goal condition is met.
     this.ended = null;        // { nodeId, label, step, value } | null
     this.onEnd = null;        // Callback(ended)
+    // Tick-start snapshot of every node's state value, set for the duration
+    // of each doStep. Condition/activator checks read it via _condValueOf so
+    // decisions are synchronous (see that method). Null between steps.
+    this._tickSnap = null;
   }
 
   saveInitial() {
@@ -136,7 +140,16 @@ class SimEngine {
     // rate formulas; per-play ones keep the value sampled when Run started.
     this._sampleCustomVars('step');
     this.step++;
+    // Snapshot every node's state value before the fire phase. Activator and
+    // connection-condition checks read this snapshot (via _condValueOf), so a
+    // decision reflects the state at the START of the step and cannot depend
+    // on the order nodes happen to be stored in (a pull node draining a pool
+    // mid-tick can't flip a condition another node was about to check).
+    // Movement itself (rates, allocation, capacity) still reads live state.
+    this._tickSnap = new Map();
+    for (const n of this.diagram.nodes.values()) this._tickSnap.set(n.id, this._stateValueOf(n));
     const { fired, transfers } = this._tick();
+    this._tickSnap = null; // fireInteractive between steps reads live state
     this._record();
     if (this.onStep) this.onStep(this.step, fired, transfers);
     this._checkEnd();
@@ -233,7 +246,9 @@ class SimEngine {
       for (const c of d.outgoing(node.id)) {
         if (c.type === ConnectionType.STATE && c.reverseTrigger && this._triggerPasses(c)) {
           const tgt = d.nodes.get(c.targetId);
-          if (tgt) failQueue.push({ node: tgt, forced: true });
+          // live: like trigger cascades, reverse-triggered fires are causal
+          // reactions and see mid-step state (see _nodeEnabled).
+          if (tgt) failQueue.push({ node: tgt, forced: true, live: true });
         }
       }
     }
@@ -280,27 +295,35 @@ class SimEngine {
     const queue = [...initial];
     let guard = 0;
     while (queue.length && guard++ < 5000) {
-      const { node, forced } = queue.shift();
+      const { node, forced, live } = queue.shift();
       if (!node || activated.has(node.id)) continue;
-      if (!this._nodeEnabled(node)) continue;
+      if (!this._nodeEnabled(node, live)) continue;
       if (!this._fireNode(node, ctx, forced)) continue;
       activated.add(node.id);
       fired.push(node.id);
       for (const t of d.outgoing(node.id)) {
         if (t.type === ConnectionType.STATE && t.trigger && this._triggerPasses(t)) {
           const tgt = d.nodes.get(t.targetId);
-          if (tgt) queue.push({ node: tgt, forced: true });
+          // live: a cascade-fired node's activators see mid-step state (see
+          // _nodeEnabled); the cascade's order is causal, not storage order.
+          if (tgt) queue.push({ node: tgt, forced: true, live: true });
         }
       }
     }
   }
 
   // A node may fire only while every incoming activator's condition holds.
-  _nodeEnabled(node) {
+  // Main-phase fires (automatic/starting/artificial player) evaluate against
+  // the tick-start snapshot, so the result is independent of node storage
+  // order. Trigger and reverse-trigger cascades pass live=true and see the
+  // current mid-step state: a cascade is a causal reaction within the step
+  // whose order is defined by the graph, so live reads there stay
+  // deterministic and are intentional.
+  _nodeEnabled(node, live = false) {
     for (const conn of this.diagram.incoming(node.id)) {
       if (conn.type !== ConnectionType.STATE || !conn.activator) continue;
       const src = this.diagram.nodes.get(conn.sourceId);
-      const val = this._stateValueOf(src);
+      const val = live ? this._stateValueOf(src) : this._condValueOf(src);
       if (!this._evalCond(val, conn.actOperator, conn.actValue, conn.actValue2)) return false;
     }
     return true;
@@ -330,6 +353,18 @@ class SimEngine {
     if (node.type === NodeType.DRAIN) return node.drained || 0;
     if (node.type === NodeType.TRADER) return node.trades || 0;
     return node.resources;
+  }
+
+  // The value a condition/activator check sees for `node`. During a step this
+  // is the tick-start snapshot taken in doStep, so decisions are synchronous:
+  // they read the state as it stood when the step began, not whatever an
+  // earlier-stored node already moved this tick. Registers are in the
+  // snapshot too (their previous settled value, matching the one-step
+  // variable lag). Outside a step (fireInteractive) there is no snapshot and
+  // the read is live. Movement helpers keep using _stateValueOf directly.
+  _condValueOf(node) {
+    if (node && this._tickSnap && this._tickSnap.has(node.id)) return this._tickSnap.get(node.id);
+    return this._stateValueOf(node);
   }
 
   // Re-evaluate custom variables and publish them into the variable store.
@@ -1218,9 +1253,12 @@ class SimEngine {
     if (conn.interval > 1 && (this.step - 1) % conn.interval !== 0) return false;
     if (conn.chance < 100 && SimRandom.random() * 100 >= conn.chance) return false;
     if (conn.condEnabled) {
+      // Source-value conditions read the tick-start snapshot (variables
+      // already lag one step by design). Cascade-fired nodes never get here:
+      // their fires are forced, which bypasses _connFires entirely.
       const val = (conn.condRefMode === 'variable' && conn.condVariable)
         ? (this.diagram.variables[conn.condVariable] ?? 0)
-        : this._stateValueOf(sourceNode);
+        : this._condValueOf(sourceNode);
       if (!this._evalCond(val, conn.condOperator, conn.condValue, conn.condValue2)) return false;
     }
     return true;

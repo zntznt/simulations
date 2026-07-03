@@ -2644,6 +2644,123 @@ test('restoreState restores structure removed after the checkpoint', () => {
   eq(d.connections.size, 1, 'connection restored from checkpoint');
 });
 
+// ── Synchronous conditions (tick-start snapshot) ────────────────────────────
+console.log('\nSynchronous conditions');
+
+test('activator result does not depend on node insertion order', () => {
+  // A pull-mode drain empties P during the fire phase; a source gated by an
+  // activator "P >= 5" must see P's tick-start value regardless of whether
+  // the drain was inserted before or after it.
+  const build = (drainFirst) => {
+    const d = new Diagram();
+    d.seed = 'sync-a';
+    const p = node(d, NodeType.POOL); p.setCount(5);
+    let dr, out;
+    const mkDrain = () => { dr = node(d, NodeType.DRAIN); dr.flowMode = 'pull'; conn(d, p, dr).rate = 5; };
+    const mkSource = () => {
+      const s = node(d, NodeType.SOURCE);
+      out = node(d, NodeType.POOL);
+      conn(d, s, out).rate = 1;
+      const a = conn(d, p, s, ConnectionType.STATE);
+      a.activator = true; a.actOperator = '>='; a.actValue = 5;
+    };
+    if (drainFirst) { mkDrain(); mkSource(); } else { mkSource(); mkDrain(); }
+    const e = new SimEngine(d);
+    e.reset();
+    const trace = [];
+    for (let i = 0; i < 3; i++) { e.doStep(); trace.push([p.resources, out.resources, dr.drained].join('/')); }
+    SimRandom.seed(null);
+    return trace.join(' ');
+  };
+  const first = build(true), second = build(false);
+  eq(first, second, 'both insertion orders produce the same trace');
+  // Tick-start semantics: on step 1 P started at 5, so the source DOES fire
+  // even though the drain empties P within that same tick.
+  eq(first, '0/1/5 0/1/5 0/1/5', 'source fired exactly on the step P started at 5');
+});
+
+test('trace is invariant under node-array permutation (property test)', () => {
+  // A nontrivial seeded diagram (source, pools, conditional gate feed, pull
+  // drain, register, activator, trigger). Rebuilding it from the same JSON
+  // with the nodes array permuted must yield a byte-identical trace.
+  const d = new Diagram();
+  d.seed = 'perm';
+  const s = node(d, NodeType.SOURCE);
+  const a = node(d, NodeType.POOL);
+  conn(d, s, a).rate = 2;
+  const g = node(d, NodeType.GATE);
+  const toGate = conn(d, a, g); toGate.rate = 3;
+  toGate.condEnabled = true; toGate.condOperator = '>='; toGate.condValue = 3;
+  const b = node(d, NodeType.POOL);
+  const c = node(d, NodeType.POOL);
+  conn(d, g, b).weight = 2;
+  conn(d, g, c).weight = 1;
+  const dr = node(d, NodeType.DRAIN); dr.flowMode = 'pull';
+  conn(d, b, dr).rate = 2;
+  const r = node(d, NodeType.REGISTER); r.formula = 'cv * 2';
+  conn(d, c, r, ConnectionType.STATE).variableName = 'cv';
+  const s2 = node(d, NodeType.SOURCE);
+  const e2 = node(d, NodeType.POOL);
+  conn(d, s2, e2).rate = 1;
+  const act = conn(d, b, s2, ConnectionType.STATE);
+  act.activator = true; act.actOperator = '>='; act.actValue = 2;
+  const f = node(d, NodeType.POOL); f.setCount(20); f.activation = ActivationMode.PASSIVE;
+  conn(d, f, c).rate = 1;
+  conn(d, s2, f, ConnectionType.STATE).trigger = true;
+
+  const json = d.toJSON();
+  const runWith = (permute) => {
+    const j = JSON.parse(JSON.stringify(json));
+    j.nodes = permute(j.nodes);
+    const dg = new Diagram(); dg.loadJSON(j);
+    const eng = new SimEngine(dg);
+    eng.reset();
+    const trace = [];
+    for (let i = 0; i < 25; i++) {
+      eng.doStep();
+      trace.push([...dg.nodes.values()].sort((x, y) => x.id.localeCompare(y.id))
+        .map(n => `${n.id}=${n.chartValue}`).join(','));
+    }
+    SimRandom.seed(null);
+    return trace.join('\n');
+  };
+  // Deterministic permutations only (no Math.random in tests).
+  const identity = runWith(ns => ns);
+  const reversed = runWith(ns => ns.slice().reverse());
+  const rotated = runWith(ns => ns.slice(3).concat(ns.slice(0, 3)));
+  eq(reversed, identity, 'reversed node order gives an identical trace');
+  eq(rotated, identity, 'rotated node order gives an identical trace');
+});
+
+test('trigger cascade reads live mid-step state (causal exception)', () => {
+  // The drain empties P and triggers T within the same tick. T's activator
+  // "P == 0" must see the live, post-pull value (a cascade is a causal
+  // reaction inside the step), while an identical automatic node stored
+  // after the drain checks the tick-start snapshot and stays put.
+  const d = new Diagram();
+  d.seed = 'sync-c';
+  const p = node(d, NodeType.POOL); p.setCount(5);
+  const dr = node(d, NodeType.DRAIN); dr.flowMode = 'pull';
+  conn(d, p, dr).rate = 5;
+  const t = node(d, NodeType.SOURCE); t.activation = ActivationMode.PASSIVE;
+  const out1 = node(d, NodeType.POOL);
+  conn(d, t, out1).rate = 1;
+  const at = conn(d, p, t, ConnectionType.STATE);
+  at.activator = true; at.actOperator = '=='; at.actValue = 0;
+  conn(d, dr, t, ConnectionType.STATE).trigger = true;
+  const t2 = node(d, NodeType.SOURCE);
+  const out2 = node(d, NodeType.POOL);
+  conn(d, t2, out2).rate = 1;
+  const at2 = conn(d, p, t2, ConnectionType.STATE);
+  at2.activator = true; at2.actOperator = '=='; at2.actValue = 0;
+  const e = new SimEngine(d);
+  e.reset();
+  e.doStep();
+  SimRandom.seed(null);
+  eq(out1.resources, 1, 'cascade-fired node saw live P == 0 and fired');
+  eq(out2.resources, 0, 'automatic node saw tick-start P = 5 and did not fire');
+});
+
 // ── Async engine API (Monte Carlo runner) ────────────────────────────────────
 
 testAsync('runMonteCarloAsync honours shouldCancel — resolves null, no results', async () => {
