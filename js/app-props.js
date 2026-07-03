@@ -679,13 +679,16 @@ class AppProps {
       const nodeRow = document.createElement('div'); nodeRow.className = 'prop-row';
       const nl = document.createElement('label'); nl.textContent = 'Node';
       const ns = document.createElement('select');
+      // Rendering must not write to the model: a rule without a target only
+      // *displays* the first interactive node; the model is assigned on
+      // change, which commits (mutating here would drift undo snapshots).
+      const shownId = rule.nodeId || (interactives[0] && interactives[0].id);
       for (const n of interactives) {
         const o = document.createElement('option');
         o.value = n.id; o.textContent = n.label || n.type;
-        if (n.id === rule.nodeId) o.selected = true;
+        if (n.id === shownId) o.selected = true;
         ns.appendChild(o);
       }
-      if (!rule.nodeId && interactives[0]) rule.nodeId = interactives[0].id;
       ns.addEventListener('change', () => { rule.nodeId = ns.value; this._commit(); });
       nodeRow.appendChild(nl); nodeRow.appendChild(ns); box.appendChild(nodeRow);
 
@@ -903,7 +906,7 @@ class AppProps {
         const distGrp = mkChipGroup(
           [['uniform', 'uniform'], ['gaussian', 'gaussian']],
           rv.dist || 'uniform',
-          v => { rv.dist = v; resample(); }
+          v => { rv.dist = v; resample(); this._commit(); }
         );
         footer.appendChild(distGrp);
       }
@@ -1287,6 +1290,10 @@ class AppProps {
           else node.addResources(1);
           this.renderer.render();
           this._refreshResourceCount();
+          // At rest the count IS the serialized starting baseline, so the
+          // edit must reach undo/autosave; mid-run it is a transient live
+          // nudge and deliberately stays out of the history.
+          if (this.engine.step === 0) this._commit();
         });
         stepBtns.appendChild(b);
       }
@@ -1566,6 +1573,7 @@ class AppProps {
         conn.cpDx = 0; conn.cpDy = 0; conn.bendPct = 0.5; conn.waypoints = [];
         this.renderer.render();
         this._renderProps();
+        this._commit();
       });
       styleGroup.appendChild(btn);
     }
@@ -1782,6 +1790,7 @@ class AppProps {
           if (key === 'trigger') { if (!conn.trigger && !conn.reverseTrigger) conn.trigger = true; }
           else { conn.trigger = false; conn.reverseTrigger = false; }
           this._renderProps(); this.renderer.render();
+          this._commit();
         });
         chips.appendChild(chip);
       }
