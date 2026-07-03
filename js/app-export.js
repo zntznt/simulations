@@ -15,9 +15,73 @@ class AppExport {
     return raw.replace(/[^a-z0-9_\-]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') + '.' + ext;
   }
 
+  // Build a standalone snapshot of the diagram, cloned from the live canvas so
+  // exporting never touches what is on screen. The live SVG has no width/
+  // height/viewBox (it is sized purely by CSS) and leans on the app stylesheet
+  // for fonts and label colors, so serializing it raw yields a file that
+  // rasterizes at the 300x150 default and loses its styling. The copy gets
+  // explicit dimensions from the content bounds (same extents fitView uses),
+  // resolved values in place of CSS custom properties, and only the static
+  // layers: no balls, flow badges, temp overlays or selection chrome.
+  // Returns { svg, w, h, bg }, or null (after a toast) on an empty canvas.
+  _buildExportSVG(pad = 40) {
+    const live = document.getElementById('canvas');
+    const r = this.renderer;
+    const box = r._contentBounds();
+    if (!box) { this._toast('Nothing to export yet. Add a node first.'); return null; }
+    const x = Math.floor(box.minX - pad), y = Math.floor(box.minY - pad);
+    const w = Math.ceil(box.maxX - box.minX) + pad * 2;
+    const h = Math.ceil(box.maxY - box.minY) + pad * 2;
+
+    // Render once with the selection cleared so glow filters, reshape handles
+    // and resize corners never leak into the file, then restore.
+    const sel = r.selectedId, multi = r.selectedIds;
+    r.selectedId = null; r.selectedIds = new Set();
+    r.render();
+    const content = svgEl('g');
+    for (const layer of [r.groupLayer, r.connLayer, r.nodeLayer, r.chartLayer, r.noteLayer])
+      content.appendChild(layer.cloneNode(true));
+    r.selectedId = sel; r.selectedIds = multi;
+    r.render();
+
+    const out = svgEl('svg', { width: w, height: h, viewBox: `${x} ${y} ${w} ${h}` });
+    const defs = live.querySelector('defs').cloneNode(true);
+    // The grid/dot patterns track the live pan/zoom; content exports untransformed.
+    for (const p of defs.querySelectorAll('pattern')) p.removeAttribute('patternTransform');
+    out.appendChild(defs);
+    const bg = r._bgRect.getAttribute('fill') || '#0f1117';
+    out.appendChild(svgEl('rect', { x, y, width: w, height: h, fill: bg }));
+    out.appendChild(svgEl('rect', { x, y, width: w, height: h, fill: 'url(#grid)' }));
+    out.appendChild(content);
+
+    // Strip the editing affordances that exist regardless of selection.
+    for (const el of content.querySelectorAll('.conn-hitbox, .conn-handles, .resize-handles, .chart-hover'))
+      el.remove();
+
+    // Resolve the styling the live canvas gets from the app stylesheet: the
+    // font token in font-family attributes, plus the handful of class rules
+    // (css/style.css) that paint node/connection labels.
+    const cs = getComputedStyle(document.documentElement);
+    const tok = (name) => cs.getPropertyValue(name).trim();
+    const font = tok('--font');
+    for (const el of out.querySelectorAll('[font-family]'))
+      if (el.getAttribute('font-family').startsWith('var(')) el.setAttribute('font-family', font);
+    const style = svgEl('style');
+    style.textContent = [
+      '.n-count { fill: #fff; font-size: 13px; font-weight: 700; font-family: monospace; }',
+      `.n-label, .n-badge, .grp-label { paint-order: stroke; stroke: ${tok('--bg')}; stroke-width: 3px; stroke-linejoin: round; }`,
+      `.n-label { fill: ${tok('--text')}; font-size: 11px; }`,
+      `.n-badge { fill: ${tok('--text-dim')}; font-size: 11px; }`,
+      `.conn-label { fill: ${tok('--text')}; }`,
+    ].join('\n');
+    out.insertBefore(style, defs);
+    return { svg: out, w, h, bg };
+  }
+
   _exportSVG() {
-    const svg = document.getElementById('canvas');
-    const data = new XMLSerializer().serializeToString(svg);
+    const built = this._buildExportSVG();
+    if (!built) return;
+    const data = new XMLSerializer().serializeToString(built.svg);
     const blob = new Blob([data], { type: 'image/svg+xml' });
     const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(blob), download: this._exportFilename('svg'),
@@ -26,18 +90,20 @@ class AppExport {
   }
 
   _exportPNG() {
-    const svg = document.getElementById('canvas');
-    const w = svg.clientWidth, h = svg.clientHeight;
+    const built = this._buildExportSVG();
+    if (!built) return;
+    const { svg, w, h, bg } = built;
     const data = new XMLSerializer().serializeToString(svg);
     const blob = new Blob([data], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
+      // 2x the diagram's natural size, for crispness on high-DPI screens.
       const canvas = document.createElement('canvas');
       canvas.width = w * 2; canvas.height = h * 2;
       const ctx = canvas.getContext('2d');
       ctx.scale(2, 2);
-      ctx.fillStyle = '#0f1117';
+      ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
       ctx.drawImage(img, 0, 0, w, h);
       const a = Object.assign(document.createElement('a'), {
