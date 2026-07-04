@@ -181,6 +181,17 @@ From `SimEngine._tick()`:
 6. **Commit atomically** (`_applyCtx`). All accumulated movements apply at once.
 7. **Apply modifiers**, then **refresh variables** and **evaluate registers**.
 
+### Conditions are synchronous
+
+Activator conditions and connection conditions are evaluated against the state as it
+stood at the **start of the step**: the engine snapshots every node's value (including
+registers, which keep their usual one‑step lag) before the fire phase, and every check
+reads that snapshot. A pull node that empties a pool mid‑step therefore can't flip a
+condition another node was about to test, so results never depend on the order nodes
+happen to be stored in. **Trigger cascades are the exception.** A node fired by a
+trigger or reverse trigger sees the current mid‑step state, because a cascade is a
+causal reaction within the step and its order comes from the graph, not from storage.
+
 ### Fair allocation under contention
 
 When several outgoing connections compete for one pool's resources, the engine uses
