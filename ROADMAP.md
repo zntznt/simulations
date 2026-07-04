@@ -57,7 +57,8 @@ small, 3 is the one larger investment worth making for that audience.
 - [x] Animated resource balls along connections
 - [x] Per-node history sparkline
 - [x] Save / load JSON, sample diagrams (Basic / Loot Farm / Factory Line)
-- [x] Headless unit test suite + Playwright smoke test
+- [x] Headless unit test suite + Playwright smoke test, run automatically on every
+      push and PR via GitHub Actions (`.github/workflows/tests.yml`; status badge in the README)
 
 ---
 
@@ -215,8 +216,9 @@ small, 3 is the one larger investment worth making for that audience.
 - [x] **Checkpoint / fork / compare.** `SimEngine.captureState()` /
       `restoreState()` snapshot the complete simulation state — diagram
       structure, node runtime (resources, in-flight delay/queue contents,
-      counters) plus the Reset baselines, the variable store, and the engine
-      clock/history/trigger state. A "Branch" rail panel checkpoints the run
+      counters) plus the Reset baselines, the variable store, the engine
+      clock/history/trigger state, and the RNG position (so a forked branch
+      replays reproducibly under a seed). A "Branch" rail panel checkpoints the run
       mid-flight and forks back to any checkpoint; the superseded run is kept
       automatically as a **ghost branch** — dashed, faded traces overlaid on
       the timeline chart (same colour = same node across timelines, x-axis in
@@ -284,7 +286,7 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
         re-selecting a connection is still fiddly despite the 24px hit area.
         _(Two earlier snags here have since shipped: the welcome glossary now
         lists all nine node types, and connections show their configured rate
-        at rest — `renderer.js` ~L1143 — not only the flow badge while running.)_
+        at rest — `renderer.js` ~L1163 — not only the flow badge while running.)_
 
 ## ✅ Sensitivity analysis
 

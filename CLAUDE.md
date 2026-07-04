@@ -8,7 +8,7 @@ step, no framework** — static files served as-is. The only runtime dependency 
 vendored math.js bundle (`vendor/math.min.js`) powering the formula language.
 
 See `README.md` for the full feature list and `docs/CONCEPTS.md` for the simulation
-model (tick order, fair allocation, one-step variable lag).
+model (tick order, fair allocation, one-step variable lag, synchronous conditions).
 
 ## Commands
 
@@ -36,6 +36,11 @@ node cli.js diagram.json --runs 1000 --steps 200 --seed 42 --param rate=3
 `test(...)` call runs inline, top to bottom, as the file loads. To iterate on one
 test, temporarily comment out the others (there is no `test.only`).
 
+**CI:** `.github/workflows/tests.yml` runs the unit tests (`npm test`) and the
+browser smoke test (`npm run smoke`, Chromium) on every push to `main` and every
+PR. It uses `npm install`, not `npm ci`, because `package-lock.json` is gitignored.
+`test/export.js` is a manual-run export check and is **not** part of CI.
+
 ## Architecture
 
 ### No build, load order matters
@@ -54,6 +59,17 @@ modifiers, variables/registers, Monte Carlo) touch **no DOM**. This is load-bear
 it lets `test/run.js` load them into a bare `new Function` sandbox, lets `cli.js`
 run them under Node, and lets Monte Carlo clone a `Diagram` + `SimEngine` per trial.
 Do not reach for `document`/`window` in these two files.
+
+Two engine invariants to preserve when editing the tick:
+- **Conditions are synchronous.** Activator and connection-condition checks read a
+  start-of-step snapshot (`_tickSnap`, via `_condValueOf`), so a step's outcome does
+  not depend on node storage order. Trigger and reverse-trigger cascades are the
+  deliberate exception and read live mid-step state (queue entries carry a `live`
+  flag). A permutation test in `test/run.js` guards this.
+- **Reproducible RNG.** Seeded randomness flows through `SimRandom`; formula
+  randomness (`random`/`randomInt`/`pickRandom`, and `Math.random`) is routed through
+  it too, and `SimRandom.getState`/`setState` let checkpoints capture and restore the
+  stream position. See docs/CONCEPTS.md "Conditions are synchronous" and §13.
 
 ### The App class is split across files via prototype mixins
 

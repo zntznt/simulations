@@ -176,10 +176,13 @@ From `SimEngine._tick()`:
    targets.
 4. **Artificial player.** Scheduled/conditional interactive nodes fire as if clicked
    (still within this tick).
-5. **Advance delays and queues.** Matured delay batches and finished queue units are
+5. **Resolve push contention** (`_applyPushProposals`). Where several source nodes
+   pushed into the same target, capacity is fair‑allocated among them before delays
+   and queues claim any remaining room.
+6. **Advance delays and queues.** Matured delay batches and finished queue units are
    released (respecting target capacity).
-6. **Commit atomically** (`_applyCtx`). All accumulated movements apply at once.
-7. **Apply modifiers**, then **refresh variables** and **evaluate registers**.
+7. **Commit atomically** (`_applyCtx`). All accumulated movements apply at once.
+8. **Apply modifiers**, then **refresh variables** and **evaluate registers**.
 
 ### Conditions are synchronous
 
@@ -222,9 +225,13 @@ Registers are evaluated to a **fixpoint** (bounded by the register count) so a
 register that references another register's label resolves correctly in a single
 tick, regardless of creation order.
 
-**One‑step lag.** Variables are committed at the *end* of a tick, so a connection
-condition or rate formula reads the value from the **previous** step. This is by
-design and is consistent across the model (the unit tests encode it explicitly).
+**One‑step lag.** Variables are committed at the *end* of a tick, so a **rate
+formula** — and any **condition that references a named variable** — reads the value
+from the **previous** step. This is by design and is consistent across the model (the
+unit tests encode it explicitly). A condition that tests a **source node's value**
+instead reads that node's **tick‑start snapshot** (§7, "Conditions are synchronous"):
+the same start‑of‑step value every check sees, which is what keeps the result
+independent of node storage order rather than lagged a full step behind.
 
 **Computing vs. accumulating.** A register is **recomputed from its formula every
 tick** — it holds an *instantaneous* value, not a running total, and cannot read its
