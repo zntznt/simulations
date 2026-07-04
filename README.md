@@ -9,8 +9,9 @@ accumulate, convert, and drain — with charts, batch (Monte Carlo) analysis, an
 shareable diagrams.
 
 Pure vanilla JavaScript. **No build step, no framework** — just static files and
-an SVG canvas. The only dependency is a vendored copy of
-[math.js](https://mathjs.org/) powering the formula language.
+an SVG canvas. The only runtime code dependency is a vendored copy of
+[math.js](https://mathjs.org/) powering the formula language; Font Awesome icons
+are vendored too.
 
 > **Status — docs in progress.** A major UI/UX overhaul is underway. This README
 > documents the parts that are stable regardless of how the interface looks: the
@@ -35,7 +36,7 @@ Opening `index.html` directly via `file://` also works for the core editor and
 simulation. A few conveniences (clipboard copy of share links, embed routing)
 behave best over `http://`, so a local server is recommended.
 
-The app boots with a small example diagram. Use the **Examples** menu to load the
+The app boots with a small example diagram. Use the **Library** to load the
 bundled samples, or start from scratch.
 
 ---
@@ -43,7 +44,7 @@ bundled samples, or start from scratch.
 ## What it does
 
 You build a directed graph of **nodes** (pools, sources, drains, gates, converters,
-registers, delays, queues) joined by **connections** (resource flows or state
+registers, delays, queues, traders) joined by **connections** (resource flows or state
 links). A discrete-time engine then advances the model one step at a time:
 
 - Resources move along resource connections at configurable rates (fixed, dice,
@@ -70,6 +71,7 @@ thousands of Monte‑Carlo trials, and share the whole diagram in a URL.
 - **Register** — a computed value from a **formula** over shared variables (chains across registers, resolved to a fixpoint each tick).
 - **Delay** — holds a batch of resources for N steps, then releases them together.
 - **Queue** — a FIFO line feeding one or more parallel `servers` (`servers ÷ processTime` throughput); a single server is the classic bottleneck with per‑item latency, distinct from Delay. Optional `maxLine` (balk) and `patience` (renege) model lost demand. Reports live metrics: throughput, average/longest wait, peak line length, balked/reneged losses.
+- **Trader** — an atomic exchange between two partners: `A → T → B` means A pays the in‑rate to B and B pays the out‑rate back to A, all or nothing. Extra in/out pairs trade in wiring order; the trader itself never holds resources.
 
 ### Activation modes
 `automatic` (fires every step), `passive` (only when triggered), `interactive`
@@ -231,7 +233,8 @@ no bundler.
 | `js/renderer.js` | `Renderer` (SVG drawing, hit‑testing, pan/zoom) and `BallSystem` (flow animation). |
 | `js/editor.js` | `Editor` — pointer/keyboard/touch input, tools, selection, drag‑to‑connect. |
 | `js/charts.js` | `Sparkline` and `TimelineChart` (canvas 2D). |
-| `js/app.js` | `App` — wires everything together: toolbar, properties panel, persistence, examples, import/export. |
+| `js/kb.js` | Concept‑guide / knowledge‑base article content shown in the in‑app help. |
+| `js/app.js` (+ `js/app-props.js`, `-demos`, `-analysis`, `-fields`, `-library`, `-clipboard`, `-export`) | `App` — one logical class split across prototype‑mixin files: toolbar, properties panel, persistence, examples, import/export, Monte Carlo / sweeps / sensitivity, and clipboard. |
 | `cli.js` | Headless Node runner — simulate a diagram JSON from the terminal (traces, Monte Carlo, seeds, param overrides). |
 | `css/style.css` | All styling. |
 | `vendor/math.min.js` | Vendored [math.js](https://mathjs.org/) bundle — the formula evaluator. |
@@ -276,6 +279,10 @@ NODE_PATH=$(npm root -g) node test/smoke.js
 ```
 
 Requires `playwright` (and a Chromium build) available on `NODE_PATH`.
+
+Both suites run automatically on every push and pull request via GitHub Actions
+(`.github/workflows/tests.yml`); the badge at the top of this file reflects the
+latest run. (`test/export.js` is a manual‑run export check, not part of CI.)
 
 ---
 

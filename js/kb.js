@@ -501,7 +501,7 @@ const KB_ARTICLES = [
       + 'the app places a fresh independent copy (new node IDs, ready to edit) '
       + 'so modifying a placed copy never touches the saved original or any other '
       + 'instance. Components are a fast way to build repeated patterns such as a '
-      + 'source–pool–drain trio, a feedback loop or a probability gate, without '
+      + 'source-pool-drain trio, a feedback loop or a probability gate, without '
       + 'redrawing them every time.',
   },
   {
@@ -678,10 +678,10 @@ const KB_ARTICLES = [
   },
   {
     id: 'saving', category: 'Saving and sharing', title: 'Saving and loading',
-    keywords: 'save load autosave library file JSON export import browser recovery banner',
+    keywords: 'save load autosave library file JSON export import browser recovery',
     body: 'The diagram saves to the browser automatically on every change, so '
-      + 'closing the tab does not lose your work. On your next visit, a banner '
-      + 'offers to restore the last session if the canvas is empty. To keep '
+      + 'closing the tab does not lose your work. On your next visit the app '
+      + 'restores your last diagram automatically, so you pick up where you left off. To keep '
       + 'multiple named diagrams, open the Library and click Save diagram, and each '
       + 'entry is stored independently in the browser and can be loaded, renamed '
       + 'or deleted at any time. Use File → Save as JSON to download the current '
@@ -691,8 +691,8 @@ const KB_ARTICLES = [
   {
     id: 'sharing', category: 'Saving and sharing', title: 'Sharing and embedding',
     keywords: 'share URL link embed export SVG PNG publish present encode hash clipboard',
-    body: 'Click Share in the File menu to encode the current diagram into the '
-      + 'URL. The link contains the whole diagram, so anyone you send it to opens '
+    body: 'Click Copy share link in the File menu to encode the current diagram into '
+      + 'a URL and copy it to your clipboard. The link contains the whole diagram, so anyone you send it to opens '
       + 'the same model in their browser, with no sign-in or file transfer required. '
       + 'For a clean view without the editing chrome, add ?embed to the URL or '
       + 'append #embed to the hash; all the toolbars and panels hide, leaving only '
