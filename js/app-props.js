@@ -1018,7 +1018,7 @@ class AppProps {
   }
 
   // Live queue metrics (throughput, waiting time, peak line). Refreshed each
-  // step from the queue's runtime fields; "—" until the first unit is served.
+  // step from the queue's runtime fields; "n/a" until the first unit is served.
   _fillQueueMetrics(container, node) {
     const inService = (node._procs || []).length;
     const waiting = (node._fifo || []).reduce((s, it) => s + (it.amount || 0), 0);

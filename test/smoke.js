@@ -4,13 +4,17 @@
 //
 // Requires the app to be served (default http://localhost:8080) and Playwright.
 // Run:  NODE_PATH=$(npm root -g) node test/smoke.js
+// SMOKE_CHROMIUM points the launch at a pre-installed Chromium binary for
+// sandboxes where Playwright's own browser download is unavailable.
 'use strict';
 
 const { chromium } = require('playwright');
 const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(
+    process.env.SMOKE_CHROMIUM ? { executablePath: process.env.SMOKE_CHROMIUM } : {}
+  );
   const page = await browser.newPage();
   // The display-font feature loads stylesheets from Google Fonts; stub the
   // request so the smoke run works offline and stays free of network errors.
