@@ -24,9 +24,10 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'dsl.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'assertions.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'codegen.js'), 'utf8') + '\n' +
+    fs.readFileSync(path.join(base, 'loops.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
     ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula, SimRandom,' +
-    ' dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule };';
+    ' dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -35,7 +36,7 @@ const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
   MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula, SimRandom,
-  dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule,
+  dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops,
 } = API;
 
 // ── Tiny test harness ───────────────────────────────────────────────────────
@@ -3114,6 +3115,124 @@ test('generated module set() and fire() manipulate the live run', () => {
   eco.onStep(() => steps++);
   eco.step(3);
   eq(steps, 3, 'onStep callback saw each step');
+});
+
+// ── The why layer: feedback-loop detection ──────────────────────────────────
+console.log('\nFeedback loops');
+
+test('modifier self-loop classifies by factor sign (interest R, decay B)', () => {
+  const { d } = setup();
+  const p = node(d, NodeType.POOL); p.label = 'Bank'; p.setCount(100);
+  const grow = conn(d, p, p, ConnectionType.STATE);
+  grow.modifier = true; grow.modMode = 'rate'; grow.modFactor = 0.1;
+  let r = detectLoops(d);
+  eq(r.loops.length, 1, 'one loop');
+  eq(r.loops[0].type, 'R', 'positive interest reinforces');
+  eq(r.loops[0].labels.join(','), 'Bank', 'self loop names the pool');
+  grow.modFactor = -0.1;
+  r = detectLoops(d);
+  eq(r.loops[0].type, 'B', 'decay balances');
+});
+
+test('two-node modifier loop: signs multiply (+,− is balancing)', () => {
+  const { d } = setup();
+  const prey = node(d, NodeType.POOL); prey.label = 'Prey'; prey.setCount(50);
+  const pred = node(d, NodeType.POOL); pred.label = 'Predators'; pred.setCount(5);
+  const up = conn(d, prey, pred, ConnectionType.STATE);
+  up.modifier = true; up.modFactor = 0.05;       // more prey feeds predators
+  const down = conn(d, pred, prey, ConnectionType.STATE);
+  down.modifier = true; down.modFactor = -0.2;   // predators eat prey
+  const r = detectLoops(d);
+  eq(r.loops.length, 1, 'one cycle');
+  eq(r.loops[0].type, 'B', 'predator-prey is a balancing loop');
+  eq(r.loops[0].nodes.length, 2, 'two nodes in the cycle');
+});
+
+test('pure resource cycles are circulations (F), not feedback', () => {
+  const { d } = setup();
+  const a = node(d, NodeType.POOL); a.label = 'TownA'; a.setCount(10);
+  const b = node(d, NodeType.POOL); b.label = 'TownB';
+  conn(d, a, b).rate = 1;
+  conn(d, b, a).rate = 1;
+  const r = detectLoops(d);
+  eq(r.loops.length, 1, 'one cycle');
+  eq(r.loops[0].type, 'F', 'flow-only cycle is a circulation');
+});
+
+test('activator operator sets link sign; register formulas probe numerically', () => {
+  const { d } = setup();
+  // Pool publishes gold; register doubles it; register activates the drain
+  // connection's source pool only while low (a < condition = negative link);
+  // drain lowers the pool: a balancing control loop.
+  const pool = node(d, NodeType.POOL); pool.label = 'Gold'; pool.setCount(20);
+  const reg = node(d, NodeType.REGISTER); reg.label = 'Score'; reg.formula = 'gold * 2';
+  const pub = conn(d, pool, reg, ConnectionType.STATE); pub.variableName = 'gold';
+  const act = conn(d, reg, pool, ConnectionType.STATE);
+  act.activator = true; act.actOperator = '<'; act.actValue = 100;
+  const r = detectLoops(d);
+  eq(r.loops.length, 1, 'one loop through the register');
+  const loop = r.loops[0];
+  eq(loop.type, 'B', 'one negative activator link makes it balancing');
+  // The formula edge (gold → Score) probed positive; activator negative.
+  const signs = loop.links.map(l => l.sign).sort().join(',');
+  eq(signs, '-1,1', 'probe found +, operator found −');
+});
+
+test('negative-slope rate formulas probe as balancing feedback', () => {
+  const { d } = setup();
+  const src = node(d, NodeType.SOURCE); src.label = 'Mint';
+  const pool = node(d, NodeType.POOL); pool.label = 'Gold'; pool.setCount(0);
+  const reg = node(d, NodeType.REGISTER); reg.label = 'Level';
+  conn(d, pool, reg, ConnectionType.STATE).variableName = 'gold';
+  const flow = conn(d, src, pool);
+  flow.rateMode = RateMode.FORMULA; flow.formula = 'max(0, 10 - gold)';
+  const r = detectLoops(d);
+  // gold → (rate formula, negative slope) → Gold inflow: a balancing loop.
+  const b = r.loops.find(l => l.type === 'B');
+  assert(b, 'balancing loop found via formula probe');
+  assert(b.links.some(l => l.sign === -1), 'formula edge probed negative');
+});
+
+test('triggers are positive links; reverse triggers negative', () => {
+  const { d } = setup();
+  const a = node(d, NodeType.POOL); a.label = 'A'; a.setCount(1);
+  const b = node(d, NodeType.POOL); b.label = 'B'; b.setCount(1);
+  const t1 = conn(d, a, b, ConnectionType.STATE); t1.trigger = true;
+  const t2 = conn(d, b, a, ConnectionType.STATE); t2.reverseTrigger = true;
+  const r = detectLoops(d);
+  eq(r.loops.length, 1, 'one loop');
+  eq(r.loops[0].type, 'B', 'trigger (+) times reverse trigger (−) balances');
+});
+
+test('loop enumeration dedupes, caps and reports truncation', () => {
+  const { d } = setup();
+  // A dense all-to-all state-modifier graph has factorially many cycles.
+  const nodes = [];
+  for (let i = 0; i < 7; i++) { const n = node(d, NodeType.POOL); n.label = 'N' + i; nodes.push(n); }
+  for (const x of nodes) for (const y of nodes) {
+    if (x === y) continue;
+    const c = conn(d, x, y, ConnectionType.STATE);
+    c.modifier = true; c.modFactor = 1;
+  }
+  const r = detectLoops(d, { maxLoops: 25 });
+  eq(r.loops.length, 25, 'capped at maxLoops');
+  assert(r.truncated, 'truncation reported');
+  const keys = new Set(r.loops.map(l => l.nodes.join('>')));
+  eq(keys.size, 25, 'no duplicate cycles');
+});
+
+test('cli --loops prints the loop table', () => {
+  const { execFileSync } = require('child_process');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'loops-test-'));
+  const f = path.join(dir, 'loop.econ');
+  fs.writeFileSync(f, [
+    'pool Bank @ 0,0 = 100',
+    'Bank ~> Bank mod="rate 0.1"',
+  ].join('\n'));
+  const out = execFileSync(process.execPath, [path.join(__dirname, '..', 'cli.js'), f, '--loops'], { encoding: 'utf8' });
+  assert(/^R  Bank -> Bank/m.test(out), 'reinforcing self-loop printed');
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 // ── Economy as code: CLI end-to-end ─────────────────────────────────────────

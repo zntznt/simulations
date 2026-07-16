@@ -701,6 +701,24 @@ const KB_ARTICLES = [
       + 'the app.',
   },
 
+  {
+    id: 'loops', category: 'Running and analysis', title: 'Feedback loops',
+    keywords: 'loop cycle reinforcing balancing circulation polarity system dynamics spiral runaway stabilize why',
+    body: 'The Loops rail panel finds every feedback cycle in the diagram and '
+      + 'labels it R, B, F or ?. A reinforcing loop (R) has an even number of '
+      + 'negative links, so change feeds on itself and the loop amplifies, '
+      + 'like interest compounding. A balancing loop (B) has an odd number, so '
+      + 'the loop pushes back toward an equilibrium, like a thermostat. F '
+      + 'marks a pure resource circulation (stuff going around without a '
+      + 'polarity) and ? means some link has no clear direction. Links come '
+      + 'from more than the drawn arrows: flows and triggers count as '
+      + 'positive, reverse triggers as negative, activators take the sign of '
+      + 'their operator, modifiers the sign of their amount, and formulas are '
+      + 'probed numerically to see which way they lean. Click a loop to '
+      + 'spotlight it on the canvas; click again to release. The command line '
+      + 'prints the same table with node cli.js diagram.json --loops.',
+  },
+
   // ── Economy as code ─────────────────────────────────────────────────────────
   {
     id: 'econ-text', category: 'Economy as code', title: 'Text format (.econ)',

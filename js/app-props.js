@@ -360,6 +360,7 @@ class AppProps {
       player:    { title: 'Artificial Player', kb: 'artificial-player', render: c => this._diagramAI(c) },
       branches:  { title: 'Scenario Branches', kb: 'scenarios',         render: c => this._branchesPanel(c) },
       checks:    { title: 'Design Tests',     kb: 'econ-assert',       render: c => this._designTestsPanel(c) },
+      loops:     { title: 'Feedback Loops',   kb: 'loops',             render: c => this._loopsPanel(c) },
       monitor:   { title: 'Live Variables',   kb: 'live-vars',         render: c => this._liveVarsReadout(c) },
     };
   }
@@ -380,6 +381,12 @@ class AppProps {
   // one again returns to the selection / hint view).
   _toggleFeature(name) {
     this._activeFeature = (this._activeFeature === name) ? null : name;
+    // Leaving the Loops panel drops its canvas spotlight.
+    if (this._activeFeature !== 'loops' && this.renderer.emphasis) {
+      this.renderer.emphasis = null;
+      this._activeLoopIdx = null;
+      this.renderer.render();
+    }
     this._syncRailButtons();
     this._renderProps();
   }

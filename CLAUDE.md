@@ -37,6 +37,7 @@ node cli.js economy.econ --assert "always gold < 500" --assert "at end: score >=
 node cli.js economy.econ --check                     # run assertions saved in the diagram
 node cli.js diagram.json --to-dsl > economy.econ     # and .econ --to-json back
 node cli.js economy.econ --emit economy.module.js    # dependency-free JS module
+node cli.js diagram.json --loops                     # feedback-loop table (R/B/F/?)
 ```
 
 **Running a single unit test:** `test/run.js` has no filter/grep flag — every
@@ -69,12 +70,14 @@ Do not reach for `document`/`window` in these two files.
 
 The economy-as-code layer lives under the same contract: `js/dsl.js` (the `.econ`
 text format: `dslSerialize`/`dslParse`/`normalizeEconJSON`), `js/assertions.js`
-(`parseAssertion`/`AssertionChecker`/`assertionScope`), and `js/codegen.js`
-(`buildEconomyModule`) are DOM-free, load after `model.js`/`engine.js` in
-`index.html`, `cli.js`, and `test/run.js`, and are documented in
-`docs/ECONOMY_AS_CODE.md`. When you add a serialized field to the model, the
-DSL's generic key=value attrs pick it up automatically, but extend the
-`kitchenSink()` fixture in `test/run.js` so the round-trip test covers it.
+(`parseAssertion`/`AssertionChecker`/`assertionScope`), `js/codegen.js`
+(`buildEconomyModule`), and `js/loops.js` (`detectLoops`: feedback-cycle
+enumeration + R/B/F/? classification) are DOM-free, load after
+`model.js`/`engine.js` in `index.html`, `cli.js`, and `test/run.js`, and are
+documented in `docs/ECONOMY_AS_CODE.md`. When you add a serialized field to
+the model, the DSL's generic key=value attrs pick it up automatically, but
+extend the `kitchenSink()` fixture in `test/run.js` so the round-trip test
+covers it.
 
 Two engine invariants to preserve when editing the tick:
 - **Conditions are synchronous.** Activator and connection-condition checks read a

@@ -125,6 +125,7 @@ the panel back to the selection. The left palette stays for tools/nodes and the
 top bar for run/zoom/file controls.
 
 ### Analysis & data
+- **Feedback-loop detection** — the Loops rail panel finds every feedback cycle in the causal graph (flows, triggers, activators, modifiers, and formula reads via published variables) and classifies it **reinforcing (R)**, **balancing (B)**, a pure **resource circulation (F)**, or **unclear (?)** from link polarities; formula links are probed numerically. Click a loop to spotlight it on the canvas; `cli.js --loops` prints the same table.
 - **Scenario branching** — checkpoint the simulation mid-run (full state: resources, in-flight queues, variables, history), fork back to it with any tweaks, and run forward again. The previous run is kept automatically as a **ghost branch** — dashed, faded traces overlaid on the timeline chart (same colour = same node across timelines), toggleable from the legend or the Branch rail panel. Reset still returns to the true run start. Session-only — branches aren't saved with the diagram.
 - **Global timeline chart** — every tracked node's value over time, with a legend.
 - **On‑canvas charts** — live line charts placed in the diagram itself, tracking chosen nodes.

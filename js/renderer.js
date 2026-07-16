@@ -470,6 +470,7 @@ class Renderer {
     this._chartEls = new Map();
     this._chartHover = null;  // { id, idx } — on-canvas chart hover readout
     this._scrubSnap = null;   // { nodeId: value } — history preview during scrubbing
+    this.emphasis = null;     // { nodes:Set, conns:Set } — spotlight (Loops panel)
     this._panX = 0;
     this._panY = 0;
     this._scale = 1;
@@ -677,11 +678,27 @@ class Renderer {
     this._renderNodes();
     this._renderCharts();
     this._renderNotes();
+    this._applyEmphasis();
 
     const d = this.diagram;
     const empty = !d.nodes.size && !d.groups.size && !d.notes.size && !d.charts.size;
     this._emptyHint.setAttribute('visibility', empty ? 'visible' : 'hidden');
     if (this.onRender) this.onRender();
+  }
+
+  // Spotlight mode (Loops panel): members of `emphasis` render at full
+  // strength, everything else fades back. Applied after the sub-renders so it
+  // wins over any per-element attributes they set; cleared by setting
+  // `emphasis` back to null.
+  _applyEmphasis() {
+    const em = this.emphasis;
+    for (const [id, el] of this._nodeEls)
+      el.setAttribute('opacity', !em ? '1' : (em.nodes.has(id) ? '1' : '0.18'));
+    for (const [id, el] of this._connEls)
+      el.setAttribute('opacity', !em ? '1' : (em.conns.has(id) ? '1' : '0.12'));
+    const dim = !em ? '1' : '0.15';
+    for (const layer of [this.groupLayer, this.noteLayer, this.chartLayer])
+      layer.setAttribute('opacity', dim);
   }
 
   // World-coordinate rectangle currently visible in the viewport.

@@ -307,7 +307,7 @@
 
     <!-- Far-right rail: diagram-level settings -->
     <nav id="diagram-rail" aria-label="Diagram settings">
-      <div class="rail-title" title="Diagram-wide settings: parameters, variables, resource types, the artificial player, scenario branches, design tests, and a live variable monitor">Setup</div>
+      <div class="rail-title" title="Diagram-wide settings: parameters, variables, resource types, the artificial player, scenario branches, design tests, feedback loops, and a live variable monitor">Setup</div>
       <button class="rail-btn" data-feature="time" title="Time mode (sync or async)">
         <div class="tool-icon"><i class="fa-solid fa-clock" aria-hidden="true"></i></div>
         Time
@@ -335,6 +335,10 @@
       <button class="rail-btn" data-feature="checks" title="Design tests (assertions checked against runs, in the app and in CI)">
         <div class="tool-icon"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i></div>
         Checks
+      </button>
+      <button class="rail-btn" data-feature="loops" title="Feedback loops (reinforcing and balancing cycles, spotlighted on the canvas)">
+        <div class="tool-icon"><i class="fa-solid fa-rotate" aria-hidden="true"></i></div>
+        Loops
       </button>
       <button class="rail-btn" data-feature="monitor" title="Live variables (runtime readout)">
         <div class="tool-icon"><i class="fa-solid fa-eye" aria-hidden="true"></i></div>
@@ -624,6 +628,7 @@
 <script src="js/dsl.js"></script>
 <script src="js/assertions.js"></script>
 <script src="js/codegen.js"></script>
+<script src="js/loops.js"></script>
 <script src="js/renderer.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/charts.js"></script>

@@ -1410,6 +1410,54 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('design tests: Checks rail panel renders, single + Monte Carlo checking works, asserts serialize');
   else fail('design tests: ' + JSON.stringify(checks));
 
+  // The why layer: Loops rail panel detects feedback cycles and spotlights
+  // them on the canvas via renderer.emphasis.
+  const loops = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll();
+    const d = app.diagram;
+    // A balancing pair (modifiers +/−) plus a flow circulation.
+    const prey = d.addNode(new MNode(NodeType.POOL, 100, 100)); prey.label = 'Prey'; prey.setCount(50);
+    const pred = d.addNode(new MNode(NodeType.POOL, 300, 100)); pred.label = 'Predators'; pred.setCount(5);
+    const up = d.addConnection(new MConnection(prey.id, pred.id, ConnectionType.STATE));
+    up.modifier = true; up.modFactor = 0.05;
+    const down = d.addConnection(new MConnection(pred.id, prey.id, ConnectionType.STATE));
+    down.modifier = true; down.modFactor = -0.2;
+    const a = d.addNode(new MNode(NodeType.POOL, 100, 300)); a.label = 'TownA'; a.setCount(10);
+    const b = d.addNode(new MNode(NodeType.POOL, 300, 300)); b.label = 'TownB';
+    d.addConnection(new MConnection(a.id, b.id)).rate = 1;
+    d.addConnection(new MConnection(b.id, a.id)).rate = 1;
+
+    if (app._activeFeature) app._toggleFeature(app._activeFeature);
+    app._toggleFeature('loops');
+    const panel = document.getElementById('props-content');
+    const rows = panel.querySelectorAll('.loop-row');
+    const railBtn = !!document.querySelector('#diagram-rail .rail-btn[data-feature="loops"]');
+    const text = panel.textContent;
+    const detected = detectLoops(d);
+
+    // Clicking the first loop row spotlights it; leaving the panel clears.
+    rows[0] && rows[0].click();
+    const emphasized = !!app.renderer.emphasis && app.renderer.emphasis.nodes.size > 0;
+    const nodeEl = app.renderer._nodeEls.get(a.id);
+    const dimmed = nodeEl && nodeEl.getAttribute('opacity') !== '1';
+    app._toggleFeature('loops'); // close → spotlight clears
+    const cleared = app.renderer.emphasis === null;
+    const kbHasLoops = KB_ARTICLES.some(x => x.id === 'loops');
+
+    return {
+      railBtn, kbHasLoops,
+      twoLoops: detected.loops.length === 2,
+      typesRight: detected.loops.map(l => l.type).sort().join(',') === 'B,F',
+      rowsRendered: rows.length === 2,
+      badgeText: /Prey → Predators → Prey/.test(text) || /Predators → Prey → Predators/.test(text),
+      emphasized, dimmed, cleared,
+    };
+  });
+  if (Object.values(loops).every(Boolean))
+    ok('feedback loops: detection classifies B + F, panel rows render, spotlight applies and clears');
+  else fail('feedback loops: ' + JSON.stringify(loops));
+
   // P3: auto-revert reverts to Select after placing a node (on by default).
   const p3auto = await page.evaluate(() => {
     window.app._clearAll();

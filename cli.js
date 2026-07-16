@@ -26,6 +26,8 @@
 //                      assertion holds (default 100)
 //   --to-dsl           print the diagram as .econ text and exit
 //   --to-json          print the diagram as JSON and exit (parses .econ input)
+//   --loops            print the diagram's feedback loops (reinforcing R,
+//                      balancing B, resource circulation F, unclear ?) and exit
 //   --emit out.js      write a standalone dependency-free JS module of this
 //                      economy (createEconomy API) and exit
 //
@@ -60,8 +62,9 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'dsl.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'assertions.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'codegen.js'), 'utf8') + '\n' +
+    fs.readFileSync(path.join(base, 'loops.js'), 'utf8') + '\n' +
     'return { NodeType, Diagram, SimEngine, SimRandom, dslSerialize, dslParse,' +
-    ' parseAssertion, AssertionChecker, buildEconomyModule };';
+    ' parseAssertion, AssertionChecker, buildEconomyModule, detectLoops };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -74,7 +77,7 @@ function fail(msg) {
 function parseArgs(argv) {
   const opts = {
     steps: 200, runs: 1, seed: null, params: {}, csv: false, file: null,
-    asserts: [], passRate: 100, emit: null, toDsl: false, toJson: false, check: false,
+    asserts: [], passRate: 100, emit: null, toDsl: false, toJson: false, check: false, loops: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -98,6 +101,7 @@ function parseArgs(argv) {
     else if (a === '--emit') opts.emit = argv[++i];
     else if (a === '--to-dsl') opts.toDsl = true;
     else if (a === '--to-json') opts.toJson = true;
+    else if (a === '--loops') opts.loops = true;
     else if (a === '--param') {
       const m = String(argv[++i] || '').match(/^([^=]+)=(.+)$/);
       if (!m) fail(`--param expects name=value, got "${argv[i]}"`);
@@ -124,7 +128,7 @@ function csvCell(s) {
 const opts = parseArgs(process.argv.slice(2));
 const {
   NodeType, Diagram, SimEngine, SimRandom,
-  dslSerialize, dslParse, parseAssertion, AssertionChecker, buildEconomyModule,
+  dslSerialize, dslParse, parseAssertion, AssertionChecker, buildEconomyModule, detectLoops,
 } = loadEngine();
 
 // ── Load the diagram: JSON, or .econ text ───────────────────────────────────
@@ -153,6 +157,17 @@ if (opts.toDsl) {
 }
 if (opts.toJson) {
   process.stdout.write(JSON.stringify(diagram.toJSON(), null, 2) + '\n');
+  process.exit(0);
+}
+if (opts.loops) {
+  const { loops, truncated } = detectLoops(diagram);
+  if (!loops.length) process.stdout.write('No feedback loops found.\n');
+  for (const l of loops) {
+    const chain = [...l.labels, l.labels[0]].join(' -> ');
+    const linkStr = l.links.map(x => `${x.sign > 0 ? '+' : (x.sign < 0 ? '-' : '?')}${[...x.kinds].join('/')}`).join(', ');
+    process.stdout.write(`${l.type}  ${chain}  [${linkStr}]\n`);
+  }
+  if (truncated) process.stderr.write('Large graph: some longer loops omitted.\n');
   process.exit(0);
 }
 if (opts.emit) {

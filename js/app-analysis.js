@@ -613,6 +613,80 @@ class AppAnalysis {
     return { mode: 'mc', runs, steps, cleanRuns, results: agg, invalid };
   }
 
+  // ── Feedback loops panel ────────────────────────────────────────────────────
+  // The Loops rail panel: detect every feedback cycle in the causal graph
+  // (js/loops.js), classify it, and spotlight it on the canvas on click.
+
+  _loopsPanel(panel) {
+    this._info(panel, 'Every feedback cycle in the diagram, found across flows, triggers, activators, modifiers and formula reads. R loops amplify (even count of negative links), B loops stabilize (odd count), F is a pure resource circulation and ? means a link has no clear direction. Click a loop to spotlight it on the canvas.');
+
+    const { loops, truncated } = detectLoops(this.diagram);
+    if (!loops.length) {
+      const p = document.createElement('p');
+      p.className = 'props-empty';
+      p.textContent = 'No feedback loops found. Loops appear when influence returns to where it started, for example a pool feeding a converter whose output flows back, or a register that modifies the pool it reads.';
+      panel.appendChild(p);
+      return;
+    }
+
+    const badgeColors = { R: '#bf360c', B: '#1565c0', F: '#455a64', '?': '#616161' };
+    const badgeNames = { R: 'reinforcing (amplifies)', B: 'balancing (stabilizes)', F: 'resource circulation', '?': 'unclear link direction' };
+    const signGlyph = s => (s > 0 ? '+' : (s < 0 ? '-' : '?'));
+
+    const count = document.createElement('div');
+    count.style.cssText = 'font-size:11px;color:var(--text-dim);margin-bottom:4px;';
+    const byType = loops.reduce((m, l) => { m[l.type] = (m[l.type] || 0) + 1; return m; }, {});
+    count.textContent = `${loops.length} loop${loops.length === 1 ? '' : 's'}: `
+      + ['R', 'B', 'F', '?'].filter(t => byType[t]).map(t => `${byType[t]} ${t}`).join(', ')
+      + (truncated ? ' (large graph, some longer loops omitted)' : '');
+    panel.appendChild(count);
+
+    loops.forEach((loop, i) => {
+      const row = document.createElement('div');
+      row.className = 'loop-row';
+      row.setAttribute('role', 'button');
+      row.tabIndex = 0;
+      const active = this._activeLoopIdx === i;
+      row.style.cssText = 'display:flex;align-items:baseline;gap:6px;padding:4px 6px;margin:2px 0;'
+        + 'border-radius:6px;cursor:pointer;border:1px solid '
+        + (active ? 'var(--accent)' : 'var(--border)') + ';';
+
+      const badge = document.createElement('span');
+      badge.textContent = loop.type;
+      badge.title = badgeNames[loop.type];
+      badge.style.cssText = 'display:inline-block;min-width:16px;text-align:center;padding:1px 5px;'
+        + `border-radius:9px;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;background:${badgeColors[loop.type]};`;
+
+      const body = document.createElement('div');
+      body.style.cssText = 'min-width:0;';
+      const chain = document.createElement('div');
+      chain.style.cssText = 'font-size:11px;word-break:break-word;';
+      chain.textContent = [...loop.labels, loop.labels[0]].join(' → ');
+      const detail = document.createElement('div');
+      detail.style.cssText = 'font-size:10px;color:var(--text-dim);font-family:monospace;';
+      detail.textContent = loop.links.map(l => `${signGlyph(l.sign)} ${l.kinds.join('/')}`).join(', ');
+      body.appendChild(chain); body.appendChild(detail);
+
+      row.appendChild(badge); row.appendChild(body);
+      const toggle = () => this._spotlightLoop(active ? null : i, loop);
+      row.addEventListener('click', toggle);
+      row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+      panel.appendChild(row);
+    });
+  }
+
+  // Spotlight loop `i` on the canvas (null clears). Rerenders the panel so
+  // the active row is outlined.
+  _spotlightLoop(i, loop) {
+    this._activeLoopIdx = i == null ? null : i;
+    this.renderer.emphasis = i == null ? null : {
+      nodes: new Set(loop.nodes),
+      conns: new Set(loop.connIds),
+    };
+    this.renderer.render();
+    this._renderProps();
+  }
+
   _renderCheckResults(container, data) {
     container.innerHTML = '';
     // Darker fills than the raw tokens so white text keeps WCAG AA contrast
