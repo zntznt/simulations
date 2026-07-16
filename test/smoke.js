@@ -1319,8 +1319,8 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const lines = csv.trim().split('\n');
     return { header: lines[0], rows: lines.length, hasBank: lines[0].includes('Bank') };
   });
-  if (p3csv.header.startsWith('step') && p3csv.hasBank && p3csv.rows === 5)
-    ok(`P3 CSV: history export (header + ${p3csv.rows - 1} rows)`);
+  if (p3csv.header.startsWith('step') && p3csv.hasBank && p3csv.rows === 6)
+    ok(`P3 CSV: history export (header + step-0 baseline + ${p3csv.rows - 2} steps)`);
   else fail('P3 CSV: ' + JSON.stringify(p3csv));
 
   // P3: shareable URL encode/decode round-trips the diagram.
@@ -1457,6 +1457,41 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (Object.values(loops).every(Boolean))
     ok('feedback loops: detection classifies B + F, panel rows render, spotlight applies and clears');
   else fail('feedback loops: ' + JSON.stringify(loops));
+
+  // The why layer: clicking a timeline point opens the attribution popover
+  // with a breakdown and a canvas spotlight; Escape closes and restores.
+  const why = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll();
+    const d = app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 100)); s.label = 'Mine';
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 100)); p.label = 'Gold';
+    const dr = d.addNode(new MNode(NodeType.DRAIN, 500, 100)); dr.label = 'Spend';
+    d.addConnection(new MConnection(s.id, p.id)).rate = 3;
+    d.addConnection(new MConnection(p.id, dr.id)).rate = 1;
+    app.engine.reset();
+    for (let i = 0; i < 6; i++) app.engine.doStep();
+
+    const wired = typeof app.timeline.onInspect === 'function';
+    app._showWhyPopover(p.id, 3, 200, 200);
+    const pop = document.getElementById('why-popover');
+    const text = pop ? pop.textContent : '';
+    const spotlight = !!app.renderer.emphasis && app.renderer.emphasis.nodes.has(p.id);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const closed = !document.getElementById('why-popover');
+    const restored = app.renderer.emphasis === null;
+    return {
+      wired,
+      shown: !!pop,
+      named: /Gold/.test(text) && /step 3/.test(text),
+      rows: /from Mine/.test(text) && /to Spend/.test(text),
+      delta: /\+2/.test(text),
+      spotlight, closed, restored,
+    };
+  });
+  if (Object.values(why).every(Boolean))
+    ok('spike attribution: timeline click wired, popover breaks down the step, Esc closes + restores');
+  else fail('spike attribution: ' + JSON.stringify(why));
 
   // P3: auto-revert reverts to Select after placing a node (on by default).
   const p3auto = await page.evaluate(() => {

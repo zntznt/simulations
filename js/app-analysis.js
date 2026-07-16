@@ -687,6 +687,124 @@ class AppAnalysis {
     this._renderProps();
   }
 
+  // ── Spike attribution (why-popover) ─────────────────────────────────────────
+  // Clicking a point on the timeline asks "why did this change here": a small
+  // popover breaks the step's delta into inflows, outflows and modifiers
+  // (js/attribution.js) and spotlights the contributing connections.
+
+  _showWhyPopover(nodeId, index, clientX, clientY) {
+    this._closeWhyPopover();
+    const data = attributeChange(this.diagram, this.engine.history, nodeId, index);
+    if (!data) return;
+
+    const fmt = v => (Math.abs(v) >= 100 ? String(Math.round(v)) : String(Math.round(v * 100) / 100));
+    const signed = v => (v > 0 ? '+' : '') + fmt(v);
+
+    const pop = document.createElement('div');
+    pop.id = 'why-popover';
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-label', `Change breakdown for ${data.label}`);
+    pop.style.cssText = 'position:fixed;z-index:1000;max-width:300px;min-width:190px;'
+      + 'background:var(--panel);border:1px solid var(--border);border-radius:8px;'
+      + 'padding:10px 12px;font-size:11px;color:var(--text);box-shadow:0 8px 24px rgba(0,0,0,.45);';
+
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:baseline;gap:6px;margin-bottom:2px;';
+    const name = document.createElement('b');
+    name.textContent = data.label;
+    const span = document.createElement('span');
+    span.style.cssText = 'color:var(--text-dim);font-size:10px;';
+    span.textContent = data.initial ? 'run start'
+      : (data.fromStep + 1 === data.toStep ? `step ${data.toStep}` : `steps ${data.fromStep} → ${data.toStep}`);
+    head.appendChild(name); head.appendChild(span);
+    pop.appendChild(head);
+
+    const deltaLine = document.createElement('div');
+    deltaLine.style.cssText = 'font-family:monospace;font-size:11px;margin-bottom:6px;';
+    deltaLine.textContent = data.initial
+      ? `starts at ${fmt(data.to)}`
+      : `${fmt(data.from)} → ${fmt(data.to)}  (Δ ${signed(data.delta)})`;
+    pop.appendChild(deltaLine);
+
+    const row = (amount, label, dim) => {
+      const r = document.createElement('div');
+      r.style.cssText = 'display:flex;gap:8px;align-items:baseline;margin:2px 0;';
+      const a = document.createElement('span');
+      a.style.cssText = 'font-family:monospace;min-width:44px;text-align:right;flex-shrink:0;'
+        + `color:${amount > 0 ? 'var(--green)' : (amount < 0 ? 'var(--red)' : 'var(--text-dim)')};`;
+      a.textContent = signed(amount);
+      const t = document.createElement('span');
+      t.style.cssText = 'word-break:break-word;' + (dim ? 'color:var(--text-dim);' : '');
+      t.textContent = label;
+      r.appendChild(a); r.appendChild(t);
+      pop.appendChild(r);
+    };
+
+    if (data.initial) {
+      const p = document.createElement('div');
+      p.style.cssText = 'color:var(--text-dim);';
+      p.textContent = 'This is the run start. Click a later point to see what changed it.';
+      pop.appendChild(p);
+    } else if (data.register) {
+      const p = document.createElement('div');
+      p.style.cssText = 'color:var(--text-dim);';
+      p.textContent = 'A register recomputes its formula every step, so its change comes from the inputs the formula reads, not from flows.';
+      pop.appendChild(p);
+    } else if (!data.entries.length && data.delta === 0) {
+      const p = document.createElement('div');
+      p.style.cssText = 'color:var(--text-dim);';
+      p.textContent = 'No change across this span.';
+      pop.appendChild(p);
+    } else {
+      for (const e of data.entries) row(e.amount, `${e.label} (${e.kind})`);
+      if (data.residual !== 0) row(data.residual, 'internal changes (conversions, queue losses, clamps)', true);
+    }
+
+    const hint = document.createElement('div');
+    hint.style.cssText = 'margin-top:6px;font-size:10px;color:var(--text-dim);';
+    hint.textContent = 'Esc or click away to close';
+    pop.appendChild(hint);
+
+    document.body.appendChild(pop);
+    const rect = pop.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(clientX + 12, window.innerWidth - rect.width - 8)) + 'px';
+    pop.style.top = Math.max(8, Math.min(clientY + 12, window.innerHeight - rect.height - 8)) + 'px';
+
+    // Spotlight the node and its contributing connections while open.
+    this._whyPrevEmphasis = this.renderer.emphasis;
+    const nodes = new Set([nodeId]);
+    const conns = new Set();
+    for (const e of data.entries) {
+      if (!e.connId) continue;
+      conns.add(e.connId);
+      const c = this.diagram.connections.get(e.connId);
+      if (c) { nodes.add(c.sourceId); nodes.add(c.targetId); }
+    }
+    this.renderer.emphasis = { nodes, conns };
+    this.renderer.render();
+
+    const onKey = (e) => { if (e.key === 'Escape') this._closeWhyPopover(); };
+    const onDown = (e) => { if (!pop.contains(e.target)) this._closeWhyPopover(); };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onDown, true);
+    this._whyPopover = pop;
+    this._whyCleanup = () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onDown, true);
+    };
+  }
+
+  _closeWhyPopover() {
+    if (!this._whyPopover) return;
+    this._whyCleanup?.();
+    this._whyPopover.remove();
+    this._whyPopover = null;
+    this._whyCleanup = null;
+    this.renderer.emphasis = this._whyPrevEmphasis || null;
+    this._whyPrevEmphasis = null;
+    this.renderer.render();
+  }
+
   _renderCheckResults(container, data) {
     container.innerHTML = '';
     // Darker fills than the raw tokens so white text keeps WCAG AA contrast

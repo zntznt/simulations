@@ -719,6 +719,23 @@ const KB_ARTICLES = [
       + 'prints the same table with node cli.js diagram.json --loops.',
   },
 
+  {
+    id: 'why-changed', category: 'Running and analysis', title: 'Why did this change',
+    keywords: 'attribution spike explain breakdown inflow outflow cause click timeline popover why',
+    body: 'After a run, click any point on the timeline chart to ask why that '
+      + 'value changed there. A small breakdown appears: how much arrived on '
+      + 'each incoming flow, how much left on each outgoing one, what '
+      + 'modifiers applied, and a final line for internal changes such as '
+      + 'converter consumption or queue losses. The lines always add up '
+      + 'exactly to the change, even on long runs where the chart samples '
+      + 'every few steps (each sample accounts for its whole span). While the '
+      + 'breakdown is open the contributing connections are spotlighted on '
+      + 'the canvas; press Escape or click away to close. Registers show a '
+      + 'note instead, since they recompute from a formula rather than '
+      + 'holding flows. The command line prints the same table with node '
+      + 'cli.js diagram.json --why "Gold@120".',
+  },
+
   // ── Economy as code ─────────────────────────────────────────────────────────
   {
     id: 'econ-text', category: 'Economy as code', title: 'Text format (.econ)',

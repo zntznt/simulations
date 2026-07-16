@@ -69,6 +69,9 @@ class App {
     this._cpSeq = 0;
     this._branchSeq = 0;
     this.timeline.getBranches = () => this._branches;
+    // Spike attribution: clicking a point on the timeline explains the change
+    // at that step (breakdown popover + canvas spotlight, app-analysis.js).
+    this.timeline.onInspect = (nodeId, index, cx, cy) => this._showWhyPopover(nodeId, index, cx, cy);
 
     this._bindControls();
     this._initLibrary();

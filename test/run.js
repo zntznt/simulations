@@ -25,9 +25,10 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'assertions.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'codegen.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'loops.js'), 'utf8') + '\n' +
+    fs.readFileSync(path.join(base, 'attribution.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
     ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula, SimRandom,' +
-    ' dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops };';
+    ' dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -36,7 +37,7 @@ const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
   MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula, SimRandom,
-  dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops,
+  dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange,
 } = API;
 
 // ── Tiny test harness ───────────────────────────────────────────────────────
@@ -2570,7 +2571,7 @@ test('captureState/restoreState round-trips mid-run state and resumes correctly'
   e.restoreState(snap);
   eq(e.step, 4, 'step restored');
   eq(d.nodes.get(p.id).resources, 12, 'pool restored');
-  eq(e.history.length, 4, 'history truncated to checkpoint');
+  eq(e.history.length, 5, 'history truncated to checkpoint (step-0 baseline + 4 steps)');
 
   // The fork can be advanced again — and a second restore replays it.
   e.doStep();
@@ -3232,6 +3233,134 @@ test('cli --loops prints the loop table', () => {
   ].join('\n'));
   const out = execFileSync(process.execPath, [path.join(__dirname, '..', 'cli.js'), f, '--loops'], { encoding: 'utf8' });
   assert(/^R  Bank -> Bank/m.test(out), 'reinforcing self-loop printed');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── The why layer: spike attribution ────────────────────────────────────────
+console.log('\nSpike attribution');
+
+test('history records a step-0 baseline and per-span flows', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const p = node(d, NodeType.POOL); p.label = 'Gold';
+  const c = conn(d, s, p); c.rate = 2;
+  steps(e, 3);
+  eq(e.history[0].step, 0, 'baseline at step 0');
+  eq(e.history.length, 4, 'baseline + 3 steps');
+  eq(e.history[1].flows.conns[c.id], 2, 'flow recorded on the entry');
+  eq(Object.keys(e.history[0].flows.conns).length, 0, 'baseline has no flows');
+});
+
+test('attributeChange balances inflow, outflow and delta exactly', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const p = node(d, NodeType.POOL); p.label = 'Gold';
+  const dr = node(d, NodeType.DRAIN); dr.label = 'Spend';
+  const cin = conn(d, s, p); cin.rate = 3;
+  const cout = conn(d, p, dr); cout.rate = 1;
+  steps(e, 5);
+  const a = attributeChange(d, e.history, p.id, 3);
+  eq(a.delta, 2, 'net +2 per settled step');
+  eq(a.entries.length, 2, 'one inflow, one outflow');
+  const inflow = a.entries.find(x => x.kind === 'flow in');
+  const outflow = a.entries.find(x => x.kind === 'flow out');
+  eq(inflow.amount, 3, 'inflow from Mine');
+  eq(inflow.label, 'from Mine', 'inflow labeled by source');
+  eq(outflow.amount, -1, 'outflow to Spend');
+  eq(a.residual, 0, 'fully accounted');
+  // Drain semantics: cumulative intake only, no outflows.
+  const ad = attributeChange(d, e.history, dr.id, 3);
+  eq(ad.delta, 1, 'drained grows by intake');
+  eq(ad.entries.length, 1, 'single inflow entry');
+  eq(ad.entries[0].amount, 1, 'intake amount');
+});
+
+test('modifier deltas are attributed with applied amounts', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.label = 'Bank'; p.setCount(100);
+  const m = conn(d, p, p, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'rate'; m.modFactor = 0.1;
+  steps(e, 1);
+  const a = attributeChange(d, e.history, p.id, 1);
+  eq(a.delta, 10, '10% interest applied');
+  eq(a.entries.length, 1, 'one modifier entry');
+  eq(a.entries[0].kind, 'modifier', 'kind is modifier');
+  eq(a.entries[0].amount, 10, 'applied amount recorded');
+  eq(a.residual, 0, 'fully accounted');
+});
+
+test('converter consumption lands in the residual, keeping the identity', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const cv = node(d, NodeType.CONVERTER); cv.label = 'Forge'; cv.inputAmount = 2;
+  const p = node(d, NodeType.POOL); p.label = 'Out';
+  conn(d, s, cv).rate = 2;
+  conn(d, cv, p).rate = 1;
+  steps(e, 4);
+  for (let i = 1; i < e.history.length; i++) {
+    const a = attributeChange(d, e.history, cv.id, i);
+    const sum = a.entries.reduce((x, y) => x + y.amount, 0) + a.residual;
+    eq(sum, a.delta, `identity holds at entry ${i}`);
+  }
+});
+
+test('flows merge through stride decimation: attribution still adds up', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const p = node(d, NodeType.POOL); p.label = 'Gold';
+  const c = conn(d, s, p); c.rate = 1;
+  steps(e, 1500); // stride doubles past 600 entries
+  assert(e._histStride > 1, 'stride actually doubled');
+  for (let i = 1; i < e.history.length; i++) {
+    const a = attributeChange(d, e.history, p.id, i);
+    const span = e.history[i].step - e.history[i - 1].step;
+    eq(a.delta, span, `delta spans ${span} steps at entry ${i}`);
+    eq(a.entries[0].amount, span, 'merged flows cover the whole span');
+    eq(a.residual, 0, 'nothing lost in decimation');
+  }
+});
+
+test('attributeChange handles registers and the run start', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.label = 'Gold'; p.setCount(4);
+  const r = node(d, NodeType.REGISTER); r.label = 'Score'; r.formula = 'gold * 2';
+  conn(d, p, r, ConnectionType.STATE).variableName = 'gold';
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  conn(d, s, p).rate = 1;
+  steps(e, 2);
+  const a0 = attributeChange(d, e.history, p.id, 0);
+  assert(a0.initial, 'index 0 flagged as run start');
+  const ar = attributeChange(d, e.history, r.id, 2);
+  assert(ar.register, 'register flagged');
+  eq(ar.entries.length, 0, 'no flow entries for a register');
+  assert(Math.abs(ar.delta - 2) < 1e-9, 'register delta reflects formula inputs');
+});
+
+test('cli --why prints an attribution table', () => {
+  const { execFileSync } = require('child_process');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'why-test-'));
+  const f = path.join(dir, 'mine.econ');
+  fs.writeFileSync(f, [
+    'source Mine @ 0,0', 'pool Gold @ 100,0', 'drain Spend @ 200,0',
+    'Mine -> Gold : 3', 'Gold -> Spend : 1',
+  ].join('\n'));
+  const cli = path.join(__dirname, '..', 'cli.js');
+  const run = (args) => {
+    try {
+      return execFileSync(process.execPath, [cli, ...args],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) { return String(err.stderr || ''); }
+  };
+  // Capture stderr: spawn with stderr piped via a wrapper.
+  const { spawnSync } = require('child_process');
+  const res = spawnSync(process.execPath, [cli, f, '--steps', '10', '--why', 'Gold@5'], { encoding: 'utf8' });
+  assert(/why Gold: step 4 -> 5/.test(res.stderr), 'header names node and span');
+  assert(/\+3\s+from Mine \(flow in\)/.test(res.stderr), 'inflow row printed');
+  assert(/-1\s+to Spend \(flow out\)/.test(res.stderr), 'outflow row printed');
+  const bad = spawnSync(process.execPath, [cli, f, '--steps', '5', '--why', 'Nope'], { encoding: 'utf8' });
+  eq(bad.status, 1, 'unknown node fails fast');
+  assert(run([f, '--steps', '5']).length > 0, 'plain run unaffected');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

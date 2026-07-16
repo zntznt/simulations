@@ -28,6 +28,9 @@
 //   --to-json          print the diagram as JSON and exit (parses .econ input)
 //   --loops            print the diagram's feedback loops (reinforcing R,
 //                      balancing B, resource circulation F, unclear ?) and exit
+//   --why "Node@step"  after a single run, explain the change in that node at
+//                      that step: inflows, outflows, modifiers and internal
+//                      changes (repeatable; "Node" alone = the final step)
 //   --emit out.js      write a standalone dependency-free JS module of this
 //                      economy (createEconomy API) and exit
 //
@@ -63,8 +66,9 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'assertions.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'codegen.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'loops.js'), 'utf8') + '\n' +
+    fs.readFileSync(path.join(base, 'attribution.js'), 'utf8') + '\n' +
     'return { NodeType, Diagram, SimEngine, SimRandom, dslSerialize, dslParse,' +
-    ' parseAssertion, AssertionChecker, buildEconomyModule, detectLoops };';
+    ' parseAssertion, AssertionChecker, buildEconomyModule, detectLoops, attributeChange };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -78,6 +82,7 @@ function parseArgs(argv) {
   const opts = {
     steps: 200, runs: 1, seed: null, params: {}, csv: false, file: null,
     asserts: [], passRate: 100, emit: null, toDsl: false, toJson: false, check: false, loops: false,
+    whys: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -102,6 +107,7 @@ function parseArgs(argv) {
     else if (a === '--to-dsl') opts.toDsl = true;
     else if (a === '--to-json') opts.toJson = true;
     else if (a === '--loops') opts.loops = true;
+    else if (a === '--why') opts.whys.push(argv[++i]);
     else if (a === '--param') {
       const m = String(argv[++i] || '').match(/^([^=]+)=(.+)$/);
       if (!m) fail(`--param expects name=value, got "${argv[i]}"`);
@@ -128,7 +134,7 @@ function csvCell(s) {
 const opts = parseArgs(process.argv.slice(2));
 const {
   NodeType, Diagram, SimEngine, SimRandom,
-  dslSerialize, dslParse, parseAssertion, AssertionChecker, buildEconomyModule, detectLoops,
+  dslSerialize, dslParse, parseAssertion, AssertionChecker, buildEconomyModule, detectLoops, attributeChange,
 } = loadEngine();
 
 // ── Load the diagram: JSON, or .econ text ───────────────────────────────────
@@ -206,6 +212,47 @@ function reportAssertions(results) {
 const engine = new SimEngine(diagram);
 const tracked = [...diagram.nodes.values()].filter(n => n.type !== NodeType.SOURCE || n.limited);
 
+// --why "Node@step": resolve specs up front so typos fail before a long run.
+if (opts.whys.length && opts.runs > 1) fail('--why needs a single run (drop --runs)');
+const whySpecs = opts.whys.map(spec => {
+  const m = String(spec || '').match(/^(.*?)(?:@(\d+))?$/);
+  const label = (m[1] || '').trim();
+  const node = [...diagram.nodes.values()].find(n => (n.label || n.type) === label);
+  if (!node) {
+    fail(`--why: no node labeled "${label}". Nodes: `
+      + [...diagram.nodes.values()].map(n => n.label || n.type).join(', '));
+  }
+  return { node, step: m[2] !== undefined ? parseInt(m[2], 10) : null, spec };
+});
+
+function reportWhy() {
+  const hist = engine.history;
+  const fmt = v => (Math.abs(v) >= 100 ? String(Math.round(v)) : String(Math.round(v * 100) / 100));
+  const signed = v => (v > 0 ? '+' : '') + fmt(v);
+  for (const { node, step } of whySpecs) {
+    const want = step == null ? hist[hist.length - 1].step : step;
+    let index = 0;
+    for (let i = 0; i < hist.length; i++) {
+      if (Math.abs(hist[i].step - want) < Math.abs(hist[index].step - want)) index = i;
+    }
+    const a = attributeChange(diagram, hist, node.id, index);
+    if (!a) continue;
+    process.stderr.write(`why ${a.label}: step ${a.fromStep} -> ${a.toStep}, `
+      + `${fmt(a.from)} -> ${fmt(a.to)} (delta ${signed(a.delta)})\n`);
+    if (a.register) {
+      process.stderr.write('  register: recomputed from its formula each step\n');
+      continue;
+    }
+    if (!a.entries.length && a.residual === 0) {
+      process.stderr.write('  no change across this span\n');
+      continue;
+    }
+    const pad = s => s.padStart(8);
+    for (const e of a.entries) process.stderr.write(`  ${pad(signed(e.amount))}  ${e.label} (${e.kind})\n`);
+    if (a.residual !== 0) process.stderr.write(`  ${pad(signed(a.residual))}  internal changes\n`);
+  }
+}
+
 if (opts.runs === 1) {
   // Single run → per-step CSV trace on stdout. reset() seeds SimRandom from
   // diagram.seed (set from --seed above, or carried in the saved file).
@@ -224,6 +271,7 @@ if (opts.runs === 1) {
   if (engine.ended) {
     process.stderr.write(`Goal reached: ${engine.ended.label} at step ${engine.ended.step}\n`);
   }
+  if (whySpecs.length) reportWhy();
   if (checker) {
     const failed = reportAssertions(checker.finish(engine));
     if (failed > 0) process.exit(2);

@@ -38,6 +38,7 @@ node cli.js economy.econ --check                     # run assertions saved in t
 node cli.js diagram.json --to-dsl > economy.econ     # and .econ --to-json back
 node cli.js economy.econ --emit economy.module.js    # dependency-free JS module
 node cli.js diagram.json --loops                     # feedback-loop table (R/B/F/?)
+node cli.js diagram.json --why "Gold@120"            # attribute a node's change at a step
 ```
 
 **Running a single unit test:** `test/run.js` has no filter/grep flag — every
@@ -71,8 +72,10 @@ Do not reach for `document`/`window` in these two files.
 The economy-as-code layer lives under the same contract: `js/dsl.js` (the `.econ`
 text format: `dslSerialize`/`dslParse`/`normalizeEconJSON`), `js/assertions.js`
 (`parseAssertion`/`AssertionChecker`/`assertionScope`), `js/codegen.js`
-(`buildEconomyModule`), and `js/loops.js` (`detectLoops`: feedback-cycle
-enumeration + R/B/F/? classification) are DOM-free, load after
+(`buildEconomyModule`), `js/loops.js` (`detectLoops`: feedback-cycle
+enumeration + R/B/F/? classification), and `js/attribution.js`
+(`attributeChange`: per-step change breakdowns from the flow records the
+engine attaches to history entries) are DOM-free, load after
 `model.js`/`engine.js` in `index.html`, `cli.js`, and `test/run.js`, and are
 documented in `docs/ECONOMY_AS_CODE.md`. When you add a serialized field to
 the model, the DSL's generic key=value attrs pick it up automatically, but
