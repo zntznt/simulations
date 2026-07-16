@@ -120,10 +120,11 @@ class TimelineChart {
 
   _bindHover() {
     const px = (e) => e.clientX - this.canvas.getBoundingClientRect().left;
+    const py = (e) => e.clientY - this.canvas.getBoundingClientRect().top;
     this.canvas.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
-      this._drag = { x0: px(e), x1: px(e), moved: false };
+      this._drag = { x0: px(e), x1: px(e), y0: py(e), moved: false, cx: e.clientX, cy: e.clientY };
     });
     this.canvas.addEventListener('mousemove', (e) => {
       const x = px(e);
@@ -137,18 +138,44 @@ class TimelineChart {
       this.update();
     });
     // Release anywhere: a dragged window commits a comparison; a plain click
-    // clears any existing one.
+    // clears an existing one, and otherwise inspects the nearest series point
+    // (spike attribution) when the app wired an onInspect handler.
     window.addEventListener('mouseup', () => {
       if (!this._drag) return;
       const d = this._drag; this._drag = null;
       if (d.moved) this._commitSelection(d.x0, d.x1);
-      else this.clearSelection();
+      else if (this._sel) this.clearSelection();
+      else this._inspectAt(d.x0, d.y0, d.cx, d.cy);
       this.update();
     });
     this.canvas.addEventListener('mouseleave', () => {
       this._hoverX = null;
       this.update();
     });
+  }
+
+  // Plain click: find the recorded snapshot nearest the click's step and the
+  // visible series nearest the click's y there, and hand both to the app
+  // (onInspect) for the why-popover. Quietly does nothing when there's no
+  // handler, no data, or the click is outside the plot.
+  _inspectAt(x, y, clientX, clientY) {
+    const g = this._geom;
+    if (!this.onInspect || !g || !g.yOf || !g.nodes || !g.nodes.length) return;
+    const hist = this.engine.history;
+    if (hist.length < 2) return;
+    if (x < g.padL - 6 || x > g.padL + g.plotW + 6) return;
+    const snap = this._nearestSnap(this._stepAtX(x));
+    if (!snap) return;
+    const idx = hist.indexOf(snap);
+    if (idx < 0) return;
+    let best = null, bestDy = Infinity;
+    for (const node of g.nodes) {
+      const v = snap.snap[node.id];
+      if (v == null) continue;
+      const dy = Math.abs(g.yOf(node, v) - y);
+      if (dy < bestDy) { bestDy = dy; best = node; }
+    }
+    if (best) this.onInspect(best.id, idx, clientX, clientY);
   }
 
   // Map a canvas x to a step, then snap to the nearest recorded live snapshot
@@ -340,8 +367,10 @@ class TimelineChart {
     const padL = 44, padT = 10, padB = 22, padR = 10;
     const plotW = w - padL - padR, plotH = h - padT - padB;
     const xAt = s => padL + (s / maxStep) * plotW;
-    // Expose geometry so the brush handlers can map pixels ↔ steps.
-    this._geom = { padL, plotW, maxStep };
+    // Expose geometry so the brush handlers can map pixels ↔ steps. yOf and
+    // the visible node list are filled in below, once the scale is built —
+    // the click-to-inspect hit test reuses the exact drawing math.
+    this._geom = { padL, plotW, maxStep, yOf: null, nodes };
 
     const fmtTick = v => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}k`
       : v % 1 === 0 ? String(v) : v.toFixed(1));
@@ -374,6 +403,7 @@ class TimelineChart {
       yOf = (node, v) => padT + plotH - (v / max) * plotH;
       guides = [0, 0.25, 0.5, 0.75, 1].map(p => ({ y: padT + plotH - p * plotH, label: fmtTick(max * p) }));
     }
+    this._geom.yOf = yOf;
 
     // Horizontal grid lines
     ctx.strokeStyle = '#1e2535';

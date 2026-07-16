@@ -21,8 +21,14 @@ function loadEngine() {
   const src =
     fs.readFileSync(path.join(base, 'model.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'engine.js'), 'utf8') + '\n' +
+    fs.readFileSync(path.join(base, 'dsl.js'), 'utf8') + '\n' +
+    fs.readFileSync(path.join(base, 'assertions.js'), 'utf8') + '\n' +
+    fs.readFileSync(path.join(base, 'codegen.js'), 'utf8') + '\n' +
+    fs.readFileSync(path.join(base, 'loops.js'), 'utf8') + '\n' +
+    fs.readFileSync(path.join(base, 'attribution.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
-    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula, SimRandom };';
+    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula, SimRandom,' +
+    ' dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -31,6 +37,7 @@ const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
   MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula, SimRandom,
+  dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange,
 } = API;
 
 // ── Tiny test harness ───────────────────────────────────────────────────────
@@ -2564,7 +2571,7 @@ test('captureState/restoreState round-trips mid-run state and resumes correctly'
   e.restoreState(snap);
   eq(e.step, 4, 'step restored');
   eq(d.nodes.get(p.id).resources, 12, 'pool restored');
-  eq(e.history.length, 4, 'history truncated to checkpoint');
+  eq(e.history.length, 5, 'history truncated to checkpoint (step-0 baseline + 4 steps)');
 
   // The fork can be advanced again — and a second restore replays it.
   e.doStep();
@@ -2781,6 +2788,649 @@ testAsync('runMonteCarloAsync completes normally without a cancel signal', async
   const res = await e.runMonteCarloAsync(5, 10);
   const pn = res.nodes.find(x => x.id === p.id);
   eq(pn.mean, 50, 'async batch matches the deterministic mean');
+});
+
+// ── Economy as code: .econ text format ──────────────────────────────────────
+console.log('\nEconomy as code: .econ text format');
+
+// A diagram exercising every serializable feature at once. Used by the
+// round-trip tests; extend it whenever a new field is added to the model so
+// the DSL keeps covering everything.
+function kitchenSink() {
+  const d = new Diagram();
+  d.meta.name = 'Kitchen Sink';
+  d.meta.description = 'Every feature.\nSecond line.';
+  d.meta.scheme = 'ocean'; d.meta.bgColor = '#101318'; d.meta.font = 'Space Grotesk';
+  d.seed = 'abc';
+  d.timeMode = 'async';
+  d.params = { mine_rate: 3, tax: 0.25 };
+  d.resourceTypes = [{ name: 'Wood', color: '#8d6e63' }, { name: 'Iron Ore', color: '#b0bec5' }];
+  d.customVars = [
+    { name: 'luck', kind: 'dice', dice: '2d6', dist: 'gaussian', update: 'step', value: 0 },
+    { name: 'span', kind: 'interval', min: 1, max: 10, dist: 'uniform', update: 'play', value: 0 },
+    { name: 'pick', kind: 'array', values: [1, 2, 3], dist: 'uniform', update: 'step', value: 0 },
+    { name: 'calc', kind: 'math', formula: 'gold * 2', dist: 'uniform', update: 'step', value: 0 },
+  ];
+  d.aiPlayer = { enabled: true, rules: [{ nodeId: 'x', every: 3, condVar: 'gold', condOp: '>', condVal: 5 }] };
+  d.assertions = ['always Gold < 1000', 'eventually Score >= 0'];
+
+  const mk = (t, x, y, label) => { const n = new MNode(t, x, y); n.label = label; return d.addNode(n); };
+  const pool = mk(NodeType.POOL, 100, 100, 'Gold'); pool.setCount(50, '#ffd54f'); pool.capacity = 500;
+  pool.endEnabled = true; pool.endOperator = '>='; pool.endValue = 400;
+  const pool2 = mk(NodeType.POOL, 100, 200, 'Gold'); // duplicate label on purpose
+  pool2.flowMode = 'pull'; pool2.pullPolicy = 'all'; pool2.activation = 'passive';
+  const multi = mk(NodeType.POOL, 100, 300, 'Mixed Bag');
+  multi.resources = 30; multi.colorMap = { '#ff0000': 10, '#00ff00': 20 };
+  const src1 = mk(NodeType.SOURCE, 0, 100, 'Mine'); src1.resourceColor = '#8d6e63';
+  const src2 = mk(NodeType.SOURCE, 0, 200, 'Well'); src2.limited = true; src2.resources = 40; src2.fireEvery = 3; src2.firePhase = 1;
+  const drain = mk(NodeType.DRAIN, 300, 100, 'Spend');
+  const gate = mk(NodeType.GATE, 300, 200, 'Split'); gate.gateMode = 'probabilistic';
+  const conv = mk(NodeType.CONVERTER, 300, 300, 'Forge'); conv.inputAmount = 2;
+  conv.inputRecipe = [{ color: '#8d6e63', amount: 2 }, { color: '#b0bec5', amount: 1 }];
+  const reg = mk(NodeType.REGISTER, 500, 100, 'Score'); reg.formula = 'gold * 2 + luck';
+  const reg2 = mk(NodeType.REGISTER, 500, 150, 'Manual'); reg2.value = 7;
+  const delay = mk(NodeType.DELAY, 500, 200, 'Ship'); delay.delay = 4;
+  const q = mk(NodeType.QUEUE, 500, 300, 'Desk'); q.processTime = 3; q.servers = 2; q.maxLine = 10; q.patience = 5;
+  const trader = mk(NodeType.TRADER, 700, 100, 'Swap'); trader.activation = 'interactive';
+
+  const c = (a, b, t) => d.addConnection(new MConnection(a.id, b.id, t));
+  const c1 = c(src1, pool); c1.rate = 2; c1.interval = 3; c1.chance = 40;
+  c1.condEnabled = true; c1.condOperator = 'between'; c1.condValue = 2; c1.condValue2 = 8;
+  const c2 = c(pool, drain); c2.rateMode = RateMode.DICE; c2.dice = '2d6'; c2.colorFilter = '#ffd54f';
+  const c3 = c(pool, gate); c3.rateMode = RateMode.FORMULA; c3.formula = 'mine_rate * 2';
+  const c4 = c(gate, conv); c4.rateMode = RateMode.DISTRIBUTION; c4.distType = 'poisson'; c4.distParam1 = 3;
+  c4.weight = 3; c4.pathStyle = 'ortho'; c4.bendPct = 0.3; c4.waypoints = [{ x: 1, y: 2 }, { x: 3, y: 4 }];
+  const c5 = c(gate, delay); c5.weightFormula = 'luck * 2'; c5.labelT = 0.25; c5.label = 'lucky path';
+  const c6 = c(pool, reg, ConnectionType.STATE); c6.variableName = 'gold';
+  const c7 = c(reg, conv, ConnectionType.STATE); c7.activator = true; c7.actOperator = 'between'; c7.actValue = 1; c7.actValue2 = 99;
+  const c8 = c(src1, trader, ConnectionType.STATE); c8.trigger = true; c8.triggerChance = 50; c8.triggerEvery = 2;
+  const c9 = c(drain, pool2, ConnectionType.STATE); c9.reverseTrigger = true;
+  const c10 = c(reg, pool2, ConnectionType.STATE); c10.modifier = true; c10.modMode = 'delta'; c10.modFactor = 2;
+  const c11 = c(reg2, multi, ConnectionType.STATE); c11.modifier = true; c11.modFormula = 'round(score * 0.1)';
+  const c12 = c(pool2, drain); c12.condEnabled = true; c12.condRefMode = 'variable'; c12.condVariable = 'gold';
+  c12.condOperator = '>'; c12.condValue = 5; c12.cpDx = 10; c12.cpDy = -20;
+
+  d.addGroup(Object.assign(new MGroup(50, 50, 400, 300), { label: 'Economy Core', color: '#7cb342' }));
+  d.addNote(Object.assign(new MNote(600, 50), { text: 'Note with "quotes" and\nnewline' }));
+  const ch = new MChart(700, 300); ch.label = 'Gold over time'; ch.nodeIds = [pool.id, pool2.id]; ch.chartType = 'area';
+  d.addChart(ch);
+  return d;
+}
+
+test('kitchen-sink diagram round-trips through .econ text', () => {
+  const json1 = kitchenSink().toJSON();
+  const json2 = dslParse(dslSerialize(json1));
+  const a = JSON.stringify(normalizeEconJSON(json1));
+  const b = JSON.stringify(normalizeEconJSON(json2));
+  eq(b, a, 'normalized JSON identical after text round trip');
+});
+
+test('serialize∘parse is a fixpoint on .econ text', () => {
+  const t1 = dslSerialize(kitchenSink().toJSON());
+  const t2 = dslSerialize(dslParse(t1));
+  eq(t2, t1, 'second serialization byte-identical');
+});
+
+test('parsed .econ loads into a Diagram and simulates', () => {
+  const json = dslParse([
+    'name: Terse Mine',
+    'param rate = 2',
+    'source Mine @ 80,100',
+    'pool Gold @ 240,100 goal >= 19',
+    'drain Spend @ 400,100',
+    'Mine -> Gold : (rate)',
+    'Gold -> Spend : 1',
+  ].join('\n'));
+  const d = new Diagram(); d.loadJSON(json);
+  const e = new SimEngine(d);
+  e.reset();
+  for (let i = 0; i < 50 && !e.ended; i++) e.doStep();
+  assert(e.ended, 'goal reached');
+  eq(e.ended.step, 18, 'net +1 per step after the first reaches 19 at step 18');
+});
+
+test('.econ sugar: recipes, types, colors, conditions, distributions', () => {
+  const json = dslParse([
+    'type Wood = #8d6e63',
+    'source Lumber @ 0,0 color=Wood',
+    'pool Store @ 100,0 = 5 of Wood cap=50',
+    'converter Mill @ 200,0 recipe(2 Wood, 1 #b0bec5) out=#ffa726',
+    'queue Line @ 300,0 time=3 servers=2',
+    'Lumber -> Store : ~poisson(3, 2) 40% every=2 if="self < 40"',
+    'Store -> Mill : 2d6 color=Wood',
+  ].join('\n'));
+  const src = json.nodes.find(n => n.label === 'Lumber');
+  eq(src.resourceColor, '#8d6e63', 'type name resolved to color');
+  const store = json.nodes.find(n => n.label === 'Store');
+  eq(store.capacity, 50, 'cap alias');
+  eq(store.colorMap['#8d6e63'], 5, 'start amount typed by name');
+  const mill = json.nodes.find(n => n.label === 'Mill');
+  eq(mill.inputRecipe.length, 2, 'recipe parsed');
+  eq(mill.inputRecipe[0].color, '#8d6e63', 'recipe type name resolved');
+  eq(mill.outputColor, '#ffa726', 'out alias');
+  const line = json.nodes.find(n => n.label === 'Line');
+  eq(line.processTime, 3, 'time alias'); eq(line.servers, 2, 'servers kept');
+  const c1 = json.connections[0];
+  eq(c1.rateMode, 'distribution', 'distribution rate');
+  eq(c1.distType, 'poisson', 'dist type'); eq(c1.distParam1, 3, 'dist p1');
+  eq(c1.chance, 40, 'percent token'); eq(c1.interval, 2, 'every alias');
+  assert(c1.condEnabled, 'if enables condition'); eq(c1.condOperator, '<', 'cond op');
+  const c2 = json.connections[1];
+  eq(c2.rateMode, 'dice', 'dice rate'); eq(c2.colorFilter, '#8d6e63', 'color filter via type');
+});
+
+test('.econ duplicate labels disambiguate with #N and resolve back', () => {
+  const d = new Diagram();
+  const a = d.addNode(new MNode(NodeType.POOL, 0, 0)); a.label = 'Gold';
+  const b = d.addNode(new MNode(NodeType.POOL, 10, 0)); b.label = 'Gold';
+  d.addConnection(new MConnection(a.id, b.id));
+  const text = dslSerialize(d.toJSON());
+  assert(text.includes('Gold#2'), 'second Gold gets a #2 suffix');
+  const back = dslParse(text);
+  eq(back.connections[0].sourceId, back.nodes[0].id, 'first Gold resolved');
+  eq(back.connections[0].targetId, back.nodes[1].id, '#2 resolved to second node');
+});
+
+test('.econ assert directive round-trips diagram assertions', () => {
+  const json = dslParse([
+    'source Mine @ 0,0', 'pool Gold @ 100,0',
+    'Mine -> Gold : 2',
+    'assert "always Gold < 100"',
+    'assert eventually Gold >= 5', // unquoted remainder also accepted
+  ].join('\n'));
+  eq(json.assertions.length, 2, 'both assert lines parsed');
+  eq(json.assertions[0], 'always Gold < 100', 'quoted form');
+  eq(json.assertions[1], 'eventually Gold >= 5', 'bare form');
+  const d = new Diagram(); d.loadJSON(json);
+  eq(d.assertions.length, 2, 'Diagram carries assertions');
+  const text = dslSerialize(d.toJSON());
+  eq((text.match(/^assert /gm) || []).length, 2, 'serializer writes assert lines');
+  eq(JSON.stringify(dslParse(text).assertions), JSON.stringify(json.assertions), 'assertions survive the round trip');
+});
+
+test('.econ parse errors carry the line number', () => {
+  let threw = null;
+  try { dslParse('pool A @ 0,0\n???'); } catch (e) { threw = e; }
+  assert(threw, 'throws on garbage');
+  eq(threw.line, 2, 'line number attached');
+  assert(/line 2/.test(threw.message), 'message names the line');
+  threw = null;
+  try { dslParse('A -> B : 1'); } catch (e) { threw = e; }
+  assert(threw && /unknown node reference/.test(threw.message), 'unknown ref reported');
+});
+
+// ── Economy as code: assertions ─────────────────────────────────────────────
+console.log('\nEconomy as code: assertions');
+
+function assertRig() {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const p = node(d, NodeType.POOL); p.label = 'Gold Pool';
+  conn(d, s, p).rate = 2;
+  return { d, e, p };
+}
+
+function runChecked(e, srcs, steps) {
+  const checker = new AssertionChecker(srcs.map(parseAssertion));
+  e.reset();
+  checker.check(e);
+  for (let i = 0; i < steps && !e.ended; i++) { e.doStep(); checker.check(e); }
+  return checker.finish(e);
+}
+
+test('parseAssertion understands every quantifier form', () => {
+  eq(parseAssertion('always x > 1').quant, 'always', 'always');
+  eq(parseAssertion('never x > 1').quant, 'never', 'never');
+  eq(parseAssertion('eventually x > 1').quant, 'eventually', 'eventually');
+  eq(parseAssertion('at end: x > 1').quant, 'end', 'at end');
+  eq(parseAssertion('at step 25: x > 1').quant, 'step', 'at step');
+  eq(parseAssertion('at step 25: x > 1').atStep, 25, 'step number');
+  eq(parseAssertion('x > 1').quant, 'end', 'bare expression defaults to end');
+  eq(parseAssertion('always: x > 1').expr, 'x > 1', 'optional colon');
+  let threw = false;
+  try { parseAssertion('always +++'); } catch { threw = true; }
+  assert(threw, 'rejects an unparseable expression');
+});
+
+test('always reports the first violating step; never is its inverse', () => {
+  const { e } = assertRig();
+  const res = runChecked(e, ['always Gold_Pool < 5', 'never Gold_Pool >= 5'], 10);
+  assert(!res[0].pass, 'always fails');
+  eq(res[0].failStep, 3, 'first violation at step 3 (2/step: 6 >= 5)');
+  assert(!res[1].pass, 'never fails at the same step');
+  eq(res[1].failStep, 3, 'same step');
+});
+
+test('eventually, at end and at step semantics', () => {
+  const { e } = assertRig();
+  const res = runChecked(e, [
+    'eventually Gold_Pool >= 10',
+    'at end: Gold_Pool == 20',
+    'at step 4: Gold_Pool == 8',
+    'at step 99: Gold_Pool > 0',
+    'Gold_Pool == 20',
+  ], 10);
+  assert(res[0].pass, 'eventually met');
+  assert(/step 5/.test(res[0].detail), 'reports first-true step');
+  assert(res[1].pass, 'at end true');
+  assert(res[2].pass, 'at step 4 true');
+  assert(!res[3].pass, 'step beyond run length fails');
+  assert(/before step 99/.test(res[3].detail), 'explains the short run');
+  assert(res[4].pass, 'bare expression checked at end');
+});
+
+test('assertion scope: sanitized labels, duplicates, variables, step', () => {
+  const { d, e } = setup();
+  const a = node(d, NodeType.POOL); a.label = 'My Gold!'; a.setCount(7);
+  const b = node(d, NodeType.POOL); b.label = 'My Gold!'; b.setCount(3);
+  d.params = { bonus: 5 };
+  e.reset();
+  const scope = assertionScope(e);
+  eq(scope.My_Gold, 7, 'label sanitized to identifier');
+  eq(scope.My_Gold_2, 3, 'duplicate label suffixed');
+  eq(scope.bonus, 5, 'params visible via variables');
+  eq(scope.step, 0, 'step in scope');
+});
+
+test('Monte Carlo perStep/onTrialEnd hooks check every trial', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE);
+  const p = node(d, NodeType.POOL); p.label = 'P';
+  conn(d, s, p).rate = 1;
+  const parsed = [parseAssertion('at end: P == 5')];
+  const checkers = new Map();
+  const results = [];
+  e.runMonteCarlo(4, 5, {
+    perStep: (eng, r) => {
+      if (!checkers.has(r)) checkers.set(r, new AssertionChecker(parsed));
+      checkers.get(r).check(eng);
+    },
+    onTrialEnd: (eng, r) => { results[r] = checkers.get(r).finish(eng); },
+  });
+  eq(results.length, 4, 'one result set per trial');
+  assert(results.every(rs => rs[0].pass), 'assertion holds in every trial');
+});
+
+// ── Economy as code: generated module ───────────────────────────────────────
+console.log('\nEconomy as code: generated module');
+
+function buildTestModule(diagramJSON) {
+  const base = path.join(__dirname, '..', 'js');
+  const src = buildEconomyModule(diagramJSON,
+    fs.readFileSync(path.join(base, 'model.js'), 'utf8'),
+    fs.readFileSync(path.join(base, 'engine.js'), 'utf8'),
+    { generator: 'test/run.js' });
+  const mod = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function('module', 'exports', src)(mod, mod.exports);
+  return mod.exports;
+}
+
+test('generated module simulates the embedded economy', () => {
+  const { d } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const p = node(d, NodeType.POOL); p.label = 'Gold';
+  conn(d, s, p).rate = 2;
+  const Economy = buildTestModule(d.toJSON());
+  const eco = Economy.createEconomy();
+  eco.run(10);
+  eq(eco.get('Gold'), 20, 'module run matches the engine');
+  eq(eco.t, 10, 'clock advanced');
+  eq(eco.values().Gold, 20, 'values() maps labels');
+  eco.reset();
+  eq(eco.t, 0, 'reset rewinds');
+  eq(eco.get('Gold'), 0, 'reset restores the baseline');
+});
+
+test('generated module honors seed and param overrides deterministically', () => {
+  const { d } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const p = node(d, NodeType.POOL); p.label = 'Gold';
+  const c1 = conn(d, s, p); c1.rateMode = RateMode.DICE; c1.dice = '1d6';
+  d.params = { level: 1 };
+  const Economy = buildTestModule(d.toJSON());
+  const runOnce = () => Economy.createEconomy({ seed: 'k', params: { level: 4 } }).run(20).get('Gold');
+  const a = runOnce(), b = runOnce();
+  eq(a, b, 'same seed, same result');
+  const eco = Economy.createEconomy({ params: { level: 4 } });
+  eq(eco.diagram.params.level, 4, 'param override applied');
+  const other = Economy.createEconomy({ seed: 'different-seed' }).run(20).get('Gold');
+  assert(typeof other === 'number', 'other seed still simulates');
+});
+
+test('generated module set() and fire() manipulate the live run', () => {
+  const { d } = setup();
+  const p = node(d, NodeType.POOL); p.label = 'Gold'; p.setCount(5);
+  const dr = node(d, NodeType.DRAIN); dr.label = 'Sink';
+  const btn = node(d, NodeType.POOL); btn.label = 'Buy'; btn.activation = ActivationMode.INTERACTIVE;
+  conn(d, p, dr).rate = 1;
+  const Economy = buildTestModule(d.toJSON());
+  const eco = Economy.createEconomy();
+  eco.set('Gold', 100);
+  eq(eco.get('Gold'), 100, 'set() writes a pool');
+  let threw = false;
+  try { eco.set('Sink', 1); } catch { threw = true; }
+  assert(threw, 'set() rejects a drain');
+  eco.fire('Buy'); // interactive node fires without throwing
+  let steps = 0;
+  eco.onStep(() => steps++);
+  eco.step(3);
+  eq(steps, 3, 'onStep callback saw each step');
+});
+
+// ── The why layer: feedback-loop detection ──────────────────────────────────
+console.log('\nFeedback loops');
+
+test('modifier self-loop classifies by factor sign (interest R, decay B)', () => {
+  const { d } = setup();
+  const p = node(d, NodeType.POOL); p.label = 'Bank'; p.setCount(100);
+  const grow = conn(d, p, p, ConnectionType.STATE);
+  grow.modifier = true; grow.modMode = 'rate'; grow.modFactor = 0.1;
+  let r = detectLoops(d);
+  eq(r.loops.length, 1, 'one loop');
+  eq(r.loops[0].type, 'R', 'positive interest reinforces');
+  eq(r.loops[0].labels.join(','), 'Bank', 'self loop names the pool');
+  grow.modFactor = -0.1;
+  r = detectLoops(d);
+  eq(r.loops[0].type, 'B', 'decay balances');
+});
+
+test('two-node modifier loop: signs multiply (+,− is balancing)', () => {
+  const { d } = setup();
+  const prey = node(d, NodeType.POOL); prey.label = 'Prey'; prey.setCount(50);
+  const pred = node(d, NodeType.POOL); pred.label = 'Predators'; pred.setCount(5);
+  const up = conn(d, prey, pred, ConnectionType.STATE);
+  up.modifier = true; up.modFactor = 0.05;       // more prey feeds predators
+  const down = conn(d, pred, prey, ConnectionType.STATE);
+  down.modifier = true; down.modFactor = -0.2;   // predators eat prey
+  const r = detectLoops(d);
+  eq(r.loops.length, 1, 'one cycle');
+  eq(r.loops[0].type, 'B', 'predator-prey is a balancing loop');
+  eq(r.loops[0].nodes.length, 2, 'two nodes in the cycle');
+});
+
+test('pure resource cycles are circulations (F), not feedback', () => {
+  const { d } = setup();
+  const a = node(d, NodeType.POOL); a.label = 'TownA'; a.setCount(10);
+  const b = node(d, NodeType.POOL); b.label = 'TownB';
+  conn(d, a, b).rate = 1;
+  conn(d, b, a).rate = 1;
+  const r = detectLoops(d);
+  eq(r.loops.length, 1, 'one cycle');
+  eq(r.loops[0].type, 'F', 'flow-only cycle is a circulation');
+});
+
+test('activator operator sets link sign; register formulas probe numerically', () => {
+  const { d } = setup();
+  // Pool publishes gold; register doubles it; register activates the drain
+  // connection's source pool only while low (a < condition = negative link);
+  // drain lowers the pool: a balancing control loop.
+  const pool = node(d, NodeType.POOL); pool.label = 'Gold'; pool.setCount(20);
+  const reg = node(d, NodeType.REGISTER); reg.label = 'Score'; reg.formula = 'gold * 2';
+  const pub = conn(d, pool, reg, ConnectionType.STATE); pub.variableName = 'gold';
+  const act = conn(d, reg, pool, ConnectionType.STATE);
+  act.activator = true; act.actOperator = '<'; act.actValue = 100;
+  const r = detectLoops(d);
+  eq(r.loops.length, 1, 'one loop through the register');
+  const loop = r.loops[0];
+  eq(loop.type, 'B', 'one negative activator link makes it balancing');
+  // The formula edge (gold → Score) probed positive; activator negative.
+  const signs = loop.links.map(l => l.sign).sort().join(',');
+  eq(signs, '-1,1', 'probe found +, operator found −');
+});
+
+test('negative-slope rate formulas probe as balancing feedback', () => {
+  const { d } = setup();
+  const src = node(d, NodeType.SOURCE); src.label = 'Mint';
+  const pool = node(d, NodeType.POOL); pool.label = 'Gold'; pool.setCount(0);
+  const reg = node(d, NodeType.REGISTER); reg.label = 'Level';
+  conn(d, pool, reg, ConnectionType.STATE).variableName = 'gold';
+  const flow = conn(d, src, pool);
+  flow.rateMode = RateMode.FORMULA; flow.formula = 'max(0, 10 - gold)';
+  const r = detectLoops(d);
+  // gold → (rate formula, negative slope) → Gold inflow: a balancing loop.
+  const b = r.loops.find(l => l.type === 'B');
+  assert(b, 'balancing loop found via formula probe');
+  assert(b.links.some(l => l.sign === -1), 'formula edge probed negative');
+});
+
+test('triggers are positive links; reverse triggers negative', () => {
+  const { d } = setup();
+  const a = node(d, NodeType.POOL); a.label = 'A'; a.setCount(1);
+  const b = node(d, NodeType.POOL); b.label = 'B'; b.setCount(1);
+  const t1 = conn(d, a, b, ConnectionType.STATE); t1.trigger = true;
+  const t2 = conn(d, b, a, ConnectionType.STATE); t2.reverseTrigger = true;
+  const r = detectLoops(d);
+  eq(r.loops.length, 1, 'one loop');
+  eq(r.loops[0].type, 'B', 'trigger (+) times reverse trigger (−) balances');
+});
+
+test('loop enumeration dedupes, caps and reports truncation', () => {
+  const { d } = setup();
+  // A dense all-to-all state-modifier graph has factorially many cycles.
+  const nodes = [];
+  for (let i = 0; i < 7; i++) { const n = node(d, NodeType.POOL); n.label = 'N' + i; nodes.push(n); }
+  for (const x of nodes) for (const y of nodes) {
+    if (x === y) continue;
+    const c = conn(d, x, y, ConnectionType.STATE);
+    c.modifier = true; c.modFactor = 1;
+  }
+  const r = detectLoops(d, { maxLoops: 25 });
+  eq(r.loops.length, 25, 'capped at maxLoops');
+  assert(r.truncated, 'truncation reported');
+  const keys = new Set(r.loops.map(l => l.nodes.join('>')));
+  eq(keys.size, 25, 'no duplicate cycles');
+});
+
+test('cli --loops prints the loop table', () => {
+  const { execFileSync } = require('child_process');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'loops-test-'));
+  const f = path.join(dir, 'loop.econ');
+  fs.writeFileSync(f, [
+    'pool Bank @ 0,0 = 100',
+    'Bank ~> Bank mod="rate 0.1"',
+  ].join('\n'));
+  const out = execFileSync(process.execPath, [path.join(__dirname, '..', 'cli.js'), f, '--loops'], { encoding: 'utf8' });
+  assert(/^R  Bank -> Bank/m.test(out), 'reinforcing self-loop printed');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── Phase portrait chart type ───────────────────────────────────────────────
+console.log('\nPhase portraits');
+
+test('phase chart type round-trips through JSON and .econ text', () => {
+  const d = new Diagram();
+  const a = d.addNode(new MNode(NodeType.POOL, 0, 0)); a.label = 'Prey';
+  const b = d.addNode(new MNode(NodeType.POOL, 100, 0)); b.label = 'Predators';
+  const ch = new MChart(200, 0); ch.label = 'Portrait'; ch.chartType = 'phase';
+  ch.nodeIds = [a.id, b.id];
+  d.addChart(ch);
+  const back = new Diagram(); back.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  eq([...back.charts.values()][0].chartType, 'phase', 'JSON round trip keeps the type');
+  const text = dslSerialize(d.toJSON());
+  assert(/type=phase/.test(text), '.econ writes type=phase');
+  const parsed = dslParse(text);
+  eq(parsed.charts[0].chartType, 'phase', '.econ parse keeps the type');
+  eq(parsed.charts[0].nodeIds.length, 2, 'both axes tracked');
+});
+
+// ── The why layer: spike attribution ────────────────────────────────────────
+console.log('\nSpike attribution');
+
+test('history records a step-0 baseline and per-span flows', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const p = node(d, NodeType.POOL); p.label = 'Gold';
+  const c = conn(d, s, p); c.rate = 2;
+  steps(e, 3);
+  eq(e.history[0].step, 0, 'baseline at step 0');
+  eq(e.history.length, 4, 'baseline + 3 steps');
+  eq(e.history[1].flows.conns[c.id], 2, 'flow recorded on the entry');
+  eq(Object.keys(e.history[0].flows.conns).length, 0, 'baseline has no flows');
+});
+
+test('attributeChange balances inflow, outflow and delta exactly', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const p = node(d, NodeType.POOL); p.label = 'Gold';
+  const dr = node(d, NodeType.DRAIN); dr.label = 'Spend';
+  const cin = conn(d, s, p); cin.rate = 3;
+  const cout = conn(d, p, dr); cout.rate = 1;
+  steps(e, 5);
+  const a = attributeChange(d, e.history, p.id, 3);
+  eq(a.delta, 2, 'net +2 per settled step');
+  eq(a.entries.length, 2, 'one inflow, one outflow');
+  const inflow = a.entries.find(x => x.kind === 'flow in');
+  const outflow = a.entries.find(x => x.kind === 'flow out');
+  eq(inflow.amount, 3, 'inflow from Mine');
+  eq(inflow.label, 'from Mine', 'inflow labeled by source');
+  eq(outflow.amount, -1, 'outflow to Spend');
+  eq(a.residual, 0, 'fully accounted');
+  // Drain semantics: cumulative intake only, no outflows.
+  const ad = attributeChange(d, e.history, dr.id, 3);
+  eq(ad.delta, 1, 'drained grows by intake');
+  eq(ad.entries.length, 1, 'single inflow entry');
+  eq(ad.entries[0].amount, 1, 'intake amount');
+});
+
+test('modifier deltas are attributed with applied amounts', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.label = 'Bank'; p.setCount(100);
+  const m = conn(d, p, p, ConnectionType.STATE);
+  m.modifier = true; m.modMode = 'rate'; m.modFactor = 0.1;
+  steps(e, 1);
+  const a = attributeChange(d, e.history, p.id, 1);
+  eq(a.delta, 10, '10% interest applied');
+  eq(a.entries.length, 1, 'one modifier entry');
+  eq(a.entries[0].kind, 'modifier', 'kind is modifier');
+  eq(a.entries[0].amount, 10, 'applied amount recorded');
+  eq(a.residual, 0, 'fully accounted');
+});
+
+test('converter consumption lands in the residual, keeping the identity', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const cv = node(d, NodeType.CONVERTER); cv.label = 'Forge'; cv.inputAmount = 2;
+  const p = node(d, NodeType.POOL); p.label = 'Out';
+  conn(d, s, cv).rate = 2;
+  conn(d, cv, p).rate = 1;
+  steps(e, 4);
+  for (let i = 1; i < e.history.length; i++) {
+    const a = attributeChange(d, e.history, cv.id, i);
+    const sum = a.entries.reduce((x, y) => x + y.amount, 0) + a.residual;
+    eq(sum, a.delta, `identity holds at entry ${i}`);
+  }
+});
+
+test('flows merge through stride decimation: attribution still adds up', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const p = node(d, NodeType.POOL); p.label = 'Gold';
+  const c = conn(d, s, p); c.rate = 1;
+  steps(e, 1500); // stride doubles past 600 entries
+  assert(e._histStride > 1, 'stride actually doubled');
+  for (let i = 1; i < e.history.length; i++) {
+    const a = attributeChange(d, e.history, p.id, i);
+    const span = e.history[i].step - e.history[i - 1].step;
+    eq(a.delta, span, `delta spans ${span} steps at entry ${i}`);
+    eq(a.entries[0].amount, span, 'merged flows cover the whole span');
+    eq(a.residual, 0, 'nothing lost in decimation');
+  }
+});
+
+test('attributeChange handles registers and the run start', () => {
+  const { d, e } = setup();
+  const p = node(d, NodeType.POOL); p.label = 'Gold'; p.setCount(4);
+  const r = node(d, NodeType.REGISTER); r.label = 'Score'; r.formula = 'gold * 2';
+  conn(d, p, r, ConnectionType.STATE).variableName = 'gold';
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  conn(d, s, p).rate = 1;
+  steps(e, 2);
+  const a0 = attributeChange(d, e.history, p.id, 0);
+  assert(a0.initial, 'index 0 flagged as run start');
+  const ar = attributeChange(d, e.history, r.id, 2);
+  assert(ar.register, 'register flagged');
+  eq(ar.entries.length, 0, 'no flow entries for a register');
+  assert(Math.abs(ar.delta - 2) < 1e-9, 'register delta reflects formula inputs');
+});
+
+test('cli --why prints an attribution table', () => {
+  const { execFileSync } = require('child_process');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'why-test-'));
+  const f = path.join(dir, 'mine.econ');
+  fs.writeFileSync(f, [
+    'source Mine @ 0,0', 'pool Gold @ 100,0', 'drain Spend @ 200,0',
+    'Mine -> Gold : 3', 'Gold -> Spend : 1',
+  ].join('\n'));
+  const cli = path.join(__dirname, '..', 'cli.js');
+  const run = (args) => {
+    try {
+      return execFileSync(process.execPath, [cli, ...args],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) { return String(err.stderr || ''); }
+  };
+  // Capture stderr: spawn with stderr piped via a wrapper.
+  const { spawnSync } = require('child_process');
+  const res = spawnSync(process.execPath, [cli, f, '--steps', '10', '--why', 'Gold@5'], { encoding: 'utf8' });
+  assert(/why Gold: step 4 -> 5/.test(res.stderr), 'header names node and span');
+  assert(/\+3\s+from Mine \(flow in\)/.test(res.stderr), 'inflow row printed');
+  assert(/-1\s+to Spend \(flow out\)/.test(res.stderr), 'outflow row printed');
+  const bad = spawnSync(process.execPath, [cli, f, '--steps', '5', '--why', 'Nope'], { encoding: 'utf8' });
+  eq(bad.status, 1, 'unknown node fails fast');
+  assert(run([f, '--steps', '5']).length > 0, 'plain run unaffected');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── Economy as code: CLI end-to-end ─────────────────────────────────────────
+console.log('\nEconomy as code: CLI');
+
+test('cli runs .econ input, checks assertions and converts formats', () => {
+  const { execFileSync } = require('child_process');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'econ-test-'));
+  const econPath = path.join(dir, 'mine.econ');
+  fs.writeFileSync(econPath, [
+    'name: CLI Mine',
+    'source Mine @ 0,0', 'pool Gold @ 100,0', 'drain Spend @ 200,0',
+    'Mine -> Gold : 2', 'Gold -> Spend : 1',
+  ].join('\n'));
+  const cli = path.join(__dirname, '..', 'cli.js');
+  const run = (args) => {
+    try { return { out: execFileSync(process.execPath, [cli, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), code: 0 }; }
+    catch (e) { return { out: String(e.stdout || ''), err: String(e.stderr || ''), code: e.status }; }
+  };
+  const ok = run([econPath, '--steps', '10', '--assert', 'always Gold <= 11', '--assert', 'eventually Gold >= 5']);
+  eq(ok.code, 0, 'passing assertions exit 0');
+  const bad = run([econPath, '--steps', '10', '--assert', 'always Gold < 5']);
+  eq(bad.code, 2, 'failing assertion exits 2');
+  assert(/violated at step/.test(bad.err), 'failure detail printed');
+  const dsl = run([econPath, '--to-dsl']);
+  assert(/Mine -> Gold : 2/.test(dsl.out), '--to-dsl emits .econ text');
+  const jsonOut = run([econPath, '--to-json']);
+  const parsed = JSON.parse(jsonOut.out);
+  eq(parsed.nodes.length, 3, '--to-json emits loadable JSON');
+  // First step nets +2 (the pool has nothing to drain yet), then +1 per step.
+  const mc = run([econPath, '--steps', '10', '--runs', '5', '--seed', '1', '--assert', 'at end: Gold == 11']);
+  eq(mc.code, 0, 'Monte Carlo assertions pass across trials');
+  const emitPath = path.join(dir, 'eco.module.js');
+  const emit = run([econPath, '--emit', emitPath]);
+  eq(emit.code, 0, '--emit exits 0');
+  const Economy = require(emitPath);
+  eq(Economy.createEconomy().run(10).get('Gold'), 11, 'emitted module simulates');
+
+  // --check runs the assertions embedded in the file itself.
+  const withChecks = path.join(dir, 'checked.econ');
+  fs.writeFileSync(withChecks, [
+    'source Mine @ 0,0', 'pool Gold @ 100,0',
+    'Mine -> Gold : 2',
+    'assert "always Gold <= 20"',
+  ].join('\n'));
+  eq(run([withChecks, '--steps', '10', '--check']).code, 0, '--check passes embedded suite');
+  const failing = run([withChecks, '--steps', '20', '--check']);
+  eq(failing.code, 2, '--check fails when the embedded assertion breaks');
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 // ── Results ─────────────────────────────────────────────────────────────────

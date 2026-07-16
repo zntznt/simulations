@@ -449,6 +449,406 @@ class AppAnalysis {
     });
     a.click();
   }
+
+  // ── Design tests (assertions) ───────────────────────────────────────────────
+  // The Checks rail panel: edit the assertions saved with the diagram and check
+  // them against a fresh isolated run, or across a Monte Carlo batch, without
+  // touching the live canvas state. CLI twin: `node cli.js <file> --check`.
+
+  _designTestsPanel(panel) {
+    this._info(panel, 'Design tests are saved with the diagram and checked against a fresh run, so the canvas state is never touched. The command line runs the same checks with node cli.js file --check and exits with code 2 on failure, which makes balance regressions fail CI.');
+
+    const list = this.diagram.assertions;
+    list.forEach((src, i) => {
+      const row = document.createElement('div');
+      row.className = 'prop-row';
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.value = src;
+      inp.placeholder = 'always gold < 500';
+      inp.style.cssText = 'flex:1;font-family:monospace;font-size:11px;min-width:0;';
+      const validate = () => {
+        let ok = true;
+        try { parseAssertion(inp.value); } catch { ok = false; }
+        const flag = !ok && inp.value.trim();
+        inp.style.borderColor = flag ? 'var(--red)' : '';
+        inp.title = flag ? 'Does not parse. Use a quantifier (always, never, eventually, at end, at step N) plus a formula.' : '';
+      };
+      validate();
+      // Update live while typing; the panel's delegated change listener
+      // commits one undo step on blur (same pattern as the Params editor).
+      inp.addEventListener('input', () => { list[i] = inp.value; validate(); });
+      const del = document.createElement('button');
+      del.className = 'btn';
+      del.style.cssText = 'padding:2px 8px;flex-shrink:0';
+      del.setAttribute('aria-label', 'Delete check');
+      del.appendChild(this._faIcon('xmark'));
+      del.addEventListener('click', () => { list.splice(i, 1); this._renderProps(); this._commit(); });
+      row.appendChild(inp); row.appendChild(del);
+      panel.appendChild(row);
+    });
+
+    if (!list.length) {
+      const p = document.createElement('p');
+      p.className = 'props-empty';
+      p.textContent = 'No checks yet. Examples: always gold < 500, eventually score >= 100, at step 25: queue <= 3. Node labels (spaces become underscores), variables and step are all usable in the formula.';
+      panel.appendChild(p);
+    }
+
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ Add check';
+    addBtn.className = 'btn var-add-btn';
+    addBtn.addEventListener('click', () => { list.push(''); this._renderProps(); this._commit(); });
+    panel.appendChild(addBtn);
+
+    this._section(panel, 'Check against a run');
+    this._field(panel, 'Steps', 'number', this._checkSteps ?? 200, v => {
+      this._checkSteps = Math.max(1, parseInt(v) || 200);
+    });
+    this._field(panel, 'Monte Carlo runs', 'number', this._checkRuns ?? 100, v => {
+      this._checkRuns = Math.max(1, parseInt(v) || 100);
+    });
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:6px;margin-top:6px;';
+    const onceBtn = document.createElement('button');
+    onceBtn.className = 'btn';
+    onceBtn.id = 'check-run-once';
+    onceBtn.style.flex = '1';
+    onceBtn.append(this._faIcon('play'), ' Check once');
+    const mcBtn = document.createElement('button');
+    mcBtn.className = 'btn';
+    mcBtn.id = 'check-run-mc';
+    mcBtn.style.flex = '1';
+    mcBtn.append(this._faIcon('dice'), ' Check batch');
+    btnRow.appendChild(onceBtn); btnRow.appendChild(mcBtn);
+    panel.appendChild(btnRow);
+
+    const results = document.createElement('div');
+    results.id = 'design-check-results';
+    results.style.marginTop = '8px';
+    panel.appendChild(results);
+    if (this._checkResults) this._renderCheckResults(results, this._checkResults);
+
+    const busy = (on, msg) => {
+      onceBtn.disabled = on; mcBtn.disabled = on;
+      if (on) results.textContent = msg;
+    };
+    onceBtn.addEventListener('click', async () => {
+      this.engine.stop(); this._syncRunButton();
+      busy(true, 'Checking, one run…');
+      this._checkResults = await this._runDesignChecks(this._checkSteps ?? 200);
+      busy(false);
+      this._renderCheckResults(results, this._checkResults);
+    });
+    mcBtn.addEventListener('click', async () => {
+      this.engine.stop(); this._syncRunButton();
+      const runs = this._checkRuns ?? 100;
+      busy(true, `Checking, ${runs} runs…`);
+      this._checkResults = await this._runDesignChecksMC(runs, this._checkSteps ?? 200,
+        (done, total) => { results.textContent = `Checking run ${done} / ${total}…`; });
+      busy(false);
+      this._renderCheckResults(results, this._checkResults);
+    });
+  }
+
+  // Parse the saved assertion list into checkable + broken entries.
+  _parseDesignChecks() {
+    const valid = [], invalid = [];
+    for (const s of this.diagram.assertions || []) {
+      const t = String(s || '').trim();
+      if (!t) continue;
+      try { valid.push(parseAssertion(t)); }
+      catch { invalid.push({ src: t, pass: false, detail: 'does not parse', invalid: true }); }
+    }
+    return { valid, invalid };
+  }
+
+  // Check the saved assertions against one fresh isolated run (the diagram's
+  // own seed applies, like the CLI). Resolves to a result object for
+  // _renderCheckResults; also used directly by the smoke test.
+  async _runDesignChecks(steps = 200) {
+    const { valid, invalid } = this._parseDesignChecks();
+    const base = this.diagram.toJSON();
+    const dg = new Diagram();
+    dg.loadJSON(typeof structuredClone === 'function' ? structuredClone(base) : JSON.parse(JSON.stringify(base)));
+    const eng = new SimEngine(dg);
+    const checker = new AssertionChecker(valid);
+    eng.reset();
+    checker.check(eng);
+    for (let i = 0; i < steps && !eng.ended; i++) { eng.doStep(); checker.check(eng); }
+    // Never leak the clone's seeded stream into the live session.
+    if (dg.seed) SimRandom.seed(null);
+    return { mode: 'single', steps: eng.step, ended: !!eng.ended, results: [...checker.finish(eng), ...invalid] };
+  }
+
+  // Check the saved assertions inside every trial of a Monte Carlo batch
+  // (seeded from the diagram's run seed when one is set).
+  async _runDesignChecksMC(runs = 100, steps = 200, onProgress = null) {
+    const { valid, invalid } = this._parseDesignChecks();
+    const checkers = new Map();
+    const perRun = [];
+    await this.engine.runMonteCarloAsync(runs, steps, {
+      seed: this.diagram.seed || null,
+      perStep: (eng, r) => {
+        if (!checkers.has(r)) checkers.set(r, new AssertionChecker(valid));
+        checkers.get(r).check(eng);
+      },
+      onTrialEnd: (eng, r) => { perRun[r] = checkers.get(r).finish(eng); checkers.delete(r); },
+      onProgress,
+    });
+    let cleanRuns = 0;
+    const agg = valid.map(a => ({ src: a.src, fails: 0, first: null }));
+    for (let r = 0; r < perRun.length; r++) {
+      let clean = true;
+      (perRun[r] || []).forEach((res, i) => {
+        if (!res.pass) {
+          clean = false;
+          agg[i].fails++;
+          if (!agg[i].first) agg[i].first = `run ${r + 1}: ${res.detail}`;
+        }
+      });
+      if (clean) cleanRuns++;
+    }
+    return { mode: 'mc', runs, steps, cleanRuns, results: agg, invalid };
+  }
+
+  // ── Feedback loops panel ────────────────────────────────────────────────────
+  // The Loops rail panel: detect every feedback cycle in the causal graph
+  // (js/loops.js), classify it, and spotlight it on the canvas on click.
+
+  _loopsPanel(panel) {
+    this._info(panel, 'Every feedback cycle in the diagram, found across flows, triggers, activators, modifiers and formula reads. R loops amplify (even count of negative links), B loops stabilize (odd count), F is a pure resource circulation and ? means a link has no clear direction. Click a loop to spotlight it on the canvas.');
+
+    const { loops, truncated } = detectLoops(this.diagram);
+    if (!loops.length) {
+      const p = document.createElement('p');
+      p.className = 'props-empty';
+      p.textContent = 'No feedback loops found. Loops appear when influence returns to where it started, for example a pool feeding a converter whose output flows back, or a register that modifies the pool it reads.';
+      panel.appendChild(p);
+      return;
+    }
+
+    const badgeColors = { R: '#bf360c', B: '#1565c0', F: '#455a64', '?': '#616161' };
+    const badgeNames = { R: 'reinforcing (amplifies)', B: 'balancing (stabilizes)', F: 'resource circulation', '?': 'unclear link direction' };
+    const signGlyph = s => (s > 0 ? '+' : (s < 0 ? '-' : '?'));
+
+    const count = document.createElement('div');
+    count.style.cssText = 'font-size:11px;color:var(--text-dim);margin-bottom:4px;';
+    const byType = loops.reduce((m, l) => { m[l.type] = (m[l.type] || 0) + 1; return m; }, {});
+    count.textContent = `${loops.length} loop${loops.length === 1 ? '' : 's'}: `
+      + ['R', 'B', 'F', '?'].filter(t => byType[t]).map(t => `${byType[t]} ${t}`).join(', ')
+      + (truncated ? ' (large graph, some longer loops omitted)' : '');
+    panel.appendChild(count);
+
+    loops.forEach((loop, i) => {
+      const row = document.createElement('div');
+      row.className = 'loop-row';
+      row.setAttribute('role', 'button');
+      row.tabIndex = 0;
+      const active = this._activeLoopIdx === i;
+      row.style.cssText = 'display:flex;align-items:baseline;gap:6px;padding:4px 6px;margin:2px 0;'
+        + 'border-radius:6px;cursor:pointer;border:1px solid '
+        + (active ? 'var(--accent)' : 'var(--border)') + ';';
+
+      const badge = document.createElement('span');
+      badge.textContent = loop.type;
+      badge.title = badgeNames[loop.type];
+      badge.style.cssText = 'display:inline-block;min-width:16px;text-align:center;padding:1px 5px;'
+        + `border-radius:9px;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;background:${badgeColors[loop.type]};`;
+
+      const body = document.createElement('div');
+      body.style.cssText = 'min-width:0;';
+      const chain = document.createElement('div');
+      chain.style.cssText = 'font-size:11px;word-break:break-word;';
+      chain.textContent = [...loop.labels, loop.labels[0]].join(' → ');
+      const detail = document.createElement('div');
+      detail.style.cssText = 'font-size:10px;color:var(--text-dim);font-family:monospace;';
+      detail.textContent = loop.links.map(l => `${signGlyph(l.sign)} ${l.kinds.join('/')}`).join(', ');
+      body.appendChild(chain); body.appendChild(detail);
+
+      row.appendChild(badge); row.appendChild(body);
+      const toggle = () => this._spotlightLoop(active ? null : i, loop);
+      row.addEventListener('click', toggle);
+      row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+      panel.appendChild(row);
+    });
+  }
+
+  // Spotlight loop `i` on the canvas (null clears). Rerenders the panel so
+  // the active row is outlined.
+  _spotlightLoop(i, loop) {
+    this._activeLoopIdx = i == null ? null : i;
+    this.renderer.emphasis = i == null ? null : {
+      nodes: new Set(loop.nodes),
+      conns: new Set(loop.connIds),
+    };
+    this.renderer.render();
+    this._renderProps();
+  }
+
+  // ── Spike attribution (why-popover) ─────────────────────────────────────────
+  // Clicking a point on the timeline asks "why did this change here": a small
+  // popover breaks the step's delta into inflows, outflows and modifiers
+  // (js/attribution.js) and spotlights the contributing connections.
+
+  _showWhyPopover(nodeId, index, clientX, clientY) {
+    this._closeWhyPopover();
+    const data = attributeChange(this.diagram, this.engine.history, nodeId, index);
+    if (!data) return;
+
+    const fmt = v => (Math.abs(v) >= 100 ? String(Math.round(v)) : String(Math.round(v * 100) / 100));
+    const signed = v => (v > 0 ? '+' : '') + fmt(v);
+
+    const pop = document.createElement('div');
+    pop.id = 'why-popover';
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-label', `Change breakdown for ${data.label}`);
+    pop.style.cssText = 'position:fixed;z-index:1000;max-width:300px;min-width:190px;'
+      + 'background:var(--panel);border:1px solid var(--border);border-radius:8px;'
+      + 'padding:10px 12px;font-size:11px;color:var(--text);box-shadow:0 8px 24px rgba(0,0,0,.45);';
+
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:baseline;gap:6px;margin-bottom:2px;';
+    const name = document.createElement('b');
+    name.textContent = data.label;
+    const span = document.createElement('span');
+    span.style.cssText = 'color:var(--text-dim);font-size:10px;';
+    span.textContent = data.initial ? 'run start'
+      : (data.fromStep + 1 === data.toStep ? `step ${data.toStep}` : `steps ${data.fromStep} → ${data.toStep}`);
+    head.appendChild(name); head.appendChild(span);
+    pop.appendChild(head);
+
+    const deltaLine = document.createElement('div');
+    deltaLine.style.cssText = 'font-family:monospace;font-size:11px;margin-bottom:6px;';
+    deltaLine.textContent = data.initial
+      ? `starts at ${fmt(data.to)}`
+      : `${fmt(data.from)} → ${fmt(data.to)}  (Δ ${signed(data.delta)})`;
+    pop.appendChild(deltaLine);
+
+    const row = (amount, label, dim) => {
+      const r = document.createElement('div');
+      r.style.cssText = 'display:flex;gap:8px;align-items:baseline;margin:2px 0;';
+      const a = document.createElement('span');
+      a.style.cssText = 'font-family:monospace;min-width:44px;text-align:right;flex-shrink:0;'
+        + `color:${amount > 0 ? 'var(--green)' : (amount < 0 ? 'var(--red)' : 'var(--text-dim)')};`;
+      a.textContent = signed(amount);
+      const t = document.createElement('span');
+      t.style.cssText = 'word-break:break-word;' + (dim ? 'color:var(--text-dim);' : '');
+      t.textContent = label;
+      r.appendChild(a); r.appendChild(t);
+      pop.appendChild(r);
+    };
+
+    if (data.initial) {
+      const p = document.createElement('div');
+      p.style.cssText = 'color:var(--text-dim);';
+      p.textContent = 'This is the run start. Click a later point to see what changed it.';
+      pop.appendChild(p);
+    } else if (data.register) {
+      const p = document.createElement('div');
+      p.style.cssText = 'color:var(--text-dim);';
+      p.textContent = 'A register recomputes its formula every step, so its change comes from the inputs the formula reads, not from flows.';
+      pop.appendChild(p);
+    } else if (!data.entries.length && data.delta === 0) {
+      const p = document.createElement('div');
+      p.style.cssText = 'color:var(--text-dim);';
+      p.textContent = 'No change across this span.';
+      pop.appendChild(p);
+    } else {
+      for (const e of data.entries) row(e.amount, `${e.label} (${e.kind})`);
+      if (data.residual !== 0) row(data.residual, 'internal changes (conversions, queue losses, clamps)', true);
+    }
+
+    const hint = document.createElement('div');
+    hint.style.cssText = 'margin-top:6px;font-size:10px;color:var(--text-dim);';
+    hint.textContent = 'Esc or click away to close';
+    pop.appendChild(hint);
+
+    document.body.appendChild(pop);
+    const rect = pop.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(clientX + 12, window.innerWidth - rect.width - 8)) + 'px';
+    pop.style.top = Math.max(8, Math.min(clientY + 12, window.innerHeight - rect.height - 8)) + 'px';
+
+    // Spotlight the node and its contributing connections while open.
+    this._whyPrevEmphasis = this.renderer.emphasis;
+    const nodes = new Set([nodeId]);
+    const conns = new Set();
+    for (const e of data.entries) {
+      if (!e.connId) continue;
+      conns.add(e.connId);
+      const c = this.diagram.connections.get(e.connId);
+      if (c) { nodes.add(c.sourceId); nodes.add(c.targetId); }
+    }
+    this.renderer.emphasis = { nodes, conns };
+    this.renderer.render();
+
+    const onKey = (e) => { if (e.key === 'Escape') this._closeWhyPopover(); };
+    const onDown = (e) => { if (!pop.contains(e.target)) this._closeWhyPopover(); };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onDown, true);
+    this._whyPopover = pop;
+    this._whyCleanup = () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onDown, true);
+    };
+  }
+
+  _closeWhyPopover() {
+    if (!this._whyPopover) return;
+    this._whyCleanup?.();
+    this._whyPopover.remove();
+    this._whyPopover = null;
+    this._whyCleanup = null;
+    this.renderer.emphasis = this._whyPrevEmphasis || null;
+    this._whyPrevEmphasis = null;
+    this.renderer.render();
+  }
+
+  _renderCheckResults(container, data) {
+    container.innerHTML = '';
+    // Darker fills than the raw tokens so white text keeps WCAG AA contrast
+    // (matches .btn-primary / the running Run button convention).
+    const chip = (pass, text) => {
+      const c = document.createElement('span');
+      c.textContent = text;
+      c.style.cssText = 'display:inline-block;padding:1px 7px;border-radius:9px;font-size:10px;'
+        + `font-weight:700;color:#fff;flex-shrink:0;background:${pass ? '#2e7d32' : '#c62828'};`;
+      return c;
+    };
+    const row = (pass, label, sub) => {
+      const r = document.createElement('div');
+      r.style.cssText = 'display:flex;align-items:baseline;gap:6px;margin:3px 0;';
+      r.appendChild(chip(pass, pass ? 'PASS' : 'FAIL'));
+      const t = document.createElement('span');
+      t.style.cssText = 'font-family:monospace;font-size:11px;word-break:break-word;';
+      t.textContent = label;
+      r.appendChild(t);
+      container.appendChild(r);
+      if (sub) {
+        const s = document.createElement('div');
+        s.style.cssText = 'margin:0 0 4px 46px;font-size:10px;color:var(--text-dim);';
+        s.textContent = sub;
+        container.appendChild(s);
+      }
+    };
+    const head = document.createElement('div');
+    head.style.cssText = 'font-size:11px;color:var(--text-dim);margin-bottom:4px;';
+    if (data.mode === 'single') {
+      head.textContent = `One run, ${data.steps} steps${data.ended ? ' (goal ended the run)' : ''}:`;
+      container.appendChild(head);
+      if (!data.results.length) { head.textContent = 'No checks to run yet.'; return; }
+      for (const r of data.results) row(r.pass, r.src, r.pass ? '' : r.detail);
+    } else {
+      head.textContent = `${data.cleanRuns} of ${data.runs} runs passed every check (${data.steps} steps each):`;
+      container.appendChild(head);
+      if (!data.results.length && !data.invalid.length) { head.textContent = 'No checks to run yet.'; return; }
+      for (const a of data.results) {
+        row(a.fails === 0, a.src, a.fails === 0 ? '' : `failed in ${a.fails}/${data.runs} runs (first: ${a.first})`);
+      }
+      for (const r of data.invalid) row(false, r.src, r.detail);
+    }
+  }
 }
 
 for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(AppAnalysis.prototype))) {

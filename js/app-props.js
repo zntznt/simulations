@@ -359,6 +359,8 @@ class AppProps {
       resources: { title: 'Resource Types',   kb: 'resource-types',    render: c => this._resourceTypesEditor(c) },
       player:    { title: 'Artificial Player', kb: 'artificial-player', render: c => this._diagramAI(c) },
       branches:  { title: 'Scenario Branches', kb: 'scenarios',         render: c => this._branchesPanel(c) },
+      checks:    { title: 'Design Tests',     kb: 'econ-assert',       render: c => this._designTestsPanel(c) },
+      loops:     { title: 'Feedback Loops',   kb: 'loops',             render: c => this._loopsPanel(c) },
       monitor:   { title: 'Live Variables',   kb: 'live-vars',         render: c => this._liveVarsReadout(c) },
     };
   }
@@ -379,6 +381,12 @@ class AppProps {
   // one again returns to the selection / hint view).
   _toggleFeature(name) {
     this._activeFeature = (this._activeFeature === name) ? null : name;
+    // Leaving the Loops panel drops its canvas spotlight.
+    if (this._activeFeature !== 'loops' && this.renderer.emphasis) {
+      this.renderer.emphasis = null;
+      this._activeLoopIdx = null;
+      this.renderer.render();
+    }
     this._syncRailButtons();
     this._renderProps();
   }
@@ -1018,7 +1026,7 @@ class AppProps {
   }
 
   // Live queue metrics (throughput, waiting time, peak line). Refreshed each
-  // step from the queue's runtime fields; "—" until the first unit is served.
+  // step from the queue's runtime fields; "n/a" until the first unit is served.
   _fillQueueMetrics(container, node) {
     const inService = (node._procs || []).length;
     const waiting = (node._fifo || []).reduce((s, it) => s + (it.amount || 0), 0);
@@ -1147,6 +1155,7 @@ class AppProps {
     typeChips.className = 'var-chip-group chart-type-chips';
     for (const [key, icon, label] of [
       ['line', 'chart-line', 'Line'], ['area', 'chart-area', 'Area'], ['bars', 'chart-column', 'Bars'], ['step', 'stairs', 'Step'],
+      ['phase', 'circle-notch', 'Phase'],
     ]) {
       const chip = document.createElement('button');
       chip.className = 'var-chip' + ((chart.chartType || 'line') === key ? ' active' : '');
@@ -1158,6 +1167,9 @@ class AppProps {
       typeChips.appendChild(chip);
     }
     panel.appendChild(typeChips);
+    if ((chart.chartType || 'line') === 'phase') {
+      this._info(panel, 'Phase plots state space instead of time: the first tracked node is the x axis, the second the y axis. The trajectory fades from oldest to newest, with a hollow dot at the start and a solid one at the live end. Orbits mean sustained cycles; spirals mean the system settles.');
+    }
 
     this._field(panel, 'Width', 'number', chart.w, v => { chart.w = Math.max(120, parseInt(v) || 240); this.renderer.render(); });
     this._field(panel, 'Height', 'number', chart.h, v => { chart.h = Math.max(80, parseInt(v) || 150); this.renderer.render(); });

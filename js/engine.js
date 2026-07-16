@@ -36,6 +36,11 @@ class SimEngine {
     this.step = 0;
     this.history = [];
     this._histStride = 1;
+    // Flow accumulator for spike attribution: resource amounts per connection
+    // and applied modifier deltas per connection, summed since the last
+    // retained history entry (so a stride-sampled entry still accounts for
+    // its whole span). Attached to each entry by _record as `flows`.
+    this._spanFlows = { conns: {}, mods: {} };
     this.ended = null;
     for (const n of this.diagram.nodes.values()) {
       const infiniteSource = n.type === NodeType.SOURCE && !n.limited;
@@ -80,6 +85,9 @@ class SimEngine {
     this._sampleCustomVars('all');
     this._updateVariables();
     this._evalRegisters();
+    // Step-0 baseline snapshot: gives charts/scrub the run's starting point
+    // and gives spike attribution a "from" value for the first real step.
+    this._record();
     if (this.onStep) this.onStep(0, [], []);
   }
 
@@ -99,6 +107,7 @@ class SimEngine {
       histStride: this._histStride,
       ended: this.ended,
       history: this.history,
+      spanFlows: this._spanFlows,
       // Seeded RNG position (null when unseeded), so a restored seeded run
       // replays the exact same stochastic draws it originally would have.
       rng: SimRandom.getState(),
@@ -124,6 +133,7 @@ class SimEngine {
     this.step = s.step;
     this._histStride = s.histStride;
     this.history = s.history;
+    this._spanFlows = s.spanFlows || { conns: {}, mods: {} };
     this.ended = s.ended;
     this._trigCounts = new Map(s.trigCounts);
     this._prevStateVals = new Map(s.prevStateVals);
@@ -150,6 +160,9 @@ class SimEngine {
     for (const n of this.diagram.nodes.values()) this._tickSnap.set(n.id, this._stateValueOf(n));
     const { fired, transfers } = this._tick();
     this._tickSnap = null; // fireInteractive between steps reads live state
+    for (const t of transfers) {
+      this._spanFlows.conns[t.connId] = (this._spanFlows.conns[t.connId] || 0) + t.amount;
+    }
     this._record();
     if (this.onStep) this.onStep(this.step, fired, transfers);
     this._checkEnd();
@@ -185,6 +198,11 @@ class SimEngine {
     this._runFireQueue([{ node, forced: true }], ctx, fired);
     this._applyPushProposals(ctx);
     this._applyCtx(ctx);
+    // Between-step flows still belong to a span: the next recorded history
+    // entry accounts for them (spike attribution reads these).
+    for (const t of ctx.transfers) {
+      this._spanFlows.conns[t.connId] = (this._spanFlows.conns[t.connId] || 0) + t.amount;
+    }
     // Pulse modifiers respond to firings, so a manual click must apply them
     // too (rate/delta modes are per-step and belong to the tick only).
     this._applyModifiers(new Set(fired), true);
@@ -1132,9 +1150,12 @@ class SimEngine {
         delta = Math.round(factor * this._stateValueOf(src)); // pre-apply snapshot
       }
       if (!isFinite(delta) || delta === 0) continue;
-      mods.push({ src, tgt, delta });
+      mods.push({ conn, src, tgt, delta });
     }
-    for (const { src, tgt, delta } of mods) {
+    for (const { conn, src, tgt, delta } of mods) {
+      // Track the APPLIED amount (capacity can clamp an add; an empty target
+      // shrinks a take) per connection, for spike attribution.
+      let applied = 0;
       if (delta > 0) {
         const room = tgt.capacity === Infinity ? delta : Math.max(0, tgt.capacity - tgt.resources);
         const add = Math.min(delta, room);
@@ -1142,9 +1163,14 @@ class SimEngine {
           const color = dominantColor(tgt.colorMap)
             || (src.type === NodeType.SOURCE ? src.resourceColor : null) || DEFAULT_COLOR;
           tgt.addResources(add, color);
+          applied = add;
         }
       } else {
-        tgt.takeResources(-delta);
+        const taken = tgt.takeResources(-delta);
+        applied = -taken.reduce((s, t) => s + t.amount, 0);
+      }
+      if (applied !== 0 && this._spanFlows) {
+        this._spanFlows.mods[conn.id] = (this._spanFlows.mods[conn.id] || 0) + applied;
       }
     }
   }
@@ -1306,6 +1332,16 @@ class SimEngine {
     return isFinite(r) ? r : 0;
   }
 
+  // Merge two span-flow records (b on top of a; either may be null).
+  static _mergeFlows(a, b) {
+    if (!a) return b || { conns: {}, mods: {} };
+    if (!b) return a;
+    const out = { conns: { ...a.conns }, mods: { ...a.mods } };
+    for (const [k, v] of Object.entries(b.conns)) out.conns[k] = (out.conns[k] || 0) + v;
+    for (const [k, v] of Object.entries(b.mods)) out.mods[k] = (out.mods[k] || 0) + v;
+    return out;
+  }
+
   _record() {
     // Adaptive stride keeps the WHOLE run at bounded memory: instead of
     // silently dropping the oldest entries, long runs are decimated — every
@@ -1317,14 +1353,32 @@ class SimEngine {
       if (n.type === NodeType.SOURCE && !n.limited) continue;
       snap[n.id] = n.chartValue;
     }
-    this.history.push({ step: this.step, snap });
+    // Each entry carries the flows accumulated over its span, so attribution
+    // still adds up exactly when the stride is larger than one step.
+    this.history.push({ step: this.step, snap, flows: this._spanFlows });
+    this._spanFlows = { conns: {}, mods: {} };
     if (this.history.length >= 600) {
       // Halve the sampling rate, dropping the snapshots that fall off the new
       // grid. Filter by step (not array index): an index-based cut would
       // strand the retained steps at the wrong phase for the doubled stride,
       // skipping the samples right after each doubling and leaving a gap.
+      // A dropped entry's flows belong to a span that now ends at the NEXT
+      // retained entry, so they merge forward instead of vanishing.
       this._histStride *= 2;
-      this.history = this.history.filter(h => h.step % this._histStride === 0);
+      const kept = [];
+      let carry = null;
+      for (const h of this.history) {
+        if (h.step % this._histStride === 0) {
+          if (carry) { h.flows = SimEngine._mergeFlows(carry, h.flows); carry = null; }
+          kept.push(h);
+        } else {
+          carry = SimEngine._mergeFlows(carry, h.flows);
+        }
+      }
+      // Trailing dropped entries: their span is still open — fold into the
+      // live accumulator so the next retained entry picks them up.
+      if (carry) this._spanFlows = SimEngine._mergeFlows(carry, this._spanFlows);
+      this.history = kept;
     }
   }
 
@@ -1335,7 +1389,10 @@ class SimEngine {
   // final value plus goal statistics. Does not touch the live diagram.
   // opts: { seed (string — makes the whole batch reproducible),
   //         baseJSON (diagram JSON to simulate instead of the live one — used
-  //         by parameter sweeps to vary params without touching the diagram) }
+  //         by parameter sweeps to vary params without touching the diagram),
+  //         perStep(engine, run) (called on each trial's engine right after
+  //         reset and again after every step — assertion checking hook),
+  //         onTrialEnd(engine, run) (called when a trial finishes) }
   runMonteCarlo(runs = 100, maxSteps = 200, opts = {}) {
     const job = this._mcTrials(runs, maxSteps, opts);
     let r = job.next();
@@ -1395,8 +1452,13 @@ class SimEngine {
         dg.seed = seeded ? `${opts.seed}#${r}` : '';
         const eng = new SimEngine(dg);
         eng.reset();
+        if (opts.perStep) opts.perStep(eng, r);
         let s = 0;
-        while (s < maxSteps && !eng.ended) { eng.doStep(); s++; }
+        while (s < maxSteps && !eng.ended) {
+          eng.doStep(); s++;
+          if (opts.perStep) opts.perStep(eng, r);
+        }
+        if (opts.onTrialEnd) opts.onTrialEnd(eng, r);
         for (const [id, arr] of samples) {
           const n = dg.nodes.get(id);
           arr.push(n ? n.chartValue : 0);

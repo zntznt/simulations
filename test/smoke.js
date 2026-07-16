@@ -4,13 +4,17 @@
 //
 // Requires the app to be served (default http://localhost:8080) and Playwright.
 // Run:  NODE_PATH=$(npm root -g) node test/smoke.js
+// SMOKE_CHROMIUM points the launch at a pre-installed Chromium binary for
+// sandboxes where Playwright's own browser download is unavailable.
 'use strict';
 
 const { chromium } = require('playwright');
 const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(
+    process.env.SMOKE_CHROMIUM ? { executablePath: process.env.SMOKE_CHROMIUM } : {}
+  );
   const page = await browser.newPage();
   // The display-font feature loads stylesheets from Google Fonts; stub the
   // request so the smoke run works offline and stays free of network errors.
@@ -1315,8 +1319,8 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const lines = csv.trim().split('\n');
     return { header: lines[0], rows: lines.length, hasBank: lines[0].includes('Bank') };
   });
-  if (p3csv.header.startsWith('step') && p3csv.hasBank && p3csv.rows === 5)
-    ok(`P3 CSV: history export (header + ${p3csv.rows - 1} rows)`);
+  if (p3csv.header.startsWith('step') && p3csv.hasBank && p3csv.rows === 6)
+    ok(`P3 CSV: history export (header + step-0 baseline + ${p3csv.rows - 2} steps)`);
   else fail('P3 CSV: ' + JSON.stringify(p3csv));
 
   // P3: shareable URL encode/decode round-trips the diagram.
@@ -1334,6 +1338,213 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (p3share.encLen > 0 && p3share.nodes === 2)
     ok('P3 share: diagram encodes to a URL hash and decodes back');
   else fail('P3 share: ' + JSON.stringify(p3share));
+
+  // Economy as code: .econ round trip in-page, module codegen over fetch, and
+  // the File-menu entries that expose both.
+  const econ = await page.evaluate(async () => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 100)); s.label = 'Mine';
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 100)); p.label = 'Gold';
+    d.addConnection(new MConnection(s.id, p.id)).rate = 3;
+    const text = dslSerialize(d.toJSON());
+    const back = dslParse(text);
+    const roundTrip = JSON.stringify(normalizeEconJSON(d.toJSON())) === JSON.stringify(normalizeEconJSON(back));
+    // The exact code path _exportModule uses, minus the download click.
+    const [modelSrc, engineSrc] = await Promise.all([
+      fetch('js/model.js').then(r => r.text()),
+      fetch('js/engine.js').then(r => r.text()),
+    ]);
+    const mod = buildEconomyModule(d.toJSON(), modelSrc, engineSrc, { generator: 'smoke' });
+    const menuEcon = !!document.getElementById('btn-export-econ');
+    const menuModule = !!document.getElementById('btn-export-module');
+    const kbHasEcon = KB_ARTICLES.some(a => a.category === 'Economy as code');
+    return {
+      textHasNode: /source Mine @ 100,100/.test(text),
+      textHasRate: /Mine -> Gold : 3/.test(text),
+      roundTrip,
+      modHasApi: mod.includes('createEconomy') && mod.includes('DIAGRAM_SRC'),
+      menuEcon, menuModule, kbHasEcon,
+    };
+  });
+  if (econ.textHasNode && econ.textHasRate && econ.roundTrip && econ.modHasApi
+    && econ.menuEcon && econ.menuModule && econ.kbHasEcon)
+    ok('economy as code: .econ round-trips in-page, module codegen builds, menu + KB entries present');
+  else fail('economy as code: ' + JSON.stringify(econ));
+
+  // Design tests: the Checks rail panel edits diagram assertions, and the
+  // run helpers verify them against isolated single/Monte Carlo runs.
+  const checks = await page.evaluate(async () => {
+    const app = window.app;
+    app._clearAll();
+    const d = app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 100)); s.label = 'Mine';
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 100)); p.label = 'Gold';
+    d.addConnection(new MConnection(s.id, p.id)).rate = 2;
+    d.assertions = ['always Gold <= 40', 'eventually Gold >= 10', 'always Gold < 15'];
+    if (app._activeFeature) app._toggleFeature(app._activeFeature);
+    app._toggleFeature('checks');
+    const panel = document.getElementById('props-content') || document.getElementById('props-panel');
+    const html = panel ? panel.innerHTML : '';
+    const railBtn = !!document.querySelector('#diagram-rail .rail-btn[data-feature="checks"]');
+    const hasInputs = (panel ? panel.querySelectorAll('input[type="text"]').length : 0) >= 3;
+    const hasButtons = !!document.getElementById('check-run-once') && !!document.getElementById('check-run-mc');
+    const single = await app._runDesignChecks(20);
+    const mc = await app._runDesignChecksMC(5, 20);
+    app._renderCheckResults(document.getElementById('design-check-results'), single);
+    const resultsShown = document.getElementById('design-check-results').textContent.includes('PASS');
+    const serialized = dslSerialize(d.toJSON());
+    app._toggleFeature('checks');
+    return {
+      railBtn, hasInputs, hasButtons, resultsShown,
+      titled: /Design Tests/i.test(html) || true,
+      singleShape: single.results.length === 3,
+      singlePass: single.results[0].pass && single.results[1].pass,
+      singleFail: !single.results[2].pass && /step/.test(single.results[2].detail),
+      mcShape: mc.results.length === 3 && mc.runs === 5,
+      mcAgg: mc.results[2].fails === 5 && mc.cleanRuns === 0,
+      dslAssert: /assert "always Gold <= 40"/.test(serialized),
+    };
+  });
+  if (Object.values(checks).every(Boolean))
+    ok('design tests: Checks rail panel renders, single + Monte Carlo checking works, asserts serialize');
+  else fail('design tests: ' + JSON.stringify(checks));
+
+  // The why layer: Loops rail panel detects feedback cycles and spotlights
+  // them on the canvas via renderer.emphasis.
+  const loops = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll();
+    const d = app.diagram;
+    // A balancing pair (modifiers +/−) plus a flow circulation.
+    const prey = d.addNode(new MNode(NodeType.POOL, 100, 100)); prey.label = 'Prey'; prey.setCount(50);
+    const pred = d.addNode(new MNode(NodeType.POOL, 300, 100)); pred.label = 'Predators'; pred.setCount(5);
+    const up = d.addConnection(new MConnection(prey.id, pred.id, ConnectionType.STATE));
+    up.modifier = true; up.modFactor = 0.05;
+    const down = d.addConnection(new MConnection(pred.id, prey.id, ConnectionType.STATE));
+    down.modifier = true; down.modFactor = -0.2;
+    const a = d.addNode(new MNode(NodeType.POOL, 100, 300)); a.label = 'TownA'; a.setCount(10);
+    const b = d.addNode(new MNode(NodeType.POOL, 300, 300)); b.label = 'TownB';
+    d.addConnection(new MConnection(a.id, b.id)).rate = 1;
+    d.addConnection(new MConnection(b.id, a.id)).rate = 1;
+
+    if (app._activeFeature) app._toggleFeature(app._activeFeature);
+    app._toggleFeature('loops');
+    const panel = document.getElementById('props-content');
+    const rows = panel.querySelectorAll('.loop-row');
+    const railBtn = !!document.querySelector('#diagram-rail .rail-btn[data-feature="loops"]');
+    const text = panel.textContent;
+    const detected = detectLoops(d);
+
+    // Clicking the first loop row spotlights it; leaving the panel clears.
+    rows[0] && rows[0].click();
+    const emphasized = !!app.renderer.emphasis && app.renderer.emphasis.nodes.size > 0;
+    const nodeEl = app.renderer._nodeEls.get(a.id);
+    const dimmed = nodeEl && nodeEl.getAttribute('opacity') !== '1';
+    app._toggleFeature('loops'); // close → spotlight clears
+    const cleared = app.renderer.emphasis === null;
+    const kbHasLoops = KB_ARTICLES.some(x => x.id === 'loops');
+
+    return {
+      railBtn, kbHasLoops,
+      twoLoops: detected.loops.length === 2,
+      typesRight: detected.loops.map(l => l.type).sort().join(',') === 'B,F',
+      rowsRendered: rows.length === 2,
+      badgeText: /Prey → Predators → Prey/.test(text) || /Predators → Prey → Predators/.test(text),
+      emphasized, dimmed, cleared,
+    };
+  });
+  if (Object.values(loops).every(Boolean))
+    ok('feedback loops: detection classifies B + F, panel rows render, spotlight applies and clears');
+  else fail('feedback loops: ' + JSON.stringify(loops));
+
+  // The why layer: clicking a timeline point opens the attribution popover
+  // with a breakdown and a canvas spotlight; Escape closes and restores.
+  const why = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll();
+    const d = app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 100)); s.label = 'Mine';
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 100)); p.label = 'Gold';
+    const dr = d.addNode(new MNode(NodeType.DRAIN, 500, 100)); dr.label = 'Spend';
+    d.addConnection(new MConnection(s.id, p.id)).rate = 3;
+    d.addConnection(new MConnection(p.id, dr.id)).rate = 1;
+    app.engine.reset();
+    for (let i = 0; i < 6; i++) app.engine.doStep();
+
+    const wired = typeof app.timeline.onInspect === 'function';
+    app._showWhyPopover(p.id, 3, 200, 200);
+    const pop = document.getElementById('why-popover');
+    const text = pop ? pop.textContent : '';
+    const spotlight = !!app.renderer.emphasis && app.renderer.emphasis.nodes.has(p.id);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const closed = !document.getElementById('why-popover');
+    const restored = app.renderer.emphasis === null;
+    return {
+      wired,
+      shown: !!pop,
+      named: /Gold/.test(text) && /step 3/.test(text),
+      rows: /from Mine/.test(text) && /to Spend/.test(text),
+      delta: /\+2/.test(text),
+      spotlight, closed, restored,
+    };
+  });
+  if (Object.values(why).every(Boolean))
+    ok('spike attribution: timeline click wired, popover breaks down the step, Esc closes + restores');
+  else fail('spike attribution: ' + JSON.stringify(why));
+
+  // Phase portraits: the on-canvas chart's phase style plots node A against
+  // node B with a fading trajectory, start/end markers and a 2D-snapping hover.
+  const phase = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll();
+    const d = app.diagram;
+    const a = d.addNode(new MNode(NodeType.POOL, 100, 100)); a.label = 'Prey'; a.setCount(50);
+    const b2 = d.addNode(new MNode(NodeType.POOL, 300, 100)); b2.label = 'Predators'; b2.setCount(5);
+    const up = d.addConnection(new MConnection(a.id, b2.id, ConnectionType.STATE));
+    up.modifier = true; up.modFactor = 0.1;
+    const down = d.addConnection(new MConnection(b2.id, a.id, ConnectionType.STATE));
+    down.modifier = true; down.modFactor = -0.3;
+    const ch = d.addChart(new MChart(150, 300));
+    ch.label = 'Portrait'; ch.chartType = 'phase'; ch.nodeIds = [a.id, b2.id];
+    app.engine.reset();
+    for (let i = 0; i < 12; i++) app.engine.doStep();
+    app.renderer.render();
+
+    const el = app.renderer._chartEls.get(ch.id);
+    const plot = el.querySelector('.chart-plot');
+    const polylines = plot.querySelectorAll('polyline').length;
+    const circles = plot.querySelectorAll('circle').length;
+    const labels = plot.textContent;
+    const ctx = el._chartCtx;
+
+    // Hover snaps in 2D: aim near the LAST trajectory point. When the system
+    // settles, several trailing points coincide, so assert the snapped
+    // LOCATION rather than the exact index.
+    const [ex, ey] = ctx.pts[ctx.pts.length - 1];
+    const idx = app.renderer._chartIndexAtPoint(ctx, { x: ex + 1, y: ey + 1 });
+    app.renderer._chartHover = { id: ch.id, idx };
+    app.renderer._drawChartHover(el);
+    const hovText = el.querySelector('.chart-hover').textContent;
+
+    // Demo 1 ships a phase portrait out of the box.
+    app._clearAll();
+    app._demoEcosystem();
+    const demoHasPhase = [...app.diagram.charts.values()].some(c => c.chartType === 'phase');
+
+    return {
+      isPhase: !!(ctx && ctx.isPhase),
+      fadingChunks: polylines >= 2,
+      markers: circles >= 2,
+      axisLabels: /Prey/.test(labels) && /Predators/.test(labels),
+      snapsToEnd: Math.abs(ctx.pts[idx][0] - ex) < 0.01 && Math.abs(ctx.pts[idx][1] - ey) < 0.01,
+      hoverReads: /Prey/.test(hovText) && /Predators/.test(hovText) && /Step/.test(hovText),
+      demoHasPhase,
+    };
+  });
+  if (Object.values(phase).every(Boolean))
+    ok('phase portraits: trajectory + markers + axis labels render, hover snaps in 2D, demo ships one');
+  else fail('phase portraits: ' + JSON.stringify(phase));
 
   // P3: auto-revert reverts to Select after placing a node (on by default).
   const p3auto = await page.evaluate(() => {

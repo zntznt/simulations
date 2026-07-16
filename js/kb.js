@@ -469,11 +469,16 @@ const KB_ARTICLES = [
   },
   {
     id: 'canvas-charts', category: 'Running and analysis', title: 'On-canvas charts',
-    keywords: 'canvas chart widget live graph track node line bar area place',
+    keywords: 'canvas chart widget live graph track node line bar area place phase portrait state space orbit',
     body: 'A canvas chart is a live graph you place directly on the diagram to '
       + 'watch a node as the model runs, keeping the data next to the system it '
       + 'describes. Drop a chart from the palette, point it at the nodes you want '
       + 'to track, then run the model to see the line, bars or area fill in. '
+      + 'The Phase style plots state space instead of time: the first tracked '
+      + 'node is the x axis, the second the y axis, and the run traces a curve '
+      + 'that fades from oldest to newest. A closed orbit means the pair cycles '
+      + 'forever (predator and prey), a spiral means it settles toward an '
+      + 'equilibrium, and a curve that runs off a corner means runaway growth. '
       + 'Charts are saved with your diagram, so the view you set up is there the '
       + 'next time you open it. Use them to keep an eye on the numbers that matter '
       + 'while you build.',
@@ -699,6 +704,90 @@ const KB_ARTICLES = [
       + 'the canvas, useful for a presentation or a published page. SVG and PNG '
       + 'options in the File menu export a snapshot of the canvas for use outside '
       + 'the app.',
+  },
+
+  {
+    id: 'loops', category: 'Running and analysis', title: 'Feedback loops',
+    keywords: 'loop cycle reinforcing balancing circulation polarity system dynamics spiral runaway stabilize why',
+    body: 'The Loops rail panel finds every feedback cycle in the diagram and '
+      + 'labels it R, B, F or ?. A reinforcing loop (R) has an even number of '
+      + 'negative links, so change feeds on itself and the loop amplifies, '
+      + 'like interest compounding. A balancing loop (B) has an odd number, so '
+      + 'the loop pushes back toward an equilibrium, like a thermostat. F '
+      + 'marks a pure resource circulation (stuff going around without a '
+      + 'polarity) and ? means some link has no clear direction. Links come '
+      + 'from more than the drawn arrows: flows and triggers count as '
+      + 'positive, reverse triggers as negative, activators take the sign of '
+      + 'their operator, modifiers the sign of their amount, and formulas are '
+      + 'probed numerically to see which way they lean. Click a loop to '
+      + 'spotlight it on the canvas; click again to release. The command line '
+      + 'prints the same table with node cli.js diagram.json --loops.',
+  },
+
+  {
+    id: 'why-changed', category: 'Running and analysis', title: 'Why did this change',
+    keywords: 'attribution spike explain breakdown inflow outflow cause click timeline popover why',
+    body: 'After a run, click any point on the timeline chart to ask why that '
+      + 'value changed there. A small breakdown appears: how much arrived on '
+      + 'each incoming flow, how much left on each outgoing one, what '
+      + 'modifiers applied, and a final line for internal changes such as '
+      + 'converter consumption or queue losses. The lines always add up '
+      + 'exactly to the change, even on long runs where the chart samples '
+      + 'every few steps (each sample accounts for its whole span). While the '
+      + 'breakdown is open the contributing connections are spotlighted on '
+      + 'the canvas; press Escape or click away to close. Registers show a '
+      + 'note instead, since they recompute from a formula rather than '
+      + 'holding flows. The command line prints the same table with node '
+      + 'cli.js diagram.json --why "Gold@120".',
+  },
+
+  // ── Economy as code ─────────────────────────────────────────────────────────
+  {
+    id: 'econ-text', category: 'Economy as code', title: 'Text format (.econ)',
+    keywords: 'dsl text code diff git version control readable import export round trip convert',
+    body: 'Save as text in the File menu writes the diagram as a .econ file, a '
+      + 'readable line-based format where every node, connection and setting is '
+      + 'one line of text. Because it is plain text, an economy can live in '
+      + 'version control next to your game code: diffs show exactly which rate '
+      + 'or capacity changed, and edits work in any editor. Open file reads '
+      + '.econ files back onto the canvas, and nothing is lost in the round '
+      + 'trip. A quick taste: "source Mine @ 80,100" declares a node and '
+      + '"Mine -> Gold : 2" connects it to a pool at rate 2. The command line '
+      + 'converts both ways with node cli.js diagram.json --to-dsl and '
+      + '--to-json.',
+  },
+  {
+    id: 'econ-assert', category: 'Economy as code', title: 'Design tests (assertions)',
+    keywords: 'test ci check invariant always never eventually at end step regression balance guard rail panel',
+    body: 'Design tests are checks written as a quantifier plus a formula: '
+      + '"always gold < 500" must hold at every step, "never wood == 0" is its '
+      + 'opposite, "eventually score >= 100" must become true at some step, and '
+      + '"at step 25: queue <= 3" or a bare "widgets > 50" (checked at the end) '
+      + 'pin down a moment. Node labels are the identifiers, with spaces turned '
+      + 'into underscores, and diagram variables and step are in scope too. '
+      + 'Edit them in the Checks rail panel, where Check once runs them against '
+      + 'a fresh isolated run and Check batch verifies every trial of a Monte '
+      + 'Carlo batch. Checks are saved with the diagram (and as assert lines in '
+      + '.econ files), so the command line can run the same suite with node '
+      + 'cli.js economy.json --check, or ad hoc ones with --assert "always '
+      + 'gold < 500". A failing check exits with code 2, which makes a broken '
+      + 'economy fail CI. With --runs every trial is checked, and --pass-rate '
+      + '95 tolerates rare unlucky runs.',
+  },
+  {
+    id: 'econ-module', category: 'Economy as code', title: 'Export as JS module',
+    keywords: 'codegen standalone javascript embed ship game engine module npm node dependency free',
+    body: 'Export as JS module in the File menu compiles the current diagram, '
+      + 'the simulation engine and a small API into one dependency-free '
+      + 'JavaScript file. Drop that file into your game or tool and the '
+      + 'balanced economy you designed here is the economy you ship, not a '
+      + 'reimplementation of it. The module works in Node and the browser: '
+      + 'createEconomy() returns a handle with step(), run(), get(), set(), '
+      + 'fire() for interactive nodes, values() and onStep(), plus seed and '
+      + 'parameter overrides. The same file comes out of the command line with '
+      + 'node cli.js economy.json --emit economy.module.js. Formulas use '
+      + 'math.js when a global math object is present and fall back to plain '
+      + 'JS expressions otherwise.',
   },
 ];
 

@@ -69,6 +69,9 @@ class App {
     this._cpSeq = 0;
     this._branchSeq = 0;
     this.timeline.getBranches = () => this._branches;
+    // Spike attribution: clicking a point on the timeline explains the change
+    // at that step (breakdown popover + canvas spotlight, app-analysis.js).
+    this.timeline.onInspect = (nodeId, index, cx, cy) => this._showWhyPopover(nodeId, index, cx, cy);
 
     this._bindControls();
     this._initLibrary();
@@ -1159,6 +1162,8 @@ class App {
     document.getElementById('btn-export-svg').addEventListener('click', () => this._exportSVG());
     document.getElementById('btn-export-png').addEventListener('click', () => this._exportPNG());
     document.getElementById('btn-export-csv').addEventListener('click', () => this._exportCSV());
+    document.getElementById('btn-export-econ').addEventListener('click', () => this._exportEcon());
+    document.getElementById('btn-export-module').addEventListener('click', () => this._exportModule());
     document.getElementById('btn-share').addEventListener('click', () => this._shareURL());
 
     // A11y: hide decorative tool icons from assistive tech (buttons keep text labels).
@@ -1174,7 +1179,7 @@ class App {
     });
 
     document.getElementById('btn-load').addEventListener('click', () => {
-      const inp = Object.assign(document.createElement('input'), { type: 'file', accept: '.json' });
+      const inp = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,.econ' });
       inp.onchange = e => {
         const file = e.target.files[0];
         if (!file) return;
@@ -1183,9 +1188,11 @@ class App {
           // Parse + validate on a throwaway Diagram BEFORE touching the current
           // one: loadJSON clears everything first, so a corrupt file would
           // otherwise wreck the diagram (and the next autosave persists that).
+          // Files that don't open with { or [ are treated as .econ text.
           let data;
           try {
-            data = JSON.parse(ev.target.result);
+            const text = String(ev.target.result);
+            data = /^\s*[{[]/.test(text) ? JSON.parse(text) : dslParse(text);
             new Diagram().loadJSON(data);
           } catch (err) {
             this._toast(`Invalid file: ${err.message}. Your current diagram is unchanged.`);

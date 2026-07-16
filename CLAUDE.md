@@ -27,9 +27,18 @@ node test/run.js                       # (alias: npm test)
 NODE_PATH=$(npm root -g) node test/smoke.js     # (alias: npm run smoke)
 # SMOKE_URL overrides the default http://localhost:8080/
 
-# Headless CLI — simulate a saved diagram JSON from the terminal.
+# Headless CLI — simulate a saved diagram (JSON or .econ text) from the terminal.
 node cli.js diagram.json --steps 500 > trace.csv
 node cli.js diagram.json --runs 1000 --steps 200 --seed 42 --param rate=3
+
+# Economy-as-code (docs/ECONOMY_AS_CODE.md): assertions, format conversion,
+# standalone-module codegen. Assertions exit 2 on failure (CI-friendly).
+node cli.js economy.econ --assert "always gold < 500" --assert "at end: score >= 10"
+node cli.js economy.econ --check                     # run assertions saved in the diagram
+node cli.js diagram.json --to-dsl > economy.econ     # and .econ --to-json back
+node cli.js economy.econ --emit economy.module.js    # dependency-free JS module
+node cli.js diagram.json --loops                     # feedback-loop table (R/B/F/?)
+node cli.js diagram.json --why "Gold@120"            # attribute a node's change at a step
 ```
 
 **Running a single unit test:** `test/run.js` has no filter/grep flag — every
@@ -59,6 +68,19 @@ modifiers, variables/registers, Monte Carlo) touch **no DOM**. This is load-bear
 it lets `test/run.js` load them into a bare `new Function` sandbox, lets `cli.js`
 run them under Node, and lets Monte Carlo clone a `Diagram` + `SimEngine` per trial.
 Do not reach for `document`/`window` in these two files.
+
+The economy-as-code layer lives under the same contract: `js/dsl.js` (the `.econ`
+text format: `dslSerialize`/`dslParse`/`normalizeEconJSON`), `js/assertions.js`
+(`parseAssertion`/`AssertionChecker`/`assertionScope`), `js/codegen.js`
+(`buildEconomyModule`), `js/loops.js` (`detectLoops`: feedback-cycle
+enumeration + R/B/F/? classification), and `js/attribution.js`
+(`attributeChange`: per-step change breakdowns from the flow records the
+engine attaches to history entries) are DOM-free, load after
+`model.js`/`engine.js` in `index.html`, `cli.js`, and `test/run.js`, and are
+documented in `docs/ECONOMY_AS_CODE.md`. When you add a serialized field to
+the model, the DSL's generic key=value attrs pick it up automatically, but
+extend the `kitchenSink()` fixture in `test/run.js` so the round-trip test
+covers it.
 
 Two engine invariants to preserve when editing the tick:
 - **Conditions are synchronous.** Activator and connection-condition checks read a

@@ -470,6 +470,7 @@ class Renderer {
     this._chartEls = new Map();
     this._chartHover = null;  // { id, idx } — on-canvas chart hover readout
     this._scrubSnap = null;   // { nodeId: value } — history preview during scrubbing
+    this.emphasis = null;     // { nodes:Set, conns:Set } — spotlight (Loops panel)
     this._panX = 0;
     this._panY = 0;
     this._scale = 1;
@@ -677,11 +678,27 @@ class Renderer {
     this._renderNodes();
     this._renderCharts();
     this._renderNotes();
+    this._applyEmphasis();
 
     const d = this.diagram;
     const empty = !d.nodes.size && !d.groups.size && !d.notes.size && !d.charts.size;
     this._emptyHint.setAttribute('visibility', empty ? 'visible' : 'hidden');
     if (this.onRender) this.onRender();
+  }
+
+  // Spotlight mode (Loops panel): members of `emphasis` render at full
+  // strength, everything else fades back. Applied after the sub-renders so it
+  // wins over any per-element attributes they set; cleared by setting
+  // `emphasis` back to null.
+  _applyEmphasis() {
+    const em = this.emphasis;
+    for (const [id, el] of this._nodeEls)
+      el.setAttribute('opacity', !em ? '1' : (em.nodes.has(id) ? '1' : '0.18'));
+    for (const [id, el] of this._connEls)
+      el.setAttribute('opacity', !em ? '1' : (em.conns.has(id) ? '1' : '0.12'));
+    const dim = !em ? '1' : '0.15';
+    for (const layer of [this.groupLayer, this.noteLayer, this.chartLayer])
+      layer.setAttribute('opacity', dim);
   }
 
   // World-coordinate rectangle currently visible in the viewport.
@@ -875,7 +892,7 @@ class Renderer {
       const ctx = g._chartCtx;
       if (!ctx || ctx.n < 2) return;
       const p = this.svgPoint(e.clientX, e.clientY);
-      this._chartHover = { id: cid, idx: this._chartIndexAtX(ctx, p.x) };
+      this._chartHover = { id: cid, idx: this._chartIndexAtPoint(ctx, p) };
       this._drawChartHover(g);
     });
     g.addEventListener('mouseleave', () => {
@@ -956,6 +973,69 @@ class Renderer {
     const x0 = chart.x + padL, y0 = chart.y + padT;
     const plotW = Math.max(10, chart.w - padL - padR);
     const plotH = Math.max(10, chart.h - padT - padB);
+    const type = chart.chartType || 'line';
+
+    // Phase portrait: state space instead of time. The first tracked node is
+    // the x axis, the second the y axis; the run traces a trajectory whose
+    // older segments fade, with a hollow dot at the start and a solid one at
+    // the live end. Orbits (predator-prey), spirals toward an equilibrium and
+    // runaway curves become visible shapes.
+    if (type === 'phase') {
+      if (ids.length < 2) { clearHover(); el._plotSig = null; hint('Phase needs two tracked nodes'); return; }
+      const xId = ids[0], yId = ids[1];
+      const xs = hist.map(h => h.snap[xId] ?? 0);
+      const ys = hist.map(h => h.snap[yId] ?? 0);
+      let xMin = Math.min(...xs), xMax = Math.max(...xs);
+      let yMin = Math.min(...ys), yMax = Math.max(...ys);
+      const fmtv = v => String(+Number(v).toFixed(Math.abs(v) < 10 ? 1 : 0));
+      const rawX = [xMin, xMax], rawY = [yMin, yMax];
+      if (xMax - xMin < 1e-9) { xMin -= 1; xMax += 1; } else { const p = (xMax - xMin) * 0.06; xMin -= p; xMax += p; }
+      if (yMax - yMin < 1e-9) { yMin -= 1; yMax += 1; } else { const p = (yMax - yMin) * 0.06; yMin -= p; yMax += p; }
+      const pxAt = v => x0 + ((v - xMin) / (xMax - xMin)) * plotW;
+      const pyAt = v => y0 + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+      const pts = xs.map((v, i) => [pxAt(v), pyAt(ys[i])]);
+      const xColor = colorOf(xId, 0), yColor = colorOf(yId, 1);
+      const baseY = y0 + plotH;
+
+      plot.appendChild(svgEl('path', {
+        d: `M ${x0},${y0} L ${x0},${baseY} L ${x0 + plotW},${baseY}`,
+        fill: 'none', stroke: '#1e2535', 'stroke-width': '1',
+      }));
+      // Axis extents (raw data range) and axis-node labels in series colors.
+      const lbl = (x, y, text, fill, anchor = 'start') => {
+        const t = svgEl('text', { x: String(x), y: String(y), 'font-size': '8', 'font-family': 'monospace', fill, 'text-anchor': anchor });
+        t.textContent = text;
+        plot.appendChild(t);
+      };
+      lbl(chart.x + 3, y0 + 6, fmtv(rawY[1]), '#556070');
+      lbl(chart.x + 3, baseY, fmtv(rawY[0]), '#556070');
+      lbl(x0, baseY + 8, fmtv(rawX[0]), '#556070');
+      lbl(x0 + plotW, baseY + 8, fmtv(rawX[1]), '#556070', 'end');
+      const xNode = this.diagram.nodes.get(xId), yNode = this.diagram.nodes.get(yId);
+      lbl(x0 + plotW, baseY - 4, (xNode && (xNode.label || xNode.type)) || '', xColor, 'end');
+      lbl(x0 + 4, y0 + 6, (yNode && (yNode.label || yNode.type)) || '', yColor);
+
+      // Trajectory in ~12 chunks with rising opacity, so time direction reads
+      // at a glance without per-segment elements.
+      const chunks = Math.min(12, Math.max(1, pts.length - 1));
+      const per = Math.ceil((pts.length - 1) / chunks);
+      for (let c = 0; c < chunks; c++) {
+        const from = c * per, to = Math.min(pts.length - 1, (c + 1) * per);
+        if (to <= from) break;
+        const seg = pts.slice(from, to + 1).map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+        plot.appendChild(svgEl('polyline', {
+          points: seg, fill: 'none', stroke: yColor, 'stroke-width': '1.5',
+          opacity: String((0.18 + 0.72 * ((c + 1) / chunks)).toFixed(2)),
+        }));
+      }
+      const [sx, sy] = pts[0], [ex, ey] = pts[pts.length - 1];
+      plot.appendChild(svgEl('circle', { cx: sx.toFixed(1), cy: sy.toFixed(1), r: '3', fill: 'none', stroke: yColor, 'stroke-width': '1.2', opacity: '0.7' }));
+      plot.appendChild(svgEl('circle', { cx: ex.toFixed(1), cy: ey.toFixed(1), r: '3', fill: yColor }));
+
+      el._chartCtx = { isPhase: true, x0, y0, plotW, plotH, n: hist.length, ids: [xId, yId], colors: [xColor, yColor], hist, chart, type, pts };
+      this._drawChartHover(el);
+      return;
+    }
 
     let max = 1;
     for (const snap of hist) for (const id of ids) max = Math.max(max, snap.snap[id] ?? 0);
@@ -979,7 +1059,6 @@ class Renderer {
 
     // One series per tracked node, drawn in the chart's visualization style,
     // plus a live end-value label.
-    const type = chart.chartType || 'line';
     const baseY = y0 + plotH;
     ids.forEach((id, idx) => {
       const color = colorOf(id, idx);
@@ -1042,6 +1121,19 @@ class Renderer {
     return Math.max(0, Math.min(ctx.n - 1, i));
   }
 
+  // Time-based charts hit-test on x alone; a phase portrait's trajectory
+  // wanders in 2D, so it snaps to the nearest recorded point instead.
+  _chartIndexAtPoint(ctx, p) {
+    if (!ctx.isPhase) return this._chartIndexAtX(ctx, p.x);
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < ctx.pts.length; i++) {
+      const dx = ctx.pts[i][0] - p.x, dy = ctx.pts[i][1] - p.y;
+      const dd = dx * dx + dy * dy;
+      if (dd < bd) { bd = dd; best = i; }
+    }
+    return best;
+  }
+
   _chartXAtIndex(ctx, i) {
     if (ctx.type === 'bars') return ctx.x0 + (i + 0.5) * (ctx.plotW / ctx.n);
     return ctx.x0 + (ctx.n <= 1 ? 0 : (i / (ctx.n - 1)) * ctx.plotW);
@@ -1060,25 +1152,44 @@ class Renderer {
     const i = Math.max(0, Math.min(ctx.n - 1, hover.idx));
     const snap = ctx.hist[i];
     if (!snap) return;
-    const cx = this._chartXAtIndex(ctx, i);
-    const yAt = v => ctx.y0 + ctx.plotH - (v / ctx.max) * ctx.plotH;
-    const fmt = v => String(+Number(v).toFixed(ctx.max < 10 ? 1 : 0));
-
-    // Crosshair at the hovered step.
-    hov.appendChild(svgEl('line', {
-      x1: cx.toFixed(1), y1: ctx.y0, x2: cx.toFixed(1), y2: ctx.y0 + ctx.plotH,
-      stroke: 'rgba(255,255,255,0.28)', 'stroke-width': '1', 'stroke-dasharray': '3,3',
-    }));
-
-    // A dot on each series and the readout rows.
     const rows = [{ t: `Step ${snap.step}`, color: '#9aa3b2' }];
-    ctx.ids.forEach((id, k) => {
-      const v = snap.snap[id] ?? 0;
-      const color = ctx.colors[k];
-      hov.appendChild(svgEl('circle', { cx: cx.toFixed(1), cy: yAt(v).toFixed(1), r: '2.5', fill: color }));
-      const node = this.diagram.nodes.get(id);
-      rows.push({ t: `${node ? (node.label || node.type) : id}: ${fmt(v)}`, color });
-    });
+    let cx;
+
+    if (ctx.isPhase) {
+      // Phase portrait: ring the snapped trajectory point; the readout shows
+      // the (x, y) pair that point represents.
+      const [px2, py2] = ctx.pts[i];
+      cx = px2;
+      hov.appendChild(svgEl('circle', {
+        cx: px2.toFixed(1), cy: py2.toFixed(1), r: '4.5',
+        fill: 'none', stroke: 'rgba(255,255,255,0.7)', 'stroke-width': '1',
+      }));
+      hov.appendChild(svgEl('circle', { cx: px2.toFixed(1), cy: py2.toFixed(1), r: '2', fill: ctx.colors[1] }));
+      const fmtP = v => String(+Number(v).toFixed(Math.abs(v) < 10 ? 1 : 0));
+      ctx.ids.forEach((id, k) => {
+        const node = this.diagram.nodes.get(id);
+        rows.push({ t: `${node ? (node.label || node.type) : id}: ${fmtP(snap.snap[id] ?? 0)}`, color: ctx.colors[k] });
+      });
+    } else {
+      cx = this._chartXAtIndex(ctx, i);
+      const yAt = v => ctx.y0 + ctx.plotH - (v / ctx.max) * ctx.plotH;
+      const fmt = v => String(+Number(v).toFixed(ctx.max < 10 ? 1 : 0));
+
+      // Crosshair at the hovered step.
+      hov.appendChild(svgEl('line', {
+        x1: cx.toFixed(1), y1: ctx.y0, x2: cx.toFixed(1), y2: ctx.y0 + ctx.plotH,
+        stroke: 'rgba(255,255,255,0.28)', 'stroke-width': '1', 'stroke-dasharray': '3,3',
+      }));
+
+      // A dot on each series and the readout rows.
+      ctx.ids.forEach((id, k) => {
+        const v = snap.snap[id] ?? 0;
+        const color = ctx.colors[k];
+        hov.appendChild(svgEl('circle', { cx: cx.toFixed(1), cy: yAt(v).toFixed(1), r: '2.5', fill: color }));
+        const node = this.diagram.nodes.get(id);
+        rows.push({ t: `${node ? (node.label || node.type) : id}: ${fmt(v)}`, color });
+      });
+    }
 
     // Tooltip box, flipped to the left edge if it would overflow the chart.
     const lh = 11, padX = 5, padY = 4, charW = 4.9;

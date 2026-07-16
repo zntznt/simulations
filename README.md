@@ -125,9 +125,11 @@ the panel back to the selection. The left palette stays for tools/nodes and the
 top bar for run/zoom/file controls.
 
 ### Analysis & data
+- **Feedback-loop detection** — the Loops rail panel finds every feedback cycle in the causal graph (flows, triggers, activators, modifiers, and formula reads via published variables) and classifies it **reinforcing (R)**, **balancing (B)**, a pure **resource circulation (F)**, or **unclear (?)** from link polarities; formula links are probed numerically. Click a loop to spotlight it on the canvas; `cli.js --loops` prints the same table.
+- **Spike attribution** — click any point on the timeline to see **why** that value changed there: per‑connection inflows and outflows, applied modifiers, and internal changes (conversions, queue losses), summing exactly to the delta even on stride‑sampled long runs. The contributing connections spotlight on the canvas while the breakdown is open; `cli.js --why "Gold@120"` prints the same from the terminal.
 - **Scenario branching** — checkpoint the simulation mid-run (full state: resources, in-flight queues, variables, history), fork back to it with any tweaks, and run forward again. The previous run is kept automatically as a **ghost branch** — dashed, faded traces overlaid on the timeline chart (same colour = same node across timelines), toggleable from the legend or the Branch rail panel. Reset still returns to the true run start. Session-only — branches aren't saved with the diagram.
 - **Global timeline chart** — every tracked node's value over time, with a legend.
-- **On‑canvas charts** — live line charts placed in the diagram itself, tracking chosen nodes.
+- **On‑canvas charts** — live charts placed in the diagram itself, tracking chosen nodes (line / area / bars / step), plus a **phase portrait** style that plots one node against another in state space — limit cycles draw themselves as orbits, equilibria as inward spirals.
 - **Monte Carlo / batch runs** — run N isolated simulations for up to M steps and report per‑node distributions (mean / min / p10 / p50 / p90 / max) plus goal reach‑rate and end‑step stats — non‑destructive to the live diagram. Batches run **chunked off the hot path** with live progress, so the UI never freezes.
 - **Seeded, reproducible randomness** — set a **run seed** in the Simulation panel to make a live run reproducible, or give a batch its own seed in the Monte Carlo modal; the same seed reproduces the exact same results, bit for bit. Every stochastic decision (dice, distributions, chance %, probabilistic gates, custom variables) draws from the seedable RNG, and the headless CLI's `--seed` flag does the same from the terminal.
 - **Parameter sweeps** — vary one diagram parameter across a range (e.g. 5 values from 0.5× to 1.5×) and compare per‑node means and goal reach‑rates side by side, one column per value. Runs on clones; the live diagram is untouched.
@@ -142,6 +144,19 @@ top bar for run/zoom/file controls.
 - **Diagram library** — save, rename, load, and delete named diagrams.
 - **JSON** save/load, and **SVG / PNG** export of the diagram.
 - **Shareable URL** — the whole diagram is base64‑encoded in the URL hash (`#d=…`); opening it restores the diagram. `?embed` (or `#embed`) hides the editing chrome for a clean, embeddable view.
+
+### Economy as code
+- **`.econ` text format** — save/open the diagram as readable, diff‑friendly text
+  that lives happily in git (one line per node/connection; full round‑trip with
+  the canvas). See **[docs/ECONOMY_AS_CODE.md](docs/ECONOMY_AS_CODE.md)**.
+- **Design tests (assertions)** — checks like `always gold < 500` or
+  `eventually score >= 100`, run per step (and across Monte Carlo trials).
+  Edit and run them in the **Checks** rail panel; they save with the diagram
+  (`assert` lines in `.econ`), and `cli.js --check` runs the same suite with a
+  non‑zero exit on failure — balance regressions become CI failures.
+- **Export as JS module** — compile the diagram + engine into one
+  dependency‑free `.js` file with a `createEconomy()` API (`step/run/get/set/
+  fire/onStep`), so the economy you designed is the economy your game ships.
 
 For the **why** and **how** behind the model — the tick order, the fair‑allocation
 algorithm, the one‑step variable lag, and more — see
@@ -168,7 +183,40 @@ node cli.js my-diagram.json --runs 500 --csv --param mine_rate=3 > samples.csv
 `--param name=value` (repeatable) overrides diagram parameters without editing
 the file; `--seed` makes any run or batch bit‑for‑bit reproducible. Save a
 diagram with **File → Save as JSON** (or take one from the library) to feed it
-to the CLI.
+to the CLI. Files ending in `.econ` are parsed as the text format automatically.
+
+### Economy‑as‑code workflows
+
+```bash
+# design tests: fail CI when a balance change breaks the economy (exit code 2)
+node cli.js economy.econ --steps 300 \
+  --assert "always gold < 500" \
+  --assert "eventually tutorial_done >= 1" \
+  --assert "at step 60: churn <= 3"
+
+# or run the suite saved in the diagram itself (the app's Checks rail panel /
+# `assert` lines in .econ files)
+node cli.js economy.econ --check
+
+# the same assertions across 1000 Monte Carlo trials; tolerate 5% unlucky runs
+node cli.js economy.econ --runs 1000 --seed 42 --pass-rate 95 \
+  --assert "at end: gold >= 100"
+
+# assertions can live in a file (one per line, // comments)
+node cli.js economy.econ --assert-file economy.checks
+
+# convert between formats (text ↔ JSON)
+node cli.js economy.json --to-dsl  > economy.econ
+node cli.js economy.econ --to-json > economy.json
+
+# emit a standalone, dependency-free JS module of the economy
+node cli.js economy.econ --emit economy.module.js
+node -e "const E=require('./economy.module.js');
+         console.log(E.createEconomy({seed:42}).run(200).values())"
+```
+
+The `.econ` grammar, assertion language, and generated‑module API are documented
+in **[docs/ECONOMY_AS_CODE.md](docs/ECONOMY_AS_CODE.md)**.
 
 ---
 
@@ -312,3 +360,12 @@ Held until after the in‑progress UI/UX overhaul, so they don't immediately go 
 The simulation model, file architecture, and APIs documented here and in
 `docs/CONCEPTS.md` are independent of the visual design and should remain accurate
 across the redesign.
+
+---
+
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0**
+(AGPL‑3.0). See [LICENSE](LICENSE) for the full text. In short: you are free to
+use, study, modify, and share it; if you run a modified version as a network
+service, you must offer its source to your users under the same license.
