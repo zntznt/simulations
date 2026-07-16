@@ -359,6 +359,7 @@ class AppProps {
       resources: { title: 'Resource Types',   kb: 'resource-types',    render: c => this._resourceTypesEditor(c) },
       player:    { title: 'Artificial Player', kb: 'artificial-player', render: c => this._diagramAI(c) },
       branches:  { title: 'Scenario Branches', kb: 'scenarios',         render: c => this._branchesPanel(c) },
+      checks:    { title: 'Design Tests',     kb: 'econ-assert',       render: c => this._designTestsPanel(c) },
       monitor:   { title: 'Live Variables',   kb: 'live-vars',         render: c => this._liveVarsReadout(c) },
     };
   }

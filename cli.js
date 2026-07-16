@@ -19,6 +19,9 @@
 //                      With --runs>1 every trial is checked. Exit code 2 when
 //                      assertions fail.
 //   --assert-file F    read assertions from a file (one per line, // comments)
+//   --check            also run the assertions saved in the diagram itself
+//                      (the Checks rail panel in the app; `assert` lines in
+//                      .econ files)
 //   --pass-rate P      with --runs>1: minimum % of trials where every
 //                      assertion holds (default 100)
 //   --to-dsl           print the diagram as .econ text and exit
@@ -71,7 +74,7 @@ function fail(msg) {
 function parseArgs(argv) {
   const opts = {
     steps: 200, runs: 1, seed: null, params: {}, csv: false, file: null,
-    asserts: [], passRate: 100, emit: null, toDsl: false, toJson: false,
+    asserts: [], passRate: 100, emit: null, toDsl: false, toJson: false, check: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -90,6 +93,7 @@ function parseArgs(argv) {
         if (s) opts.asserts.push(s);
       }
     }
+    else if (a === '--check') opts.check = true;
     else if (a === '--pass-rate') opts.passRate = parseFloat(argv[++i]);
     else if (a === '--emit') opts.emit = argv[++i];
     else if (a === '--to-dsl') opts.toDsl = true;
@@ -163,9 +167,15 @@ if (opts.emit) {
 }
 
 // ── Assertions ──────────────────────────────────────────────────────────────
+// --check prepends the assertions saved in the diagram itself to any given
+// with --assert/--assert-file.
+const assertSrcs = [...(opts.check ? diagram.assertions || [] : []), ...opts.asserts];
 let parsedAsserts = [];
-try { parsedAsserts = opts.asserts.map(parseAssertion); }
+try { parsedAsserts = assertSrcs.map(parseAssertion); }
 catch (e) { fail(`Bad assertion: ${e.message}`); }
+if (opts.check && !(diagram.assertions || []).length) {
+  process.stderr.write('Note: --check given but the diagram has no saved assertions.\n');
+}
 
 function reportAssertions(results) {
   let failed = 0;

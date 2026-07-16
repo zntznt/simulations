@@ -34,6 +34,7 @@ node cli.js diagram.json --runs 1000 --steps 200 --seed 42 --param rate=3
 # Economy-as-code (docs/ECONOMY_AS_CODE.md): assertions, format conversion,
 # standalone-module codegen. Assertions exit 2 on failure (CI-friendly).
 node cli.js economy.econ --assert "always gold < 500" --assert "at end: score >= 10"
+node cli.js economy.econ --check                     # run assertions saved in the diagram
 node cli.js diagram.json --to-dsl > economy.econ     # and .econ --to-json back
 node cli.js economy.econ --emit economy.module.js    # dependency-free JS module
 ```

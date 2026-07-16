@@ -223,6 +223,7 @@ function dslSerialize(json) {
     parts.push(`rules=${JSON.stringify(json.aiPlayer.rules)}`);
     out.push(parts.join(' '));
   }
+  for (const a of json.assertions || []) out.push(`assert ${_econQuote(a)}`);
 
   const nodes = json.nodes || [];
   const refs = _econRefNames(nodes);
@@ -426,6 +427,7 @@ function dslParse(text) {
   const types = [];       // {name, color}
   const params = {};
   const customVars = [];
+  const assertions = [];
   const groups = [], notes = [], charts = [];
   const nodeRefs = new Map();   // "name ord" → node json
   const nodeOrder = [];
@@ -519,6 +521,16 @@ function dslParse(text) {
         }
       }
       customVars.push(rv);
+      continue;
+    }
+
+    if (head === 'assert') {
+      // One quoted string, or the bare remainder of the line.
+      const rest = tokens.slice(1);
+      if (!rest.length) throw _econErr('assert expects an assertion string', lineNo);
+      const val = (rest.length === 1 && rest[0].startsWith('"'))
+        ? _econUnescape(rest[0].slice(1, -1)) : rest.join(' ');
+      assertions.push(val);
       continue;
     }
 
@@ -617,6 +629,7 @@ function dslParse(text) {
   if (types.length) json.resourceTypes = types;
   if (Object.keys(params).length) json.params = params;
   if (customVars.length) json.customVars = customVars;
+  if (assertions.length) json.assertions = assertions;
   // Round through JSON text so the result carries no undefined-valued keys —
   // the same shape a saved file would have after JSON.parse.
   return JSON.parse(JSON.stringify(json));
@@ -822,6 +835,7 @@ function normalizeEconJSON(json) {
   if (src.timeMode && src.timeMode !== 'sync') out.timeMode = src.timeMode;
   if (src.seed) out.seed = String(src.seed);
   if (src.aiPlayer && (src.aiPlayer.rules || []).length) out.aiPlayer = src.aiPlayer;
+  if ((src.assertions || []).length) out.assertions = src.assertions;
   const m = src.meta || {};
   const meta = {};
   if (m.name) meta.name = m.name;

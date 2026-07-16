@@ -147,9 +147,11 @@ top bar for run/zoom/file controls.
 - **`.econ` text format** — save/open the diagram as readable, diff‑friendly text
   that lives happily in git (one line per node/connection; full round‑trip with
   the canvas). See **[docs/ECONOMY_AS_CODE.md](docs/ECONOMY_AS_CODE.md)**.
-- **Assertions** — CLI checks like `always gold < 500` or
-  `eventually score >= 100` that run per step (and across Monte Carlo trials),
-  exit non‑zero on failure, and turn balance regressions into CI failures.
+- **Design tests (assertions)** — checks like `always gold < 500` or
+  `eventually score >= 100`, run per step (and across Monte Carlo trials).
+  Edit and run them in the **Checks** rail panel; they save with the diagram
+  (`assert` lines in `.econ`), and `cli.js --check` runs the same suite with a
+  non‑zero exit on failure — balance regressions become CI failures.
 - **Export as JS module** — compile the diagram + engine into one
   dependency‑free `.js` file with a `createEconomy()` API (`step/run/get/set/
   fire/onStep`), so the economy you designed is the economy your game ships.
@@ -189,6 +191,10 @@ node cli.js economy.econ --steps 300 \
   --assert "always gold < 500" \
   --assert "eventually tutorial_done >= 1" \
   --assert "at step 60: churn <= 3"
+
+# or run the suite saved in the diagram itself (the app's Checks rail panel /
+# `assert` lines in .econ files)
+node cli.js economy.econ --check
 
 # the same assertions across 1000 Monte Carlo trials; tolerate 5% unlucky runs
 node cli.js economy.econ --runs 1000 --seed 42 --pass-rate 95 \

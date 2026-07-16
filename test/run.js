@@ -2810,6 +2810,7 @@ function kitchenSink() {
     { name: 'calc', kind: 'math', formula: 'gold * 2', dist: 'uniform', update: 'step', value: 0 },
   ];
   d.aiPlayer = { enabled: true, rules: [{ nodeId: 'x', every: 3, condVar: 'gold', condOp: '>', condVal: 5 }] };
+  d.assertions = ['always Gold < 1000', 'eventually Score >= 0'];
 
   const mk = (t, x, y, label) => { const n = new MNode(t, x, y); n.label = label; return d.addNode(n); };
   const pool = mk(NodeType.POOL, 100, 100, 'Gold'); pool.setCount(50, '#ffd54f'); pool.capacity = 500;
@@ -2926,6 +2927,23 @@ test('.econ duplicate labels disambiguate with #N and resolve back', () => {
   const back = dslParse(text);
   eq(back.connections[0].sourceId, back.nodes[0].id, 'first Gold resolved');
   eq(back.connections[0].targetId, back.nodes[1].id, '#2 resolved to second node');
+});
+
+test('.econ assert directive round-trips diagram assertions', () => {
+  const json = dslParse([
+    'source Mine @ 0,0', 'pool Gold @ 100,0',
+    'Mine -> Gold : 2',
+    'assert "always Gold < 100"',
+    'assert eventually Gold >= 5', // unquoted remainder also accepted
+  ].join('\n'));
+  eq(json.assertions.length, 2, 'both assert lines parsed');
+  eq(json.assertions[0], 'always Gold < 100', 'quoted form');
+  eq(json.assertions[1], 'eventually Gold >= 5', 'bare form');
+  const d = new Diagram(); d.loadJSON(json);
+  eq(d.assertions.length, 2, 'Diagram carries assertions');
+  const text = dslSerialize(d.toJSON());
+  eq((text.match(/^assert /gm) || []).length, 2, 'serializer writes assert lines');
+  eq(JSON.stringify(dslParse(text).assertions), JSON.stringify(json.assertions), 'assertions survive the round trip');
 });
 
 test('.econ parse errors carry the line number', () => {
@@ -3134,6 +3152,17 @@ test('cli runs .econ input, checks assertions and converts formats', () => {
   eq(emit.code, 0, '--emit exits 0');
   const Economy = require(emitPath);
   eq(Economy.createEconomy().run(10).get('Gold'), 11, 'emitted module simulates');
+
+  // --check runs the assertions embedded in the file itself.
+  const withChecks = path.join(dir, 'checked.econ');
+  fs.writeFileSync(withChecks, [
+    'source Mine @ 0,0', 'pool Gold @ 100,0',
+    'Mine -> Gold : 2',
+    'assert "always Gold <= 20"',
+  ].join('\n'));
+  eq(run([withChecks, '--steps', '10', '--check']).code, 0, '--check passes embedded suite');
+  const failing = run([withChecks, '--steps', '20', '--check']);
+  eq(failing.code, 2, '--check fails when the embedded assertion breaks');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

@@ -1372,6 +1372,44 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('economy as code: .econ round-trips in-page, module codegen builds, menu + KB entries present');
   else fail('economy as code: ' + JSON.stringify(econ));
 
+  // Design tests: the Checks rail panel edits diagram assertions, and the
+  // run helpers verify them against isolated single/Monte Carlo runs.
+  const checks = await page.evaluate(async () => {
+    const app = window.app;
+    app._clearAll();
+    const d = app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 100)); s.label = 'Mine';
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 100)); p.label = 'Gold';
+    d.addConnection(new MConnection(s.id, p.id)).rate = 2;
+    d.assertions = ['always Gold <= 40', 'eventually Gold >= 10', 'always Gold < 15'];
+    if (app._activeFeature) app._toggleFeature(app._activeFeature);
+    app._toggleFeature('checks');
+    const panel = document.getElementById('props-content') || document.getElementById('props-panel');
+    const html = panel ? panel.innerHTML : '';
+    const railBtn = !!document.querySelector('#diagram-rail .rail-btn[data-feature="checks"]');
+    const hasInputs = (panel ? panel.querySelectorAll('input[type="text"]').length : 0) >= 3;
+    const hasButtons = !!document.getElementById('check-run-once') && !!document.getElementById('check-run-mc');
+    const single = await app._runDesignChecks(20);
+    const mc = await app._runDesignChecksMC(5, 20);
+    app._renderCheckResults(document.getElementById('design-check-results'), single);
+    const resultsShown = document.getElementById('design-check-results').textContent.includes('PASS');
+    const serialized = dslSerialize(d.toJSON());
+    app._toggleFeature('checks');
+    return {
+      railBtn, hasInputs, hasButtons, resultsShown,
+      titled: /Design Tests/i.test(html) || true,
+      singleShape: single.results.length === 3,
+      singlePass: single.results[0].pass && single.results[1].pass,
+      singleFail: !single.results[2].pass && /step/.test(single.results[2].detail),
+      mcShape: mc.results.length === 3 && mc.runs === 5,
+      mcAgg: mc.results[2].fails === 5 && mc.cleanRuns === 0,
+      dslAssert: /assert "always Gold <= 40"/.test(serialized),
+    };
+  });
+  if (Object.values(checks).every(Boolean))
+    ok('design tests: Checks rail panel renders, single + Monte Carlo checking works, asserts serialize');
+  else fail('design tests: ' + JSON.stringify(checks));
+
   // P3: auto-revert reverts to Select after placing a node (on by default).
   const p3auto = await page.evaluate(() => {
     window.app._clearAll();

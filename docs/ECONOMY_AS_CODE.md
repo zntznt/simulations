@@ -71,6 +71,7 @@ Warehouse ~> Score name=warehouse
 | `type Wood = #8d6e63` | named resource type; the name is usable wherever a color is |
 | `var luck = dice(2d6) gaussian` | custom variable; kinds `interval(min,max)`, `array(1,2,3)`, `dice(XdY)`, `math(expr)`; modifiers `gaussian` and `per=play` |
 | `player enabled rules=[…]` | artificial-player rules (JSON) |
+| `assert "always gold < 500"` | a saved design test (see Assertions below; run with `--check`) |
 
 ### Nodes
 
@@ -141,6 +142,18 @@ node cli.js economy.econ --steps 300 \
   --assert "at end: widgets > 50" \
   --assert "widgets > 50"            # bare expression = at end
 ```
+
+Assertions can also be **saved with the diagram** — edit them in the app's
+**Checks** rail panel (with one-click checking against a single run or a Monte
+Carlo batch), or write `assert "…"` lines in a `.econ` file:
+
+```econ
+assert "always gold < 500"
+assert "eventually score >= 100"
+```
+
+`node cli.js economy.econ --check` runs the saved suite (plus any extra
+`--assert` flags), so the economy file carries its own tests.
 
 | Quantifier | Passes when |
 | --- | --- |

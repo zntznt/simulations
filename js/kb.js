@@ -717,20 +717,22 @@ const KB_ARTICLES = [
       + '--to-json.',
   },
   {
-    id: 'econ-assert', category: 'Economy as code', title: 'Assertions',
-    keywords: 'test ci check invariant always never eventually at end step regression balance guard',
-    body: 'Assertions are checks that run against a simulation from the command '
-      + 'line, so a balance change that breaks your economy fails loudly in CI '
-      + 'instead of silently shipping. Write them as a quantifier plus a '
-      + 'formula: "always gold < 500" must hold at every step, "never wood == 0" '
-      + 'is its opposite, "eventually score >= 100" must become true at some '
-      + 'step, and "at step 25: queue <= 3" or a bare "widgets > 50" (checked '
-      + 'at the end) pin down a moment. Node labels are the identifiers, with '
-      + 'spaces turned into underscores, and diagram variables and step are in '
-      + 'scope too. Run node cli.js economy.json --assert "always gold < 500"; '
-      + 'a failing check exits with code 2. With --runs the assertions check '
-      + 'every Monte Carlo trial, and --pass-rate 95 tolerates rare unlucky '
-      + 'runs.',
+    id: 'econ-assert', category: 'Economy as code', title: 'Design tests (assertions)',
+    keywords: 'test ci check invariant always never eventually at end step regression balance guard rail panel',
+    body: 'Design tests are checks written as a quantifier plus a formula: '
+      + '"always gold < 500" must hold at every step, "never wood == 0" is its '
+      + 'opposite, "eventually score >= 100" must become true at some step, and '
+      + '"at step 25: queue <= 3" or a bare "widgets > 50" (checked at the end) '
+      + 'pin down a moment. Node labels are the identifiers, with spaces turned '
+      + 'into underscores, and diagram variables and step are in scope too. '
+      + 'Edit them in the Checks rail panel, where Check once runs them against '
+      + 'a fresh isolated run and Check batch verifies every trial of a Monte '
+      + 'Carlo batch. Checks are saved with the diagram (and as assert lines in '
+      + '.econ files), so the command line can run the same suite with node '
+      + 'cli.js economy.json --check, or ad hoc ones with --assert "always '
+      + 'gold < 500". A failing check exits with code 2, which makes a broken '
+      + 'economy fail CI. With --runs every trial is checked, and --pass-rate '
+      + '95 tolerates rare unlucky runs.',
   },
   {
     id: 'econ-module', category: 'Economy as code', title: 'Export as JS module',
