@@ -143,6 +143,17 @@ top bar for run/zoom/file controls.
 - **JSON** save/load, and **SVG / PNG** export of the diagram.
 - **Shareable URL** — the whole diagram is base64‑encoded in the URL hash (`#d=…`); opening it restores the diagram. `?embed` (or `#embed`) hides the editing chrome for a clean, embeddable view.
 
+### Economy as code
+- **`.econ` text format** — save/open the diagram as readable, diff‑friendly text
+  that lives happily in git (one line per node/connection; full round‑trip with
+  the canvas). See **[docs/ECONOMY_AS_CODE.md](docs/ECONOMY_AS_CODE.md)**.
+- **Assertions** — CLI checks like `always gold < 500` or
+  `eventually score >= 100` that run per step (and across Monte Carlo trials),
+  exit non‑zero on failure, and turn balance regressions into CI failures.
+- **Export as JS module** — compile the diagram + engine into one
+  dependency‑free `.js` file with a `createEconomy()` API (`step/run/get/set/
+  fire/onStep`), so the economy you designed is the economy your game ships.
+
 For the **why** and **how** behind the model — the tick order, the fair‑allocation
 algorithm, the one‑step variable lag, and more — see
 **[docs/CONCEPTS.md](docs/CONCEPTS.md)**.
@@ -168,7 +179,36 @@ node cli.js my-diagram.json --runs 500 --csv --param mine_rate=3 > samples.csv
 `--param name=value` (repeatable) overrides diagram parameters without editing
 the file; `--seed` makes any run or batch bit‑for‑bit reproducible. Save a
 diagram with **File → Save as JSON** (or take one from the library) to feed it
-to the CLI.
+to the CLI. Files ending in `.econ` are parsed as the text format automatically.
+
+### Economy‑as‑code workflows
+
+```bash
+# design tests: fail CI when a balance change breaks the economy (exit code 2)
+node cli.js economy.econ --steps 300 \
+  --assert "always gold < 500" \
+  --assert "eventually tutorial_done >= 1" \
+  --assert "at step 60: churn <= 3"
+
+# the same assertions across 1000 Monte Carlo trials; tolerate 5% unlucky runs
+node cli.js economy.econ --runs 1000 --seed 42 --pass-rate 95 \
+  --assert "at end: gold >= 100"
+
+# assertions can live in a file (one per line, // comments)
+node cli.js economy.econ --assert-file economy.checks
+
+# convert between formats (text ↔ JSON)
+node cli.js economy.json --to-dsl  > economy.econ
+node cli.js economy.econ --to-json > economy.json
+
+# emit a standalone, dependency-free JS module of the economy
+node cli.js economy.econ --emit economy.module.js
+node -e "const E=require('./economy.module.js');
+         console.log(E.createEconomy({seed:42}).run(200).values())"
+```
+
+The `.econ` grammar, assertion language, and generated‑module API are documented
+in **[docs/ECONOMY_AS_CODE.md](docs/ECONOMY_AS_CODE.md)**.
 
 ---
 
@@ -312,3 +352,12 @@ Held until after the in‑progress UI/UX overhaul, so they don't immediately go 
 The simulation model, file architecture, and APIs documented here and in
 `docs/CONCEPTS.md` are independent of the visual design and should remain accurate
 across the redesign.
+
+---
+
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0**
+(AGPL‑3.0). See [LICENSE](LICENSE) for the full text. In short: you are free to
+use, study, modify, and share it; if you run a modified version as a network
+service, you must offer its source to your users under the same license.

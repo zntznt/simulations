@@ -1335,7 +1335,10 @@ class SimEngine {
   // final value plus goal statistics. Does not touch the live diagram.
   // opts: { seed (string — makes the whole batch reproducible),
   //         baseJSON (diagram JSON to simulate instead of the live one — used
-  //         by parameter sweeps to vary params without touching the diagram) }
+  //         by parameter sweeps to vary params without touching the diagram),
+  //         perStep(engine, run) (called on each trial's engine right after
+  //         reset and again after every step — assertion checking hook),
+  //         onTrialEnd(engine, run) (called when a trial finishes) }
   runMonteCarlo(runs = 100, maxSteps = 200, opts = {}) {
     const job = this._mcTrials(runs, maxSteps, opts);
     let r = job.next();
@@ -1395,8 +1398,13 @@ class SimEngine {
         dg.seed = seeded ? `${opts.seed}#${r}` : '';
         const eng = new SimEngine(dg);
         eng.reset();
+        if (opts.perStep) opts.perStep(eng, r);
         let s = 0;
-        while (s < maxSteps && !eng.ended) { eng.doStep(); s++; }
+        while (s < maxSteps && !eng.ended) {
+          eng.doStep(); s++;
+          if (opts.perStep) opts.perStep(eng, r);
+        }
+        if (opts.onTrialEnd) opts.onTrialEnd(eng, r);
         for (const [id, arr] of samples) {
           const n = dg.nodes.get(id);
           arr.push(n ? n.chartValue : 0);

@@ -700,6 +700,53 @@ const KB_ARTICLES = [
       + 'options in the File menu export a snapshot of the canvas for use outside '
       + 'the app.',
   },
+
+  // ── Economy as code ─────────────────────────────────────────────────────────
+  {
+    id: 'econ-text', category: 'Economy as code', title: 'Text format (.econ)',
+    keywords: 'dsl text code diff git version control readable import export round trip convert',
+    body: 'Save as text in the File menu writes the diagram as a .econ file, a '
+      + 'readable line-based format where every node, connection and setting is '
+      + 'one line of text. Because it is plain text, an economy can live in '
+      + 'version control next to your game code: diffs show exactly which rate '
+      + 'or capacity changed, and edits work in any editor. Open file reads '
+      + '.econ files back onto the canvas, and nothing is lost in the round '
+      + 'trip. A quick taste: "source Mine @ 80,100" declares a node and '
+      + '"Mine -> Gold : 2" connects it to a pool at rate 2. The command line '
+      + 'converts both ways with node cli.js diagram.json --to-dsl and '
+      + '--to-json.',
+  },
+  {
+    id: 'econ-assert', category: 'Economy as code', title: 'Assertions',
+    keywords: 'test ci check invariant always never eventually at end step regression balance guard',
+    body: 'Assertions are checks that run against a simulation from the command '
+      + 'line, so a balance change that breaks your economy fails loudly in CI '
+      + 'instead of silently shipping. Write them as a quantifier plus a '
+      + 'formula: "always gold < 500" must hold at every step, "never wood == 0" '
+      + 'is its opposite, "eventually score >= 100" must become true at some '
+      + 'step, and "at step 25: queue <= 3" or a bare "widgets > 50" (checked '
+      + 'at the end) pin down a moment. Node labels are the identifiers, with '
+      + 'spaces turned into underscores, and diagram variables and step are in '
+      + 'scope too. Run node cli.js economy.json --assert "always gold < 500"; '
+      + 'a failing check exits with code 2. With --runs the assertions check '
+      + 'every Monte Carlo trial, and --pass-rate 95 tolerates rare unlucky '
+      + 'runs.',
+  },
+  {
+    id: 'econ-module', category: 'Economy as code', title: 'Export as JS module',
+    keywords: 'codegen standalone javascript embed ship game engine module npm node dependency free',
+    body: 'Export as JS module in the File menu compiles the current diagram, '
+      + 'the simulation engine and a small API into one dependency-free '
+      + 'JavaScript file. Drop that file into your game or tool and the '
+      + 'balanced economy you designed here is the economy you ship, not a '
+      + 'reimplementation of it. The module works in Node and the browser: '
+      + 'createEconomy() returns a handle with step(), run(), get(), set(), '
+      + 'fire() for interactive nodes, values() and onStep(), plus seed and '
+      + 'parameter overrides. The same file comes out of the command line with '
+      + 'node cli.js economy.json --emit economy.module.js. Formulas use '
+      + 'math.js when a global math object is present and fall back to plain '
+      + 'JS expressions otherwise.',
+  },
 ];
 
 // Expose for non-module browser scripts and the headless test harness.

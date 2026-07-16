@@ -150,6 +150,43 @@ class AppExport {
     a.click();
   }
 
+  // ── Economy-as-code exports ─────────────────────────────────────────────────
+
+  // Download the diagram as .econ text (the human-readable, diff-friendly
+  // format in js/dsl.js). Same File menu family as Save as JSON.
+  _exportEcon() {
+    const text = dslSerialize(this.diagram.toJSON());
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([text], { type: 'text/plain' })),
+      download: this._exportFilename('econ'),
+    });
+    a.click();
+    this._toast('Exported as .econ text. Open it back via File, Open file.');
+  }
+
+  // Bundle model + engine + this diagram into a standalone JS module (see
+  // js/codegen.js). The sources are fetched from our own script files, so this
+  // needs the app to be served over HTTP (the normal case).
+  async _exportModule() {
+    let modelSrc, engineSrc;
+    try {
+      [modelSrc, engineSrc] = await Promise.all([
+        fetch('js/model.js').then(r => { if (!r.ok) throw new Error(r.status); return r.text(); }),
+        fetch('js/engine.js').then(r => { if (!r.ok) throw new Error(r.status); return r.text(); }),
+      ]);
+    } catch {
+      this._toast('Could not read the engine sources. Serve the app over HTTP to export a module.');
+      return;
+    }
+    const mod = buildEconomyModule(this.diagram.toJSON(), modelSrc, engineSrc, { generator: 'the simulations designer' });
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([mod], { type: 'text/javascript' })),
+      download: this._exportFilename('module.js'),
+    });
+    a.click();
+    this._toast('Exported a standalone JS module with a createEconomy() API.');
+  }
+
   // ── Shareable URL ───────────────────────────────────────────────────────────
 
   _encodeDiagram() {

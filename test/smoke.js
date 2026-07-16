@@ -1339,6 +1339,39 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('P3 share: diagram encodes to a URL hash and decodes back');
   else fail('P3 share: ' + JSON.stringify(p3share));
 
+  // Economy as code: .econ round trip in-page, module codegen over fetch, and
+  // the File-menu entries that expose both.
+  const econ = await page.evaluate(async () => {
+    window.app._clearAll();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 100)); s.label = 'Mine';
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 100)); p.label = 'Gold';
+    d.addConnection(new MConnection(s.id, p.id)).rate = 3;
+    const text = dslSerialize(d.toJSON());
+    const back = dslParse(text);
+    const roundTrip = JSON.stringify(normalizeEconJSON(d.toJSON())) === JSON.stringify(normalizeEconJSON(back));
+    // The exact code path _exportModule uses, minus the download click.
+    const [modelSrc, engineSrc] = await Promise.all([
+      fetch('js/model.js').then(r => r.text()),
+      fetch('js/engine.js').then(r => r.text()),
+    ]);
+    const mod = buildEconomyModule(d.toJSON(), modelSrc, engineSrc, { generator: 'smoke' });
+    const menuEcon = !!document.getElementById('btn-export-econ');
+    const menuModule = !!document.getElementById('btn-export-module');
+    const kbHasEcon = KB_ARTICLES.some(a => a.category === 'Economy as code');
+    return {
+      textHasNode: /source Mine @ 100,100/.test(text),
+      textHasRate: /Mine -> Gold : 3/.test(text),
+      roundTrip,
+      modHasApi: mod.includes('createEconomy') && mod.includes('DIAGRAM_SRC'),
+      menuEcon, menuModule, kbHasEcon,
+    };
+  });
+  if (econ.textHasNode && econ.textHasRate && econ.roundTrip && econ.modHasApi
+    && econ.menuEcon && econ.menuModule && econ.kbHasEcon)
+    ok('economy as code: .econ round-trips in-page, module codegen builds, menu + KB entries present');
+  else fail('economy as code: ' + JSON.stringify(econ));
+
   // P3: auto-revert reverts to Select after placing a node (on by default).
   const p3auto = await page.evaluate(() => {
     window.app._clearAll();
