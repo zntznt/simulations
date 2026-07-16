@@ -3236,6 +3236,25 @@ test('cli --loops prints the loop table', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+// ── Phase portrait chart type ───────────────────────────────────────────────
+console.log('\nPhase portraits');
+
+test('phase chart type round-trips through JSON and .econ text', () => {
+  const d = new Diagram();
+  const a = d.addNode(new MNode(NodeType.POOL, 0, 0)); a.label = 'Prey';
+  const b = d.addNode(new MNode(NodeType.POOL, 100, 0)); b.label = 'Predators';
+  const ch = new MChart(200, 0); ch.label = 'Portrait'; ch.chartType = 'phase';
+  ch.nodeIds = [a.id, b.id];
+  d.addChart(ch);
+  const back = new Diagram(); back.loadJSON(JSON.parse(JSON.stringify(d.toJSON())));
+  eq([...back.charts.values()][0].chartType, 'phase', 'JSON round trip keeps the type');
+  const text = dslSerialize(d.toJSON());
+  assert(/type=phase/.test(text), '.econ writes type=phase');
+  const parsed = dslParse(text);
+  eq(parsed.charts[0].chartType, 'phase', '.econ parse keeps the type');
+  eq(parsed.charts[0].nodeIds.length, 2, 'both axes tracked');
+});
+
 // ── The why layer: spike attribution ────────────────────────────────────────
 console.log('\nSpike attribution');
 

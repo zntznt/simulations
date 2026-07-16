@@ -59,6 +59,10 @@ class AppDemos {
     b.st(foxes, foxes, c => { c.modifier = true; c.modFactor = -0.28; c.label = 'starve'; });
 
     b.chart(370, 470, 470, 170, 'Populations', [rabbits.id, foxes.id]);
+    // State-space view of the same pair: the limit cycle draws itself as an
+    // orbit (rabbits across, foxes up).
+    const phase = b.chart(860, 470, 260, 190, 'Phase portrait', [rabbits.id, foxes.id]);
+    phase.chartType = 'phase';
     b.note(980, 165, 250, 250,
       'Foxes eat rabbits; rabbits breed (slowing as they crowd their range); ' +
       'foxes starve without food.\n\nNo target was set, yet the two populations ' +

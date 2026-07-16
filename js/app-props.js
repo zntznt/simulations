@@ -1155,6 +1155,7 @@ class AppProps {
     typeChips.className = 'var-chip-group chart-type-chips';
     for (const [key, icon, label] of [
       ['line', 'chart-line', 'Line'], ['area', 'chart-area', 'Area'], ['bars', 'chart-column', 'Bars'], ['step', 'stairs', 'Step'],
+      ['phase', 'circle-notch', 'Phase'],
     ]) {
       const chip = document.createElement('button');
       chip.className = 'var-chip' + ((chart.chartType || 'line') === key ? ' active' : '');
@@ -1166,6 +1167,9 @@ class AppProps {
       typeChips.appendChild(chip);
     }
     panel.appendChild(typeChips);
+    if ((chart.chartType || 'line') === 'phase') {
+      this._info(panel, 'Phase plots state space instead of time: the first tracked node is the x axis, the second the y axis. The trajectory fades from oldest to newest, with a hollow dot at the start and a solid one at the live end. Orbits mean sustained cycles; spirals mean the system settles.');
+    }
 
     this._field(panel, 'Width', 'number', chart.w, v => { chart.w = Math.max(120, parseInt(v) || 240); this.renderer.render(); });
     this._field(panel, 'Height', 'number', chart.h, v => { chart.h = Math.max(80, parseInt(v) || 150); this.renderer.render(); });

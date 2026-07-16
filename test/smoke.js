@@ -1493,6 +1493,59 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('spike attribution: timeline click wired, popover breaks down the step, Esc closes + restores');
   else fail('spike attribution: ' + JSON.stringify(why));
 
+  // Phase portraits: the on-canvas chart's phase style plots node A against
+  // node B with a fading trajectory, start/end markers and a 2D-snapping hover.
+  const phase = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll();
+    const d = app.diagram;
+    const a = d.addNode(new MNode(NodeType.POOL, 100, 100)); a.label = 'Prey'; a.setCount(50);
+    const b2 = d.addNode(new MNode(NodeType.POOL, 300, 100)); b2.label = 'Predators'; b2.setCount(5);
+    const up = d.addConnection(new MConnection(a.id, b2.id, ConnectionType.STATE));
+    up.modifier = true; up.modFactor = 0.1;
+    const down = d.addConnection(new MConnection(b2.id, a.id, ConnectionType.STATE));
+    down.modifier = true; down.modFactor = -0.3;
+    const ch = d.addChart(new MChart(150, 300));
+    ch.label = 'Portrait'; ch.chartType = 'phase'; ch.nodeIds = [a.id, b2.id];
+    app.engine.reset();
+    for (let i = 0; i < 12; i++) app.engine.doStep();
+    app.renderer.render();
+
+    const el = app.renderer._chartEls.get(ch.id);
+    const plot = el.querySelector('.chart-plot');
+    const polylines = plot.querySelectorAll('polyline').length;
+    const circles = plot.querySelectorAll('circle').length;
+    const labels = plot.textContent;
+    const ctx = el._chartCtx;
+
+    // Hover snaps in 2D: aim near the LAST trajectory point. When the system
+    // settles, several trailing points coincide, so assert the snapped
+    // LOCATION rather than the exact index.
+    const [ex, ey] = ctx.pts[ctx.pts.length - 1];
+    const idx = app.renderer._chartIndexAtPoint(ctx, { x: ex + 1, y: ey + 1 });
+    app.renderer._chartHover = { id: ch.id, idx };
+    app.renderer._drawChartHover(el);
+    const hovText = el.querySelector('.chart-hover').textContent;
+
+    // Demo 1 ships a phase portrait out of the box.
+    app._clearAll();
+    app._demoEcosystem();
+    const demoHasPhase = [...app.diagram.charts.values()].some(c => c.chartType === 'phase');
+
+    return {
+      isPhase: !!(ctx && ctx.isPhase),
+      fadingChunks: polylines >= 2,
+      markers: circles >= 2,
+      axisLabels: /Prey/.test(labels) && /Predators/.test(labels),
+      snapsToEnd: Math.abs(ctx.pts[idx][0] - ex) < 0.01 && Math.abs(ctx.pts[idx][1] - ey) < 0.01,
+      hoverReads: /Prey/.test(hovText) && /Predators/.test(hovText) && /Step/.test(hovText),
+      demoHasPhase,
+    };
+  });
+  if (Object.values(phase).every(Boolean))
+    ok('phase portraits: trajectory + markers + axis labels render, hover snaps in 2D, demo ships one');
+  else fail('phase portraits: ' + JSON.stringify(phase));
+
   // P3: auto-revert reverts to Select after placing a node (on by default).
   const p3auto = await page.evaluate(() => {
     window.app._clearAll();

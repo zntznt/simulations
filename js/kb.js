@@ -469,11 +469,16 @@ const KB_ARTICLES = [
   },
   {
     id: 'canvas-charts', category: 'Running and analysis', title: 'On-canvas charts',
-    keywords: 'canvas chart widget live graph track node line bar area place',
+    keywords: 'canvas chart widget live graph track node line bar area place phase portrait state space orbit',
     body: 'A canvas chart is a live graph you place directly on the diagram to '
       + 'watch a node as the model runs, keeping the data next to the system it '
       + 'describes. Drop a chart from the palette, point it at the nodes you want '
       + 'to track, then run the model to see the line, bars or area fill in. '
+      + 'The Phase style plots state space instead of time: the first tracked '
+      + 'node is the x axis, the second the y axis, and the run traces a curve '
+      + 'that fades from oldest to newest. A closed orbit means the pair cycles '
+      + 'forever (predator and prey), a spiral means it settles toward an '
+      + 'equilibrium, and a curve that runs off a corner means runaway growth. '
       + 'Charts are saved with your diagram, so the view you set up is there the '
       + 'next time you open it. Use them to keep an eye on the numbers that matter '
       + 'while you build.',
