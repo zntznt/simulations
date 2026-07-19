@@ -49,7 +49,7 @@ class AppExport {
     // The grid/dot patterns track the live pan/zoom; content exports untransformed.
     for (const p of defs.querySelectorAll('pattern')) p.removeAttribute('patternTransform');
     out.appendChild(defs);
-    const bg = r._bgRect.getAttribute('fill') || '#0f1117';
+    const bg = r._bgRect.getAttribute('fill') || '#0d0e11';
     out.appendChild(svgEl('rect', { x, y, width: w, height: h, fill: bg }));
     out.appendChild(svgEl('rect', { x, y, width: w, height: h, fill: 'url(#grid)' }));
     out.appendChild(content);

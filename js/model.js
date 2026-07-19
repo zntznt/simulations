@@ -73,14 +73,14 @@ const SimRandom = {
 const DEFAULT_COLOR = '#9e9e9e';
 
 const NODE_FILL = {
-  pool: '#1a3a6b', source: '#1a4a2a', drain: '#4a1a1a',
-  gate: '#3a1a5a', converter: '#4a2a00', register: '#1a2a38', delay: '#004a4a',
-  queue: '#2a2a4a', trader: '#3a1530',
+  pool: '#10233f', source: '#10240f', drain: '#2b0f0f',
+  gate: '#23102f', converter: '#2b1a05', register: '#161b21', delay: '#06262a',
+  queue: '#141632', trader: '#2d0f1c',
 };
 
 const NODE_STROKE = {
   pool: '#4a9eff', source: '#4caf50', drain: '#ef5350',
-  gate: '#ba68c8', converter: '#ffa726', register: '#78909c', delay: '#26c6da',
+  gate: '#ba68c8', converter: '#ffa726', register: '#90a4bc', delay: '#26c6da',
   queue: '#7c83ff', trader: '#f06292',
 };
 

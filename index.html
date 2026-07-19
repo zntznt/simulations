@@ -15,16 +15,18 @@
   <!-- Top bar -->
   <header id="topbar">
     <div class="logo" role="img" aria-label="Simulations">
-      <svg class="logo-mark" viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden="true" focusable="false">
-        <!-- Feedback loop: a running cycle around a node — the heart of a system. -->
+      <svg class="logo-mark" viewBox="0 0 32 32" width="26" height="26" fill="none" aria-hidden="true" focusable="false">
+        <!-- Chase loop: two arcs chasing around a center dot — a system in motion. -->
         <defs>
           <marker id="logo-arrow" markerUnits="userSpaceOnUse" markerWidth="7.5" markerHeight="7.5" refX="3" refY="3.75" orient="auto">
             <path d="M0,0 L7.5,3.75 L0,7.5 Z" fill="currentColor"/>
           </marker>
         </defs>
-        <path d="M21.74 7.81 A10 10 0 1 1 10.26 7.81" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" marker-end="url(#logo-arrow)"/>
+        <path d="M6.6,12.6 A10,10 0 0 1 25.4,12.6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" marker-end="url(#logo-arrow)"/>
+        <path d="M25.4,19.4 A10,10 0 0 1 6.6,19.4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" marker-end="url(#logo-arrow)"/>
         <circle cx="16" cy="16" r="3.4" fill="currentColor"/>
       </svg>
+      <span class="logo-word">Simulations</span>
     </div>
 
     <div class="sim-controls">
@@ -34,10 +36,11 @@
         <button class="btn" id="btn-reset" title="Reset to initial state"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Reset</button>
       </div>
       <div class="speed-cluster" role="group" aria-label="Simulation speed">
+        <i class="fa-solid fa-gauge-high speed-icon" aria-hidden="true"></i>
         <input type="range" id="sim-speed" min="0.25" max="10" step="0.25" value="2" title="Simulation speed" aria-label="Simulation speed">
         <span id="speed-label">2×</span>
       </div>
-      <span id="step-counter" class="tb-chip">Step: 0</span>
+      <span id="step-counter" class="tb-chip">Step 0</span>
       <span id="sim-status" role="status"></span>
     </div>
 
@@ -55,13 +58,13 @@
         <button class="btn zoom-btn" id="btn-zoom-out" title="Zoom out" aria-label="Zoom out"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>
         <button class="btn zoom-level" id="btn-zoom-level" title="Reset to 100%" aria-label="Current zoom. Click to reset to 100%">100%</button>
         <button class="btn zoom-btn" id="btn-zoom-in" title="Zoom in" aria-label="Zoom in"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
-        <button class="btn" id="btn-fit" title="Fit diagram to view (Ctrl+0)"><i class="fa-solid fa-expand" aria-hidden="true"></i> Fit</button>
-        <button class="btn" id="btn-minimap" title="Toggle minimap overview" aria-pressed="false"><i class="fa-solid fa-map" aria-hidden="true"></i> Map</button>
+        <button class="btn" id="btn-fit" title="Fit diagram to view (Ctrl+0)" aria-label="Fit diagram to view"><i class="fa-solid fa-expand" aria-hidden="true"></i></button>
+        <button class="btn" id="btn-minimap" title="Toggle minimap overview" aria-label="Toggle minimap overview" aria-pressed="false"><i class="fa-solid fa-map" aria-hidden="true"></i></button>
       </div>
       <span class="tb-sep" aria-hidden="true"></span>
       <div class="menu" id="menu-view">
         <button class="btn" id="btn-view-menu" aria-haspopup="true" aria-expanded="false"
-                title="View options (grid snap, auto-select, flow readout)"><i class="fa-solid fa-sliders" aria-hidden="true"></i> View <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
+                title="View options (grid snap, auto-select, flow readout)" aria-label="View options"><i class="fa-solid fa-sliders" aria-hidden="true"></i> <i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
         <div class="menu-popup align-left hidden" role="menu" aria-label="View options">
           <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-snap" aria-checked="false" title="Align nodes to the grid as you place and drag them"><i class="fa-solid fa-border-all" aria-hidden="true"></i> Snap to grid</button>
           <button class="menu-item menu-item-toggle" role="menuitemcheckbox" id="btn-autoselect" aria-checked="true" title="After placing a node, switch back to the Select tool"><i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i> Auto-select after place</button>
@@ -137,8 +140,8 @@
       <button data-tool="connect-state" title="Draw State Connection (T)">
         <div class="tool-icon">
           <svg viewBox="0 0 24 24" fill="none">
-            <line x1="4" y1="12" x2="20" y2="12" stroke="#78909c" stroke-width="2" stroke-dasharray="4,3"/>
-            <polygon points="16,8 20,12 16,16" fill="#78909c"/>
+            <line x1="4" y1="12" x2="20" y2="12" stroke="#8a90a0" stroke-width="2" stroke-dasharray="4,3"/>
+            <polygon points="16,8 20,12 16,16" fill="#8a90a0"/>
           </svg>
         </div>
         State<kbd class="pal-kbd" aria-hidden="true">T</kbd>
@@ -153,9 +156,9 @@
 
       <button data-tool="place-pool" title="Pool stores a resource amount (a container)">
         <div class="tool-icon">
-          <svg viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="13" fill="#1a3a6b" stroke="#4a9eff" stroke-width="2"/>
-            <text x="16" y="20" text-anchor="middle" fill="#fff" font-size="10" font-family="monospace">0</text>
+          <svg viewBox="0 0 100 100" fill="none">
+            <circle cx="50" cy="50" r="40" fill="#10233f" stroke="#4a9eff" stroke-width="6"/>
+            <path d="M14,62 A40,40 0 0 0 86,62 Z" fill="rgba(74,158,255,0.25)"/>
           </svg>
         </div>
         Pool
@@ -163,9 +166,8 @@
 
       <button data-tool="place-source" title="Source produces resources (a faucet)">
         <div class="tool-icon">
-          <svg viewBox="0 0 32 32" fill="none">
-            <polygon points="16,3 29,27 3,27" fill="#1a4a2a" stroke="#4caf50" stroke-width="2"/>
-            <text x="16" y="23" text-anchor="middle" fill="#fff" font-size="8" font-family="monospace">∞</text>
+          <svg viewBox="0 0 100 100" fill="none">
+            <polygon points="50,10 92,88 8,88" fill="#10240f" stroke="#4caf50" stroke-width="6" stroke-linejoin="round"/>
           </svg>
         </div>
         Source
@@ -173,9 +175,8 @@
 
       <button data-tool="place-drain" title="Drain consumes resources (a sink)">
         <div class="tool-icon">
-          <svg viewBox="0 0 32 32" fill="none">
-            <polygon points="16,29 3,5 29,5" fill="#4a1a1a" stroke="#ef5350" stroke-width="2"/>
-            <text x="16" y="17" text-anchor="middle" fill="#fff" font-size="12" font-family="monospace">×</text>
+          <svg viewBox="0 0 100 100" fill="none">
+            <polygon points="50,90 8,12 92,12" fill="#2b0f0f" stroke="#ef5350" stroke-width="6" stroke-linejoin="round"/>
           </svg>
         </div>
         Drain
@@ -183,8 +184,8 @@
 
       <button data-tool="place-gate" title="Gate splits incoming flow across its outputs">
         <div class="tool-icon">
-          <svg viewBox="0 0 32 32" fill="none">
-            <polygon points="16,3 29,16 16,29 3,16" fill="#3a1a5a" stroke="#ba68c8" stroke-width="2"/>
+          <svg viewBox="0 0 100 100" fill="none">
+            <polygon points="50,8 92,50 50,92 8,50" fill="#23102f" stroke="#ba68c8" stroke-width="6" stroke-linejoin="round"/>
           </svg>
         </div>
         Gate
@@ -192,10 +193,9 @@
 
       <button data-tool="place-converter" title="Converter turns N input resources into a new output">
         <div class="tool-icon">
-          <svg viewBox="0 0 32 32" fill="none">
-            <circle cx="10" cy="16" r="10" fill="#4a2a00" stroke="#ffa726" stroke-width="2"/>
-            <circle cx="22" cy="16" r="10" fill="#4a2a00" stroke="#ffa726" stroke-width="2"/>
-            <line x1="16" y1="8" x2="16" y2="24" stroke="#888" stroke-width="1.5"/>
+          <svg viewBox="0 0 100 100" fill="none">
+            <circle cx="34" cy="50" r="30" fill="#2b1a05" stroke="#ffa726" stroke-width="5"/>
+            <circle cx="66" cy="50" r="30" fill="#2b1a05" stroke="#ffa726" stroke-width="5"/>
           </svg>
         </div>
         Converter
@@ -203,9 +203,9 @@
 
       <button data-tool="place-register" title="Register is a value computed live from a formula">
         <div class="tool-icon">
-          <svg viewBox="0 0 32 32" fill="none">
-            <rect x="3" y="9" width="26" height="14" rx="3" fill="#1a2a38" stroke="#78909c" stroke-width="2"/>
-            <text x="16" y="20" text-anchor="middle" fill="#fff" font-size="9" font-family="monospace">R=1</text>
+          <svg viewBox="0 0 100 100" fill="none">
+            <rect x="6" y="28" width="88" height="44" rx="14" fill="#161b21" stroke="#90a4bc" stroke-width="5"/>
+            <text x="50" y="61" text-anchor="middle" fill="#dfe5ec" font-size="30" font-family="'JetBrains Mono', monospace">ƒx</text>
           </svg>
         </div>
         Register
@@ -213,10 +213,9 @@
 
       <button data-tool="place-delay" title="Delay holds a batch, then releases it after N steps">
         <div class="tool-icon">
-          <svg viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="13" fill="#004a4a" stroke="#26c6da" stroke-width="2"/>
-            <circle cx="16" cy="16" r="9" fill="none" stroke="#26c6da" stroke-width="1" stroke-dasharray="4,3"/>
-            <text x="16" y="20" text-anchor="middle" fill="#fff" font-size="8" font-family="monospace">D</text>
+          <svg viewBox="0 0 100 100" fill="none">
+            <circle cx="50" cy="50" r="40" fill="#06262a" stroke="#26c6da" stroke-width="6"/>
+            <circle cx="50" cy="50" r="26" fill="none" stroke="#26c6da" stroke-width="3" stroke-dasharray="7,7"/>
           </svg>
         </div>
         Delay
@@ -224,12 +223,11 @@
 
       <button data-tool="place-queue" title="Queue serves one item at a time, FIFO (a line)">
         <div class="tool-icon">
-          <svg viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="13" fill="#2a2a4a" stroke="#7c83ff" stroke-width="2"/>
-            <circle cx="11" cy="22" r="1.6" fill="#7c83ff"/>
-            <circle cx="16" cy="22" r="1.6" fill="#7c83ff"/>
-            <circle cx="21" cy="22" r="1.6" fill="#7c83ff"/>
-            <text x="16" y="15" text-anchor="middle" fill="#fff" font-size="8" font-family="monospace">Q</text>
+          <svg viewBox="0 0 100 100" fill="none">
+            <circle cx="50" cy="50" r="40" fill="#141632" stroke="#7c83ff" stroke-width="6"/>
+            <circle cx="32" cy="50" r="5" fill="#a9adff"/>
+            <circle cx="50" cy="50" r="5" fill="#a9adff" opacity="0.7"/>
+            <circle cx="68" cy="50" r="5" fill="#a9adff" opacity="0.4"/>
           </svg>
         </div>
         Queue
@@ -237,10 +235,9 @@
 
       <button data-tool="place-trader" title="Trader swaps resources between two partners (an exchange)">
         <div class="tool-icon">
-          <svg viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="13" fill="#3a1530" stroke="#f06292" stroke-width="2"/>
-            <path d="M 11,13 H 21 M 18.5,10.5 L 21,13 L 18.5,15.5" stroke="#f06292" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M 21,19 H 11 M 13.5,16.5 L 11,19 L 13.5,21.5" stroke="#f06292" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg viewBox="0 0 100 100" fill="none">
+            <circle cx="50" cy="50" r="40" fill="#2d0f1c" stroke="#f06292" stroke-width="6"/>
+            <path d="M32,40 H68 M59,31 L68,40 L59,49 M68,62 H32 M41,53 L32,62 L41,71" stroke="#ffa8c5" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </div>
         Trader
@@ -278,8 +275,8 @@
       <button data-tool="place-chart" title="Place a live chart on the canvas">
         <div class="tool-icon">
           <svg viewBox="0 0 32 32" fill="none">
-            <rect x="3" y="4" width="26" height="24" rx="2" fill="#0f1117" stroke="#2a3550" stroke-width="2"/>
-            <polyline points="6,22 12,15 17,18 26,8" fill="none" stroke="#4a9eff" stroke-width="2"/>
+            <rect x="3" y="4" width="26" height="24" rx="2" fill="#0d0e11" stroke="#2a2e38" stroke-width="2"/>
+            <polyline points="6,22 12,15 17,18 26,8" fill="none" stroke="#b6e94d" stroke-width="2"/>
           </svg>
         </div>
         Chart
@@ -299,7 +296,6 @@
 
     <!-- Properties panel -->
     <aside id="props-panel">
-      <div id="props-header">Properties</div>
       <div id="props-content">
         <p class="props-empty">Select a node or connection to edit its properties.</p>
       </div>
@@ -382,27 +378,38 @@
       <button class="btn" id="lib-close" aria-label="Close library"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
 
-    <div class="lib-section">
-      <div class="lib-section-title">Starter templates <button class="props-help" data-kb-article="library" title="Learn about templates in the guide" aria-label="Learn about templates"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button></div>
-      <div id="lib-templates"></div>
+    <div class="lib-tabs" role="tablist" aria-label="Library sections">
+      <button class="lib-tab" id="lib-tab-mine" role="tab" aria-controls="lib-pane-mine">Your diagrams<span class="lib-tab-count" id="lib-count-mine"></span></button>
+      <button class="lib-tab" id="lib-tab-components" role="tab" aria-controls="lib-pane-components">Components<span class="lib-tab-count" id="lib-count-components"></span></button>
+      <button class="lib-tab" id="lib-tab-templates" role="tab" aria-controls="lib-pane-templates">Templates<span class="lib-tab-count" id="lib-count-templates"></span></button>
     </div>
 
-    <div class="lib-section">
-      <div class="lib-section-title">Components <button class="props-help" data-kb-article="components" title="Learn about components in the guide" aria-label="Learn about components"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button></div>
-      <div class="mc-controls">
-        <label style="flex:1">Name <input type="text" id="comp-name" placeholder="My component"></label>
-        <button class="btn btn-primary" id="comp-save" title="Save selected nodes as a reusable component">Save component</button>
+    <div class="lib-pane" id="lib-pane-mine" role="tabpanel" aria-labelledby="lib-tab-mine">
+      <div class="lib-section">
+        <div class="mc-controls">
+          <label style="flex:1"><span class="sr-hidden" hidden>Name</span><input type="text" id="lib-name" placeholder="Save current diagram as..." aria-label="Diagram name"></label>
+          <button class="btn btn-primary" id="lib-save">Save</button>
+        </div>
+        <div id="lib-list"></div>
       </div>
-      <div id="lib-components"></div>
     </div>
 
-    <div class="lib-section">
-      <div class="lib-section-title">Your diagrams <button class="props-help" data-kb-article="saving" title="Learn about saving and loading in the guide" aria-label="Learn about saving and loading"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button></div>
-      <div class="mc-controls">
-        <label style="flex:1">Name <input type="text" id="lib-name" placeholder="My diagram"></label>
-        <button class="btn btn-primary" id="lib-save">Save diagram</button>
+    <div class="lib-pane" id="lib-pane-components" role="tabpanel" aria-labelledby="lib-tab-components">
+      <div class="lib-section">
+        <div class="lib-section-title">Reusable node clusters <button class="props-help" data-kb-article="components" title="Learn about components in the guide" aria-label="Learn about components"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button></div>
+        <div class="mc-controls">
+          <label style="flex:1"><span class="sr-hidden" hidden>Name</span><input type="text" id="comp-name" placeholder="Save selected nodes as..." aria-label="Component name"></label>
+          <button class="btn btn-primary" id="comp-save" title="Save selected nodes as a reusable component">Save</button>
+        </div>
+        <div id="lib-components"></div>
       </div>
-      <div id="lib-list"></div>
+    </div>
+
+    <div class="lib-pane" id="lib-pane-templates" role="tabpanel" aria-labelledby="lib-tab-templates">
+      <div class="lib-section">
+        <div class="lib-section-title">Starter templates <button class="props-help" data-kb-article="library" title="Learn about templates in the guide" aria-label="Learn about templates"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button></div>
+        <div id="lib-templates"></div>
+      </div>
     </div>
   </div>
 </div>

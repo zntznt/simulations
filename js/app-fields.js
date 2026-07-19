@@ -62,6 +62,46 @@ class AppFields {
     panel.appendChild(wrap);
   }
 
+  // Hero readout card (design 4a): the node's headline number, big and mono on
+  // a canvas-dark card, with a context line and the history sparkline below.
+  _heroCard(panel, node) {
+    const card = document.createElement('div');
+    card.className = 'hero-card';
+
+    const label = document.createElement('div');
+    label.className = 'hero-card-label';
+    label.textContent =
+      node.type === NodeType.DRAIN ? 'Consumed' :
+      node.type === NodeType.TRADER ? 'Trades' :
+      node.type === NodeType.REGISTER ? 'Value' :
+      node.type === NodeType.QUEUE ? 'In line' : 'Current';
+    card.appendChild(label);
+
+    const val = document.createElement('div');
+    val.className = 'hero-card-value';
+    val.id = 'props-hero-value';
+    val.textContent = String(node.displayCount);
+    card.appendChild(val);
+
+    let subText = '';
+    if (node.capacity !== undefined && isFinite(node.capacity)) subText = `of ${node.capacity} capacity`;
+    else if (node.type === NodeType.DRAIN || node.type === NodeType.TRADER) subText = 'this run';
+    else if (node.type === NodeType.REGISTER && node.formula) subText = `ƒx ${node.formula}`;
+    if (subText) {
+      const sub = document.createElement('div');
+      sub.className = 'hero-card-sub';
+      sub.textContent = subText;
+      card.appendChild(sub);
+    }
+
+    panel.appendChild(card);
+
+    const sl = new Sparkline(card, node.id, this.engine);
+    this._sparklines.set(node.id, sl);
+    sl.update();
+    return card;
+  }
+
   _info(panel, text) {
     const p = document.createElement('p');
     p.className = 'props-info';
@@ -328,17 +368,10 @@ class AppFields {
     const node = this.diagram.nodes.get(this._selectedId);
     if (!node || node.type === NodeType.SOURCE) return;
 
-    if (node.type === NodeType.REGISTER) {
-      const rv = document.querySelector('#props-content .reg-value');
-      if (rv) rv.textContent = `= ${node.displayCount}`;
-      return;
-    }
-
-    if (node.type === NodeType.DRAIN) {
-      const el = document.querySelector('#props-content .drain-stat');
-      if (el) el.textContent = `${node.drained || 0}`;
-      return;
-    }
+    // Big hero readout tracks the live value for every node kind.
+    const hero = document.getElementById('props-hero-value');
+    if (hero) hero.textContent = String(node.displayCount);
+    if (node.type === NodeType.REGISTER || node.type === NodeType.DRAIN) return;
 
     // First number input is always the Resources field.
     const inp = document.querySelector('#props-content input[type="number"]');

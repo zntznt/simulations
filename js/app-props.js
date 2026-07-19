@@ -101,13 +101,15 @@ class AppProps {
         document.head.appendChild(link);
       }
       if (link.getAttribute('href') !== href) link.setAttribute('href', href);
-      rootStyle.setProperty('--font', `'${meta.font}', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`);
+      rootStyle.setProperty('--font', `'${meta.font}', 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`);
     } else {
       if (link) link.remove();
       rootStyle.removeProperty('--font');
     }
 
     document.title = meta.name ? `${meta.name} (Simulations)` : 'Simulations Economy Designer';
+    const embedTitle = document.getElementById('embed-title');
+    if (embedTitle) embedTitle.textContent = meta.name ? `${meta.name} · ` : '';
   }
 
   // Rasterize the live SVG canvas into a small data-URL thumbnail. Async:
@@ -231,7 +233,7 @@ class AppProps {
     const bgRow = document.createElement('div');
     bgRow.className = 'sim-bg-row';
     const bg = document.createElement('input');
-    bg.type = 'color'; bg.value = meta.bgColor || '#0f1117';
+    bg.type = 'color'; bg.value = meta.bgColor || '#0d0e11';
     bg.addEventListener('input', () => {
       meta.bgColor = bg.value;
       this.renderer.setBackground(meta.bgColor);
@@ -241,7 +243,7 @@ class AppProps {
     bgReset.className = 'btn'; bgReset.textContent = 'Reset';
     bgReset.addEventListener('click', () => {
       meta.bgColor = '';
-      bg.value = '#0f1117';
+      bg.value = '#0d0e11';
       this.renderer.setBackground('');
       this._commit();
     });
@@ -252,7 +254,7 @@ class AppProps {
     const fontSel = document.createElement('select');
     fontSel.className = 'wide-input';
     const defOpt = document.createElement('option');
-    defOpt.value = ''; defOpt.textContent = 'Inter (default)';
+    defOpt.value = ''; defOpt.textContent = 'Space Grotesk (default)';
     fontSel.appendChild(defOpt);
     for (const f of GOOGLE_FONTS) {
       const o = document.createElement('option');
@@ -577,7 +579,7 @@ class AppProps {
       kept = this._saveBranch();
     }
     this.engine.restoreState(cp.state);
-    document.getElementById('step-counter').textContent = `Step: ${this.engine.step}`;
+    document.getElementById('step-counter').textContent = `Step ${this.engine.step}`;
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
     this.renderer.flowFx.clear();
@@ -1247,6 +1249,10 @@ class AppProps {
     const typeColor = (typeof NODE_STROKE !== 'undefined' && NODE_STROKE[node.type]) || 'var(--accent)';
     this._titleTyped(panel, `${node.type} node`, node.label || '(unnamed)', typeColor, `node-${node.type}`);
 
+    // Hero readout: the node's headline value, front and centre (4a).
+    if (node.type !== NodeType.SOURCE) this._heroCard(panel, node);
+
+    this._section(panel, 'Properties');
     this._field(panel, 'Label', 'text', node.label, v => { node.label = v; this.renderer.render(); });
 
     // Type-specific fields
@@ -1437,19 +1443,10 @@ class AppProps {
     }
 
     if (node.type === NodeType.DRAIN) {
-      const stat = document.createElement('div');
-      stat.className = 'reg-value drain-stat';
-      stat.textContent = `${node.drained || 0}`;
-      panel.appendChild(stat);
-      this._info(panel, 'Total resources consumed (drained) this run.');
+      this._info(panel, 'The hero number above is the total consumed (drained) this run.');
     }
 
     if (node.type === NodeType.TRADER) {
-      const stat = document.createElement('div');
-      stat.className = 'reg-value';
-      stat.replaceChildren(this._faIcon('right-left'),
-        document.createTextNode(` ${node.trades || 0}`));
-      panel.appendChild(stat);
       this._info(panel, 'Completed exchanges this run. Wire A → Trader → B: '
         + 'when the trader fires, A pays the incoming connection\'s rate to B and B pays '
         + 'the outgoing connection\'s rate back to A, all or nothing. Extra in/out pairs '
@@ -1485,11 +1482,6 @@ class AppProps {
     }
 
     if (node.type === NodeType.REGISTER) {
-      const valRow = document.createElement('div');
-      valRow.className = 'reg-value';
-      valRow.textContent = `= ${node.displayCount}`;
-      panel.appendChild(valRow);
-
       this._formulaField(panel, node.formula,
         v => { node.formula = v; this.renderer.render(); },
         { showTip: false });
@@ -1540,16 +1532,7 @@ class AppProps {
       this._info(panel, 'Halt the simulation when this node\'s value meets the condition.');
     }
 
-    // Chart
-    if (node.type !== NodeType.SOURCE) {
-      this._section(panel, 'History');
-      const sec = document.createElement('div');
-      sec.className = 'chart-section';
-      panel.appendChild(sec);
-      const sl = new Sparkline(sec, node.id, this.engine);
-      this._sparklines.set(node.id, sl);
-      sl.update();
-    }
+    // History sparkline lives in the hero card at the top of the panel.
   }
 
   _connProps(panel, conn) {
@@ -1557,7 +1540,7 @@ class AppProps {
     const tgt = this.diagram.nodes.get(conn.targetId);
     const isRes = conn.type === ConnectionType.RESOURCE;
     this._titleTyped(panel, `${isRes ? 'Resource' : 'State'} connection`,
-      `${src?.label || '?'} → ${tgt?.label || '?'}`, isRes ? '#ffa726' : '#78909c',
+      `${src?.label || '?'} → ${tgt?.label || '?'}`, isRes ? '#ffa726' : '#7f879c',
       isRes ? 'conn-resource' : 'conn-state');
 
     this._section(panel, 'Appearance');

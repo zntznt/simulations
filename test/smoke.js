@@ -688,7 +688,8 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     // Node panel reads as labelled sections.
     window.app._onSelect(p.id, 'node');
     const secs = [...document.querySelectorAll('#props-content .props-sec')].map(el => el.textContent);
-    r.sections = secs.includes('Behavior') && secs.includes('Goal') && secs.includes('History');
+    // History lives in the hero card now, so the sections are Properties / Behavior / Goal.
+    r.sections = secs.includes('Properties') && secs.includes('Behavior') && secs.includes('Goal');
     r.typedTitle = !!document.querySelector('#props-content .props-overline');
     return r;
   });

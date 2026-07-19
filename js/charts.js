@@ -19,11 +19,11 @@ class Sparkline {
     ctx.clearRect(0, 0, w, h);
 
     const max = Math.max(...values, 1);
-    ctx.fillStyle = '#0f1117';
+    ctx.fillStyle = '#0d0e11';
     ctx.fillRect(0, 0, w, h);
 
     // Grid line at midpoint
-    ctx.strokeStyle = '#1e2535';
+    ctx.strokeStyle = '#22252e';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
 
@@ -31,7 +31,7 @@ class Sparkline {
     const step = w / (values.length - 1);
 
     ctx.beginPath();
-    ctx.strokeStyle = '#4a9eff';
+    ctx.strokeStyle = '#b6e94d';
     ctx.lineWidth = 1.5;
     values.forEach((v, i) => {
       const x = i * step;
@@ -44,15 +44,15 @@ class Sparkline {
     ctx.lineTo((values.length - 1) * step, h);
     ctx.lineTo(0, h);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(74,158,255,0.12)';
+    ctx.fillStyle = 'rgba(182,233,77,0.10)';
     ctx.fill();
 
     // Current value label
-    ctx.fillStyle = '#4a9eff';
-    ctx.font = '11px monospace';
+    ctx.fillStyle = '#b6e94d';
+    ctx.font = "11px 'JetBrains Mono', monospace";
     const last = values[values.length - 1];
     ctx.fillText(`${last}`, w - 30, 12);
-    ctx.fillStyle = '#95a3bc';
+    ctx.fillStyle = '#8a90a0';
     ctx.fillText(`max: ${max}`, 4, 12);
   }
 
@@ -287,7 +287,7 @@ class TimelineChart {
     const h = cv.height = cv.clientHeight || 180;
     const ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#0f1117';
+    ctx.fillStyle = '#16181d';
     ctx.fillRect(0, 0, w, h);
 
     const hist = this.engine.history;
@@ -328,7 +328,7 @@ class TimelineChart {
     const nodes = allNodes.filter(n => !this._hidden.has(n.id));
 
     if ((hist.length < 2 && !branches.length) || !nodes.length) {
-      ctx.fillStyle = '#95a3bc';
+      ctx.fillStyle = '#8a90a0';
       ctx.font = chartFont(12);
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
@@ -406,7 +406,7 @@ class TimelineChart {
     this._geom.yOf = yOf;
 
     // Horizontal grid lines
-    ctx.strokeStyle = '#1e2535';
+    ctx.strokeStyle = '#22252e';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 4]);
     for (const g of guides) {
@@ -415,18 +415,18 @@ class TimelineChart {
     ctx.setLineDash([]);
 
     // Axes
-    ctx.strokeStyle = '#2a3550'; ctx.lineWidth = 1;
+    ctx.strokeStyle = '#2a2e38'; ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(padL, padT); ctx.lineTo(padL, padT + plotH); ctx.lineTo(padL + plotW, padT + plotH);
     ctx.stroke();
 
     // Y-axis labels
-    ctx.font = '11px monospace'; ctx.fillStyle = '#95a3bc';
+    ctx.font = "11px 'JetBrains Mono', monospace"; ctx.fillStyle = '#8a90a0';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     for (const g of guides) ctx.fillText(g.label, padL - 4, g.y);
 
     // X-axis labels at round step values
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#95a3bc';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#8a90a0';
     const maxLabels = Math.max(2, Math.floor(plotW / 45));
     const tickStep = Math.max(1, Math.ceil(maxStep / maxLabels));
     // The final step gets its own label below, so skip any tick close enough
@@ -436,12 +436,12 @@ class TimelineChart {
       const x = xAt(s);
       if (lastLabelX - x < 30) continue;
       ctx.fillText(String(s), x, padT + plotH + 5);
-      ctx.strokeStyle = '#2a3550'; ctx.lineWidth = 1;
+      ctx.strokeStyle = '#2a2e38'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, padT + plotH); ctx.lineTo(x, padT + plotH + 3); ctx.stroke();
     }
     // Always label the last step if it wasn't already hit
     if (maxStep % tickStep !== 0) {
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#95a3bc';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#8a90a0';
       ctx.fillText(String(maxStep), xAt(maxStep), padT + plotH + 5);
     }
 
@@ -476,9 +476,11 @@ class TimelineChart {
     // Scrub playhead: a solid accent line marking the step being previewed.
     if (this._scrubStep != null) {
       const px = xAt(Math.max(0, Math.min(maxStep, this._scrubStep)));
-      ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#b6e94d'; ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, padT + plotH); ctx.stroke();
-      ctx.fillStyle = '#4a9eff';
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#b6e94d';
       ctx.beginPath();
       ctx.moveTo(px - 4, padT); ctx.lineTo(px + 4, padT); ctx.lineTo(px, padT + 5);
       ctx.closePath(); ctx.fill();
@@ -488,9 +490,9 @@ class TimelineChart {
     if (this._drag && this._drag.moved) {
       const l = Math.max(padL, Math.min(padL + plotW, Math.min(this._drag.x0, this._drag.x1)));
       const r = Math.max(padL, Math.min(padL + plotW, Math.max(this._drag.x0, this._drag.x1)));
-      ctx.fillStyle = 'rgba(74,158,255,0.12)';
+      ctx.fillStyle = 'rgba(182,233,77,0.10)';
       ctx.fillRect(l, padT, r - l, plotH);
-      ctx.strokeStyle = 'rgba(74,158,255,0.6)'; ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(182,233,77,0.6)'; ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(l, padT); ctx.lineTo(l, padT + plotH);
       ctx.moveTo(r, padT); ctx.lineTo(r, padT + plotH);
@@ -508,15 +510,15 @@ class TimelineChart {
         ctx.fillStyle = 'rgba(8,10,15,0.55)';
         ctx.fillRect(padL, padT, l - padL, plotH);
         ctx.fillRect(r, padT, padL + plotW - r, plotH);
-        ctx.fillStyle = 'rgba(74,158,255,0.08)';
+        ctx.fillStyle = 'rgba(182,233,77,0.08)';
         ctx.fillRect(l, padT, r - l, plotH);
-        ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#b6e94d'; ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(xa, padT); ctx.lineTo(xa, padT + plotH);
         ctx.moveTo(xb, padT); ctx.lineTo(xb, padT + plotH);
         ctx.stroke();
-        ctx.font = '10px monospace'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillStyle = '#4a9eff';
+        ctx.font = "10px 'JetBrains Mono', monospace"; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#b6e94d';
         ctx.fillText('A·' + snapA.step, Math.max(padL + 12, Math.min(padL + plotW - 12, xa)), padT + 1);
         ctx.fillText('B·' + snapB.step, Math.max(padL + 12, Math.min(padL + plotW - 12, xb)), padT + 1);
         this._drawComparePanel(ctx, w, padL, padT, plotW, plotH, l, r, snapA, snapB, nodes);
@@ -552,21 +554,21 @@ class TimelineChart {
         const v = snap.snap[node.id] ?? 0;
         return `${node.label || node.type}: ${v}`;
       })];
-      ctx.font = '10px monospace';
+      ctx.font = "10px 'JetBrains Mono', monospace";
       const tw = Math.max(...lines.map(l => ctx.measureText(l).width)) + 18;
       const th = lines.length * 14 + 10;
       let tx = cx + 10;
       if (tx + tw > w - 4) tx = cx - tw - 10;
       const ty = padT + 2;
 
-      ctx.fillStyle = 'rgba(12,14,20,0.93)';
-      ctx.strokeStyle = '#2a3550'; ctx.lineWidth = 1;
+      ctx.fillStyle = 'rgba(13,14,17,0.93)';
+      ctx.strokeStyle = '#2a2e38'; ctx.lineWidth = 1;
       this._roundRect(ctx, tx, ty, tw, th, 4);
       ctx.fill(); ctx.stroke();
 
       ctx.textAlign = 'left'; ctx.textBaseline = 'top';
       lines.forEach((line, i) => {
-        ctx.fillStyle = i === 0 ? '#9aa3b2' : this._colorOf(nodes[i - 1]);
+        ctx.fillStyle = i === 0 ? '#8a90a0' : this._colorOf(nodes[i - 1]);
         ctx.fillText(line, tx + 9, ty + 5 + i * 14);
       });
     }
@@ -586,12 +588,12 @@ class TimelineChart {
         color: this._colorOf(node),
         main: `${node.label || node.type}: ${fmt(vA)} → ${fmt(vB)}`,
         delta: `  ${arrow} ${d > 0 ? '+' : ''}${fmt(d)}${pctStr}`,
-        dcolor: d > 0 ? '#4caf50' : d < 0 ? '#ef5350' : '#95a3bc',
+        dcolor: d > 0 ? '#4caf50' : d < 0 ? '#ef5350' : '#8a90a0',
       };
     });
     const header = `Step ${snapA.step} → ${snapB.step}  ·  Δ${snapB.step - snapA.step} steps`;
 
-    ctx.font = '10px monospace';
+    ctx.font = "10px 'JetBrains Mono', monospace";
     const rowW = rows.map(r => ctx.measureText(r.main).width + ctx.measureText(r.delta).width);
     const tw = Math.max(ctx.measureText(header).width, ...rowW, 0) + 18;
     const th = (rows.length + 1) * 14 + 10;
@@ -601,13 +603,13 @@ class TimelineChart {
     tx = Math.max(padL + 4, Math.min(padL + plotW - tw - 4, tx));
     const ty = padT + 2;
 
-    ctx.fillStyle = 'rgba(12,14,20,0.95)';
-    ctx.strokeStyle = '#2a3550'; ctx.lineWidth = 1;
+    ctx.fillStyle = 'rgba(13,14,17,0.95)';
+    ctx.strokeStyle = '#2a2e38'; ctx.lineWidth = 1;
     this._roundRect(ctx, tx, ty, tw, th, 4);
     ctx.fill(); ctx.stroke();
 
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillStyle = '#9aa3b2';
+    ctx.fillStyle = '#8a90a0';
     ctx.fillText(header, tx + 9, ty + 5);
     rows.forEach((r, i) => {
       const y = ty + 5 + (i + 1) * 14;

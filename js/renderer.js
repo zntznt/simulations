@@ -230,8 +230,12 @@ class BallSystem {
     const now = performance.now();
     const stagger = Math.min(durationMs * 0.07, 80);
 
+    // Uncolored/default flows travel as warm amber dots (the design's #ffd27a);
+    // explicitly typed resources keep their own color so the type still reads.
+    if (color === '#ffa726' || color === '#9e9e9e') color = '#ffd27a';
+
     for (let i = 0; i < capped; i++) {
-      const el = svgEl('circle', { r: '5', fill: color, opacity: '0', 'pointer-events': 'none' });
+      const el = svgEl('circle', { r: '3.5', fill: color, opacity: '0', 'pointer-events': 'none' });
       // Darker stroke so balls are visible against light backgrounds
       el.setAttribute('stroke', this._darken(color));
       el.setAttribute('stroke-width', '1');
@@ -311,10 +315,11 @@ class FlowFx {
     } catch { return; }
 
     const g = svgEl('g', { 'pointer-events': 'none', opacity: '0' });
-    const rect = svgEl('rect', { rx: '7', ry: '7', fill: 'rgba(12,14,20,0.9)', stroke: color, 'stroke-width': '1' });
+    // Live readout pill: opaque lime-tint fill so it stays readable over lines.
+    const rect = svgEl('rect', { rx: '9', ry: '9', fill: '#242d18', stroke: color, 'stroke-width': '1' });
     const t = svgEl('text', {
       'text-anchor': 'middle', 'dominant-baseline': 'central',
-      'font-size': '11', 'font-family': 'monospace', 'font-weight': '600', fill: color,
+      'font-size': '11', 'font-family': "'JetBrains Mono', monospace", 'font-weight': '600', fill: color,
     });
     t.textContent = text;
     g.appendChild(rect); g.appendChild(t);
@@ -382,7 +387,7 @@ class Minimap {
     const H = cv.height = cv.clientHeight || 120;
     const ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = 'rgba(10,12,18,0.94)';
+    ctx.fillStyle = 'rgba(13,14,17,0.94)';
     ctx.fillRect(0, 0, W, H);
 
     const box = this.renderer._contentBounds();
@@ -402,7 +407,7 @@ class Minimap {
     const wx = x => x * scale + offX, wy = y => y * scale + offY;
 
     // Groups as faint rects.
-    ctx.fillStyle = 'rgba(74,158,255,0.10)';
+    ctx.fillStyle = 'rgba(138,144,160,0.10)';
     for (const g of this.diagram.groups.values())
       ctx.fillRect(wx(g.x), wy(g.y), g.w * scale, g.h * scale);
 
@@ -429,9 +434,9 @@ class Minimap {
   _drawViewport(ctx, vp, scale, offX, offY) {
     const x = vp.x0 * scale + offX, y = vp.y0 * scale + offY;
     const w = (vp.x1 - vp.x0) * scale, h = (vp.y1 - vp.y0) * scale;
-    ctx.fillStyle = 'rgba(74,158,255,0.12)';
+    ctx.fillStyle = 'rgba(182,233,77,0.08)';
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 1.2;
+    ctx.strokeStyle = '#b6e94d'; ctx.lineWidth = 1.2;
     ctx.strokeRect(x, y, w, h);
   }
 
@@ -462,6 +467,8 @@ class Renderer {
     this.selectedId = null;        // primary selection (node or connection)
     this.selectedIds = new Set();  // multi-selected node ids
     this._firing = new Set();
+    this._flowing = new Set();     // conn ids that carried flow this step (dash-march)
+    this._flowingTimer = null;
     this._firingTimer = null;      // pending setFiring clear (see setFiring)
     this._nodeEls = new Map();
     this._connEls = new Map();
@@ -486,27 +493,28 @@ class Renderer {
     // Grid — kept fixed to the viewport but its patternTransform tracks the
     // pan/zoom (see _updateTransform), so it visually moves and scales with the
     // content while always covering the screen.
-    const pat = svgEl('pattern', { id: 'grid', width: '40', height: '40', patternUnits: 'userSpaceOnUse' });
-    pat.appendChild(svgEl('path', { d: 'M40 0L0 0 0 40', fill: 'none', stroke: '#1a2035', 'stroke-width': '0.6' }));
+    const pat = svgEl('pattern', { id: 'grid', width: '26', height: '26', patternUnits: 'userSpaceOnUse' });
+    pat.appendChild(svgEl('path', { d: 'M26 0L0 0 0 26', fill: 'none', stroke: '#1a1c22', 'stroke-width': '1' }));
     defs.appendChild(pat);
     this._gridPat = pat;
 
     // Dot overlay
-    const pat2 = svgEl('pattern', { id: 'dots', width: '40', height: '40', patternUnits: 'userSpaceOnUse' });
-    pat2.appendChild(svgEl('circle', { cx: '0', cy: '0', r: '1', fill: '#1e2840' }));
+    const pat2 = svgEl('pattern', { id: 'dots', width: '26', height: '26', patternUnits: 'userSpaceOnUse' });
+    pat2.appendChild(svgEl('circle', { cx: '0', cy: '0', r: '1', fill: '#22252e' }));
     defs.appendChild(pat2);
     this._dotPat = pat2;
 
-    // Arrow markers
+    // Arrow markers. userSpaceOnUse keeps arrowheads a constant size regardless
+    // of each path's stroke width.
     const mkArrow = (id, color) => {
-      const m = svgEl('marker', { id, markerWidth: '8', markerHeight: '6', refX: '7', refY: '3', orient: 'auto' });
-      m.appendChild(svgEl('polygon', { points: '0 0,8 3,0 6', fill: color }));
+      const m = svgEl('marker', { id, markerUnits: 'userSpaceOnUse', markerWidth: '9', markerHeight: '9', refX: '6.5', refY: '4.5', orient: 'auto' });
+      m.appendChild(svgEl('path', { d: 'M0,1 L8,4.5 L0,8 Z', fill: color }));
       defs.appendChild(m);
     };
     mkArrow('arrow-resource', '#ffa726');
-    mkArrow('arrow-state', '#78909c');
-    mkArrow('arrow-trigger', '#66bb6a');
-    mkArrow('arrow-sel', '#fff');
+    mkArrow('arrow-state', '#7f879c');
+    mkArrow('arrow-trigger', '#7f879c');
+    mkArrow('arrow-sel', '#b6e94d');
 
     // Glow
     const filt = svgEl('filter', { id: 'glow', x: '-40%', y: '-40%', width: '180%', height: '180%' });
@@ -518,18 +526,28 @@ class Renderer {
     defs.appendChild(filt);
 
     this.svg.appendChild(defs);
-    this._bgRect = svgEl('rect', { width: '100%', height: '100%', fill: '#0f1117' });
+    this._bgRect = svgEl('rect', { width: '100%', height: '100%', fill: '#0d0e11' });
     this._gridStroke = pat.firstChild;
     this.svg.appendChild(this._bgRect);
     this.svg.appendChild(svgEl('rect', { width: '100%', height: '100%', fill: 'url(#grid)' }));
 
-    // Onboarding hint, shown only while the canvas is completely empty.
+    // Onboarding hint, shown only while the canvas is completely empty:
+    // a ghost of the chase-loop mark above the copy (12c).
     // Lives outside the pan/zoom root so it stays centred in the viewport.
     this._emptyHint = svgEl('g', { 'pointer-events': 'none', visibility: 'hidden' });
+    // Nested <svg> anchored at the viewport centre; overflow:visible lets the
+    // mark draw around that point without knowing the canvas size.
+    const ghostWrap = svgEl('svg', { x: '50%', y: '50%', width: '1', height: '1', overflow: 'visible' });
+    const ghostMark = svgEl('g', { transform: 'translate(0,-96) scale(1.7) translate(-16,-16)' });
+    for (const d of ['M6.6,12.6 A10,10 0 0 1 25.4,12.6', 'M25.4,19.4 A10,10 0 0 1 6.6,19.4'])
+      ghostMark.appendChild(svgEl('path', { d, fill: 'none', stroke: '#2f3542', 'stroke-width': '3', 'stroke-linecap': 'round' }));
+    ghostMark.appendChild(svgEl('circle', { cx: '16', cy: '16', r: '3.4', fill: '#2f3542' }));
+    ghostWrap.appendChild(ghostMark);
+    this._emptyHint.appendChild(ghostWrap);
     const hintLines = [
-      ['Empty canvas', '16', '600', '#8291aa'],
-      ['Pick a node from the left palette and click to place it, then switch to Resource (R) or State (T) to connect.', '12', '400', '#6b7a96'],
-      ['Or load a starter template from Library.', '12', '400', '#6b7a96'],
+      ['An empty economy', '16', '600', '#8a90a0'],
+      ['Pick a node from the left palette and click to place it, then switch to Resource (R) or State (T) to connect.', '12', '400', '#6b7180'],
+      ['Or browse the starter templates in Library.', '12', '400', '#6b7180'],
     ];
     hintLines.forEach(([txt, size, weight, fill], i) => {
       const t = svgEl('text', {
@@ -562,7 +580,7 @@ class Renderer {
   // Canvas background override (simulation meta). Empty string restores the
   // theme default. The grid stroke flips dark/light to stay visible.
   setBackground(color) {
-    const bg = color || '#0f1117';
+    const bg = color || '#0d0e11';
     this._bgRect.setAttribute('fill', bg);
     let light = false;
     const m = /^#([0-9a-f]{6})$/i.exec(bg);
@@ -571,7 +589,7 @@ class Renderer {
       const lum = 0.299 * (v >> 16 & 255) + 0.587 * (v >> 8 & 255) + 0.114 * (v & 255);
       light = lum > 140;
     }
-    if (this._gridStroke) this._gridStroke.setAttribute('stroke', light ? 'rgba(0,0,0,0.13)' : '#1a2035');
+    if (this._gridStroke) this._gridStroke.setAttribute('stroke', light ? 'rgba(0,0,0,0.13)' : '#1a1c22');
   }
 
   _updateTransform() {
@@ -654,6 +672,15 @@ class Renderer {
 
   getConnPathEl(connId) {
     return this._connEls.get(connId)?.querySelector('.conn-path') || null;
+  }
+
+  // Mark connections that carried resources this step: they get the dash-march
+  // animation until the next step replaces the set (empty array clears it).
+  setFlowing(ids) {
+    this._flowing = new Set(ids);
+    clearTimeout(this._flowingTimer);
+    // Fade the march out if the run stops feeding new steps.
+    this._flowingTimer = setTimeout(() => { this._flowing.clear(); this.render(); }, 900);
   }
 
   setFiring(ids) {
@@ -859,7 +886,7 @@ class Renderer {
     if (w > 5 && h > 5) {
       this.tempLayer.appendChild(svgEl('rect', {
         x, y, width: w, height: h, rx: '8',
-        fill: 'rgba(74,158,255,0.06)', stroke: '#4a9eff',
+        fill: 'rgba(182,233,77,0.06)', stroke: '#b6e94d',
         'stroke-width': '1.5', 'stroke-dasharray': '6,4', 'pointer-events': 'none',
       }));
     }
@@ -918,16 +945,15 @@ class Renderer {
     bg.setAttribute('y', chart.y);
     bg.setAttribute('width', chart.w);
     bg.setAttribute('height', chart.h);
-    bg.setAttribute('fill', '#0f1117');
-    bg.setAttribute('stroke', isSel ? '#fff' : '#2a3550');
-    if (isSel) bg.setAttribute('filter', 'url(#glow)');
-    else bg.removeAttribute('filter');
+    bg.setAttribute('fill', '#0d0e11');
+    bg.setAttribute('stroke', isSel ? '#b6e94d' : '#2a2e38');
+    bg.setAttribute('stroke-dasharray', isSel ? '5,4' : '');
 
     const title = el.querySelector('.chart-title');
     title.setAttribute('x', String(chart.x + 8));
     title.setAttribute('y', String(chart.y + 14));
     title.textContent = chart.label || 'Chart';
-    title.setAttribute('fill', '#9aa3b2');
+    title.setAttribute('fill', '#8a90a0');
 
     this._updateResizeHandles(el, chart, isSel);
 
@@ -944,7 +970,7 @@ class Renderer {
       clearPlot();
       const t = svgEl('text', {
         x: String(chart.x + chart.w / 2), y: String(chart.y + chart.h / 2 + 6),
-        'text-anchor': 'middle', 'font-size': '10', 'font-family': 'var(--font)', fill: '#556070',
+        'text-anchor': 'middle', 'font-size': '10', 'font-family': 'var(--font)', fill: '#6b7180',
       });
       t.textContent = msg;
       plot.appendChild(t);
@@ -999,7 +1025,7 @@ class Renderer {
 
       plot.appendChild(svgEl('path', {
         d: `M ${x0},${y0} L ${x0},${baseY} L ${x0 + plotW},${baseY}`,
-        fill: 'none', stroke: '#1e2535', 'stroke-width': '1',
+        fill: 'none', stroke: '#22252e', 'stroke-width': '1',
       }));
       // Axis extents (raw data range) and axis-node labels in series colors.
       const lbl = (x, y, text, fill, anchor = 'start') => {
@@ -1007,10 +1033,10 @@ class Renderer {
         t.textContent = text;
         plot.appendChild(t);
       };
-      lbl(chart.x + 3, y0 + 6, fmtv(rawY[1]), '#556070');
-      lbl(chart.x + 3, baseY, fmtv(rawY[0]), '#556070');
-      lbl(x0, baseY + 8, fmtv(rawX[0]), '#556070');
-      lbl(x0 + plotW, baseY + 8, fmtv(rawX[1]), '#556070', 'end');
+      lbl(chart.x + 3, y0 + 6, fmtv(rawY[1]), '#6b7180');
+      lbl(chart.x + 3, baseY, fmtv(rawY[0]), '#6b7180');
+      lbl(x0, baseY + 8, fmtv(rawX[0]), '#6b7180');
+      lbl(x0 + plotW, baseY + 8, fmtv(rawX[1]), '#6b7180', 'end');
       const xNode = this.diagram.nodes.get(xId), yNode = this.diagram.nodes.get(yId);
       lbl(x0 + plotW, baseY - 4, (xNode && (xNode.label || xNode.type)) || '', xColor, 'end');
       lbl(x0 + 4, y0 + 6, (yNode && (yNode.label || yNode.type)) || '', yColor);
@@ -1047,13 +1073,13 @@ class Renderer {
     // Axes (left + baseline) with min/max labels.
     const axis = svgEl('path', {
       d: `M ${x0},${y0} L ${x0},${y0 + plotH} L ${x0 + plotW},${y0 + plotH}`,
-      fill: 'none', stroke: '#1e2535', 'stroke-width': '1',
+      fill: 'none', stroke: '#22252e', 'stroke-width': '1',
     });
     plot.appendChild(axis);
-    const maxLbl = svgEl('text', { x: String(chart.x + 3), y: String(y0 + 6), 'font-size': '8', 'font-family': 'monospace', fill: '#556070' });
+    const maxLbl = svgEl('text', { x: String(chart.x + 3), y: String(y0 + 6), 'font-size': '8', 'font-family': 'monospace', fill: '#6b7180' });
     maxLbl.textContent = String(+max.toFixed(max < 10 ? 1 : 0));
     plot.appendChild(maxLbl);
-    const zeroLbl = svgEl('text', { x: String(chart.x + 3), y: String(y0 + plotH), 'font-size': '8', 'font-family': 'monospace', fill: '#556070' });
+    const zeroLbl = svgEl('text', { x: String(chart.x + 3), y: String(y0 + plotH), 'font-size': '8', 'font-family': 'monospace', fill: '#6b7180' });
     zeroLbl.textContent = '0';
     plot.appendChild(zeroLbl);
 
@@ -1202,7 +1228,7 @@ class Renderer {
 
     hov.appendChild(svgEl('rect', {
       x: tx.toFixed(1), y: ty.toFixed(1), width: tw.toFixed(1), height: th.toFixed(1), rx: '3',
-      fill: 'rgba(12,14,20,0.94)', stroke: '#2a3550', 'stroke-width': '1',
+      fill: 'rgba(13,14,17,0.94)', stroke: '#2a2e38', 'stroke-width': '1',
     }));
     rows.forEach((r, k) => {
       const t = svgEl('text', {
@@ -1235,9 +1261,12 @@ class Renderer {
     g.appendChild(svgEl('path', { class: 'conn-hitbox', fill: 'none', stroke: 'transparent', 'stroke-width': '24', cursor: 'pointer' }));
     g.appendChild(svgEl('path', { class: 'conn-path', fill: 'none', 'stroke-width': '2' }));
     const lg = svgEl('g', { class: 'conn-label-g', 'data-conn-id': conn.id, cursor: 'grab' });
-    lg.appendChild(svgEl('rect', { class: 'conn-label-bg', rx: '7', ry: '7', 'pointer-events': 'all' }));
-    lg.appendChild(svgEl('text', { class: 'conn-label', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '11', 'font-family': 'var(--font)', 'pointer-events': 'none' }));
+    lg.appendChild(svgEl('rect', { class: 'conn-label-bg', rx: '11', ry: '11', 'pointer-events': 'all' }));
+    lg.appendChild(svgEl('text', { class: 'conn-label', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '11', 'pointer-events': 'none' }));
     g.appendChild(lg);
+    // State-role badge (✷ trigger / ⊢ activator / Δ modifier), sitting on the
+    // line just before the arrowhead.
+    g.appendChild(svgEl('g', { class: 'conn-role', 'pointer-events': 'none' }));
     g.appendChild(svgEl('g', { class: 'conn-handles' }));
     return g;
   }
@@ -1251,19 +1280,48 @@ class Renderer {
     const d = connPathD(conn, src, tgt);
     const lp = connLabelPos(conn, src, tgt);
 
-    const baseColor = isTrigger ? '#66bb6a' : (isModifier ? '#ffb74d' : (isRes ? '#ffa726' : '#78909c'));
-    const color = isSel ? '#fff' : baseColor;
+    // One line language: resource = solid orange 2.5px, state = dashed slate
+    // 2px (role carried by the badge, not the line color), selected = lime.
+    const baseColor = isRes ? '#ffa726' : '#7f879c';
+    const color = isSel ? '#b6e94d' : baseColor;
 
     el.querySelector('.conn-hitbox').setAttribute('d', d);
 
     const path = el.querySelector('.conn-path');
     path.setAttribute('d', d);
     path.setAttribute('stroke', color);
-    if (isTrigger) path.setAttribute('stroke-dasharray', '2,4');
-    else if (!isRes) path.setAttribute('stroke-dasharray', '7,4');
+    path.setAttribute('stroke-width', isRes ? '2.5' : '2');
+    if (this._flowing && this._flowing.has(conn.id)) path.setAttribute('stroke-dasharray', '6,5');
+    else if (!isRes) path.setAttribute('stroke-dasharray', '5,4');
     else path.removeAttribute('stroke-dasharray');
-    const marker = isSel ? 'arrow-sel' : (isTrigger ? 'arrow-trigger' : (isRes ? 'arrow-resource' : 'arrow-state'));
+    const marker = isSel ? 'arrow-sel' : (isRes ? 'arrow-resource' : 'arrow-state');
     path.setAttribute('marker-end', `url(#${marker})`);
+
+    // Role badge: a small stamped circle 16px before the arrowhead.
+    const roleG = el.querySelector('.conn-role');
+    while (roleG.firstChild) roleG.removeChild(roleG.firstChild);
+    const role = isTrigger ? { glyph: '✷', color: '#ffd27a' }
+      : isActivator ? { glyph: '⊢', color: '#8fe08f' }
+      : isModifier ? { glyph: 'Δ', color: '#7cc7ff' }
+      : null;
+    if (role) {
+      try {
+        const len = path.getTotalLength();
+        if (len > 40) {
+          const p = path.getPointAtLength(len - 16);
+          roleG.appendChild(svgEl('circle', {
+            cx: p.x, cy: p.y, r: '9',
+            fill: '#0d0e11', stroke: isSel ? '#b6e94d' : role.color, 'stroke-width': '1.5',
+          }));
+          const t = svgEl('text', {
+            x: p.x, y: p.y, 'text-anchor': 'middle', 'dominant-baseline': 'central',
+            'font-size': '10', 'font-family': "'JetBrains Mono', monospace", fill: role.color,
+          });
+          t.textContent = role.glyph;
+          roleG.appendChild(t);
+        }
+      } catch (_) {}
+    }
 
     const labelG = el.querySelector('.conn-label-g');
     const label = labelG.querySelector('.conn-label');
@@ -1333,7 +1391,7 @@ class Renderer {
       label.textContent = txt;
       label.setAttribute('x', lp.x);
       label.setAttribute('y', lp.y);
-      label.setAttribute('fill', color);
+      label.setAttribute('fill', isSel ? '#b6e94d' : '#e8ebf2');
       try {
         // ponytail: getBBox() forces a synchronous layout flush; the label's size
         // depends only on its text (anchor=middle/central, so it's centred on lp).
@@ -1343,13 +1401,14 @@ class Renderer {
           const bb = label.getBBox();
           sz = label._sizeCache = { txt, w: bb.width, h: bb.height };
         }
-        const px = 6, py = 3;
+        // 22px-tall pill, radius 11, always opaque and painted above the line.
+        const px = 8, h = 22;
         labelBg.setAttribute('x', lp.x - sz.w / 2 - px);
-        labelBg.setAttribute('y', lp.y - sz.h / 2 - py);
+        labelBg.setAttribute('y', lp.y - h / 2);
         labelBg.setAttribute('width', sz.w + px * 2);
-        labelBg.setAttribute('height', sz.h + py * 2);
-        labelBg.setAttribute('fill', isSel ? 'rgba(255,255,255,0.14)' : 'rgba(18,18,18,0.85)');
-        labelBg.setAttribute('stroke', color);
+        labelBg.setAttribute('height', h);
+        labelBg.setAttribute('fill', isSel ? '#242d18' : '#1d2027');
+        labelBg.setAttribute('stroke', isSel ? '#b6e94d' : '#2a2e38');
         labelBg.setAttribute('stroke-width', '1');
       } catch (_) {}
     } else {
@@ -1357,7 +1416,8 @@ class Renderer {
       labelG.style.display = 'none';
     }
 
-    el.setAttribute('class', `conn${isSel ? ' selected' : ''}`);
+    const isFlowing = this._flowing && this._flowing.has(conn.id);
+    el.setAttribute('class', `conn${isSel ? ' selected' : ''}${isFlowing ? ' flowing' : ''}`);
 
     // Reshape handles — shown only while selected (and never on a self-loop).
     const hg = el.querySelector('.conn-handles');
@@ -1366,7 +1426,7 @@ class Renderer {
       for (const h of this.getConnHandles(conn.id)) {
         hg.appendChild(svgEl('circle', {
           class: 'conn-cp-handle', r: '6', cx: h.x, cy: h.y,
-          fill: 'rgba(74,158,255,0.25)', stroke: '#4a9eff', 'stroke-width': '1.5', cursor: 'move',
+          fill: 'rgba(182,233,77,0.25)', stroke: '#b6e94d', 'stroke-width': '1.5', cursor: 'move',
         }));
       }
     }
@@ -1433,7 +1493,7 @@ class Renderer {
       hg.appendChild(svgEl('rect', {
         class: 'resize-handle', 'data-corner': c.corner,
         x: c.x - 5, y: c.y - 5, width: '10', height: '10', rx: '2',
-        fill: 'rgba(74,158,255,0.9)', stroke: '#fff', 'stroke-width': '1.5', cursor,
+        fill: 'rgba(182,233,77,0.9)', stroke: '#14151a', 'stroke-width': '1.5', cursor,
       }));
     }
   }
@@ -1455,42 +1515,41 @@ class Renderer {
   _makeNodeEl(node) {
     const g = svgEl('g', { 'data-id': node.id, cursor: 'pointer' });
     // nd = node-decoration: functional motif, pointer-events off, never overridden by _updateNodeEl
+    // Sculpted-shape identity (3a): mono glyphs in a lighter tint of each
+    // node's stroke color, fill-level arcs on pools, fading dots on queues.
+    const glyph = (txt, attrs) => {
+      const t = svgEl('text', {
+        class: 'n-glyph nd', 'text-anchor': 'middle', 'pointer-events': 'none', ...attrs,
+      });
+      t.textContent = txt;
+      return t;
+    };
 
     if (node.type === NodeType.POOL) {
       g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
+      // Fill-level chord segment: how full the pool is, at a glance.
+      g.appendChild(svgEl('path', { class: 'ns-fill nd', d: '', 'pointer-events': 'none' }));
       g.appendChild(svgEl('circle', { class: 'ns-color-ring', r: '26', fill: 'none', 'stroke-width': '4', opacity: '0.5' }));
     } else if (node.type === NodeType.SOURCE) {
-      g.appendChild(svgEl('polygon', { class: 'ns', points: '0,-32 28,16 -28,16' }));
-      // Emit motif: upward arrow pointing toward apex (resources generated, flowing out)
-      g.appendChild(svgEl('path', { class: 'nd', d: 'M 0,14 V 4 M -4,8 L 0,4 L 4,8',
-        fill: 'none', stroke: NODE_STROKE.source, 'stroke-width': '2',
-        'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
+      g.appendChild(svgEl('polygon', { class: 'ns', points: '0,-32 28,16 -28,16', 'stroke-linejoin': 'round' }));
+      g.appendChild(glyph('∞', { y: '10', 'font-size': '20', fill: '#8fe08f' }));
     } else if (node.type === NodeType.DRAIN) {
-      g.appendChild(svgEl('polygon', { class: 'ns', points: '0,32 -28,-16 28,-16' }));
-      // Absorb motif: downward arrow pointing toward drain tip (resources consumed)
-      g.appendChild(svgEl('path', { class: 'nd', d: 'M 0,8 V 18 M -4,14 L 0,18 L 4,14',
-        fill: 'none', stroke: NODE_STROKE.drain, 'stroke-width': '2',
-        'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
+      g.appendChild(svgEl('polygon', { class: 'ns', points: '0,32 -28,-16 28,-16', 'stroke-linejoin': 'round' }));
+      g.appendChild(glyph('×', { y: '10', 'font-size': '20', fill: '#ff9e9c' }));
     } else if (node.type === NodeType.GATE) {
-      g.appendChild(svgEl('polygon', { class: 'ns', points: '0,-34 34,0 0,34 -34,0' }));
-      // Fork motif: Y-split showing one-in, many-out routing
-      g.appendChild(svgEl('path', { class: 'nd', d: 'M 0,10 V 16 M 0,16 L -7,22 M 0,16 L 7,22',
-        fill: 'none', stroke: NODE_STROKE.gate, 'stroke-width': '2',
-        'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
+      g.appendChild(svgEl('polygon', { class: 'ns', points: '0,-34 34,0 0,34 -34,0', 'stroke-linejoin': 'round' }));
+      g.appendChild(glyph('%', { y: '5', 'font-size': '15', fill: '#d79ce2' }));
     } else if (node.type === NodeType.CONVERTER) {
       g.appendChild(svgEl('circle', { class: 'ns ns-back', cx: '-14', r: '24' }));
       g.appendChild(svgEl('circle', { class: 'ns', cx: '14', r: '24' }));
-      g.appendChild(svgEl('line', { x1: '0', y1: '-18', x2: '0', y2: '18', stroke: '#667', 'stroke-width': '1.5' }));
-      // Transform motif: right-pointing arrow across the divider (input left → output right)
+      // Transform motif: small arrow between the overlapping cells (in → out).
       g.appendChild(svgEl('path', { class: 'nd', d: 'M -6,14 H 4 M 1,11 L 4,14 L 1,17',
-        fill: 'none', stroke: NODE_STROKE.converter, 'stroke-width': '2',
+        fill: 'none', stroke: '#ffd27a', 'stroke-width': '2',
         'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
+      // Recipe caption (e.g. 2:1) under the label.
+      g.appendChild(svgEl('text', { class: 'n-caption nd', 'text-anchor': 'middle', y: '64', 'pointer-events': 'none' }));
     } else if (node.type === NodeType.REGISTER) {
-      g.appendChild(svgEl('rect', { class: 'ns', x: '-44', y: '-30', width: '88', height: '60', rx: '6' }));
-      // Value-store motif: two stacked bars (stored variable rows)
-      g.appendChild(svgEl('path', { class: 'nd', d: 'M -12,13 H 12 M -8,20 H 8',
-        fill: 'none', stroke: NODE_STROKE.register, 'stroke-width': '2',
-        'stroke-linecap': 'round', 'pointer-events': 'none' }));
+      g.appendChild(svgEl('rect', { class: 'ns', x: '-44', y: '-30', width: '88', height: '60', rx: '9' }));
     } else if (node.type === NodeType.DELAY) {
       g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
       g.appendChild(svgEl('circle', { class: 'delay-ring', r: '24', fill: 'none', 'stroke-dasharray': '5,3', 'stroke-width': '1.5' }));
@@ -1502,23 +1561,33 @@ class Renderer {
         'stroke-linecap': 'round', 'pointer-events': 'none' }));
     } else if (node.type === NodeType.QUEUE) {
       g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
-      // FIFO motif: entry arrow feeding into three waiting items
-      const qc = NODE_STROKE.queue;
-      g.appendChild(svgEl('path', { class: 'nd', d: 'M -20,14 H -13 M -16,11 L -13,14 L -16,17',
-        fill: 'none', stroke: qc, 'stroke-width': '1.8',
-        'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
-      for (const x of [-6, 2, 10])
-        g.appendChild(svgEl('circle', { class: 'q-dot nd', cx: x, cy: '14', r: '2.5',
-          fill: qc, 'pointer-events': 'none' }));
+      // FIFO motif: three fading dots — the line itself.
+      [1, 0.7, 0.4].forEach((op, i) => {
+        g.appendChild(svgEl('circle', { class: 'q-dot nd', cx: String(-8 + i * 8), cy: '14', r: '2.8',
+          fill: '#a9adff', opacity: String(op), 'pointer-events': 'none' }));
+      });
     } else if (node.type === NodeType.TRADER) {
       g.appendChild(svgEl('circle', { class: 'ns', r: '32' }));
       // Exchange motif (⇄): two opposing arrows
-      const tc = NODE_STROKE.trader;
-      g.appendChild(svgEl('path', { d: 'M -11,11 H 9 M 5,7 L 9,11 L 5,15',
-        fill: 'none', stroke: tc, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-      g.appendChild(svgEl('path', { d: 'M 11,19 H -9 M -5,15 L -9,19 L -5,23',
-        fill: 'none', stroke: tc, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+      const tc = '#ffa8c5';
+      g.appendChild(svgEl('path', { class: 'nd', d: 'M -11,11 H 9 M 5,7 L 9,11 L 5,15',
+        fill: 'none', stroke: tc, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
+      g.appendChild(svgEl('path', { class: 'nd', d: 'M 11,19 H -9 M -5,15 L -9,19 L -5,23',
+        fill: 'none', stroke: tc, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }));
     }
+
+    // Selection = dashed lime orbit around the node (no glow, no halo).
+    const orbitR = (NODE_R[node.type] || 32) + 7;
+    const orbit = node.type === NodeType.REGISTER
+      ? svgEl('rect', { class: 'sel-orbit', x: '-51', y: '-37', width: '102', height: '74', rx: '14' })
+      : svgEl('circle', { class: 'sel-orbit', r: String(orbitR) });
+    orbit.setAttribute('fill', 'none');
+    orbit.setAttribute('stroke', '#b6e94d');
+    orbit.setAttribute('stroke-width', '1.8');
+    orbit.setAttribute('stroke-dasharray', '5,4');
+    orbit.setAttribute('pointer-events', 'none');
+    orbit.setAttribute('visibility', 'hidden');
+    g.appendChild(orbit);
 
     g.appendChild(svgEl('text', { class: 'n-count', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'pointer-events': 'none' }));
     g.appendChild(svgEl('text', { class: 'n-label', 'text-anchor': 'middle', y: '50', 'pointer-events': 'none' }));
@@ -1534,15 +1603,36 @@ class Renderer {
     el.setAttribute('class', ['node', `n-${node.type}`, isSel && 'selected', isFiring && 'firing']
       .filter(Boolean).join(' '));
 
-    const fill = NODE_FILL[node.type] || '#1a2a3a';
+    const fill = NODE_FILL[node.type] || '#10233f';
     const stroke = NODE_STROKE[node.type] || '#4a9eff';
     for (const s of el.querySelectorAll('.ns')) {
       s.setAttribute('fill', fill);
       s.setAttribute('stroke', stroke);
-      s.setAttribute('stroke-width', isSel ? '3' : '2');
+      s.setAttribute('stroke-width', '2.5');
     }
-    if (isSel) el.querySelectorAll('.ns').forEach(s => s.setAttribute('filter', 'url(#glow)'));
-    else el.querySelectorAll('.ns').forEach(s => s.removeAttribute('filter'));
+    // Selection = dashed lime orbit (no glow filter, no halo).
+    const orbit = el.querySelector('.sel-orbit');
+    if (orbit) orbit.setAttribute('visibility', isSel ? 'visible' : 'hidden');
+
+    // Pool fill level: a chord segment whose height tracks resources/capacity.
+    if (node.type === NodeType.POOL) {
+      const fillPath = el.querySelector('.ns-fill');
+      if (fillPath) {
+        const cap = node.capacity;
+        let p = (isFinite(cap) && cap > 0) ? node.resources / cap : 0;
+        p = Math.max(0, Math.min(1, p));
+        if (p > 0.02) {
+          const r = 32;
+          const dy = r - 2 * r * p;                       // chord height (down = +)
+          const w = Math.sqrt(Math.max(0, r * r - dy * dy));
+          const largeArc = p > 0.5 ? 1 : 0;
+          fillPath.setAttribute('d', `M ${-w},${dy} A ${r},${r} 0 ${largeArc} 0 ${w},${dy} Z`);
+          fillPath.setAttribute('fill', this._hexToRgba(node.displayColor || stroke, 0.22));
+        } else {
+          fillPath.setAttribute('d', '');
+        }
+      }
+    }
 
     // Color ring on pool showing dominant resource color
     const ring = el.querySelector('.ns-color-ring');
@@ -1569,9 +1659,9 @@ class Renderer {
       const back = el.querySelector('.ns-back');
       const front = [...el.querySelectorAll('.ns')].find(s => !s.classList.contains('ns-back'));
       const inColor = dominantColor(node.colorMap);
-      if (back && inColor) back.setAttribute('fill', this._tintFill(NODE_FILL.converter, inColor, 0.4));
+      if (back && inColor) back.setAttribute('fill', this._tintFill(NODE_FILL.converter, inColor, 0.25));
       if (front && node.outputColor) {
-        front.setAttribute('fill', this._tintFill(NODE_FILL.converter, node.outputColor, 0.4));
+        front.setAttribute('fill', this._tintFill(NODE_FILL.converter, node.outputColor, 0.25));
         front.setAttribute('stroke', node.outputColor);
       }
     }
@@ -1580,17 +1670,38 @@ class Renderer {
     // of the live count (falls back to the live count for nodes not recorded,
     // e.g. unlimited sources).
     const countEl = el.querySelector('.n-count');
+    let countTxt;
     if (this._scrubSnap && node.id in this._scrubSnap) {
       const v = this._scrubSnap[node.id];
-      countEl.textContent = Number.isInteger(v) ? v : +Number(v).toFixed(2);
+      countTxt = String(Number.isInteger(v) ? v : +Number(v).toFixed(2));
     } else {
-      countEl.textContent = node.displayCount;
+      countTxt = String(node.displayCount);
     }
+    // Glyph-bearing shapes show their identity glyph (∞ × %) until there is a
+    // live number worth reading; then the number takes the spot.
+    const glyphEl = el.querySelector('.n-glyph');
+    if (node.type === NodeType.SOURCE) {
+      if (countTxt === '∞') countTxt = '';
+    } else if (node.type === NodeType.DRAIN || node.type === NodeType.GATE) {
+      if (countTxt === '0') countTxt = '';
+    } else if (node.type === NodeType.REGISTER && countTxt) {
+      countTxt = `ƒx ${countTxt}`;
+    }
+    if (glyphEl) glyphEl.setAttribute('opacity', countTxt ? '0' : '1');
+    countEl.textContent = countTxt;
 
     const lbl = el.querySelector('.n-label');
     lbl.textContent = node.label;
-    if (node.type === NodeType.REGISTER && node.formula) {
-      lbl.textContent = `${node.label} (${node.formula})`;
+
+    // Converter recipe caption (e.g. 2:1) in mono under the label.
+    if (node.type === NodeType.CONVERTER) {
+      const cap = el.querySelector('.n-caption');
+      if (cap) {
+        const inN = (node.inputRecipe && node.inputRecipe.length)
+          ? node.inputRecipe.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+          : (Number(node.inputAmount) || 1);
+        cap.textContent = `${inN}:1`;
+      }
     }
 
     const badge = el.querySelector('.n-badge');
@@ -1622,7 +1733,7 @@ class Renderer {
   setTempConn(x1, y1, x2, y2, type = ConnectionType.RESOURCE) {
     this.tempLayer.innerHTML = '';
     this._connectHoverEl = null; // cleared with innerHTML above
-    const color = type === ConnectionType.RESOURCE ? '#ffa726' : '#78909c';
+    const color = type === ConnectionType.RESOURCE ? '#ffa726' : '#7f879c';
     this.tempLayer.appendChild(svgEl('line', {
       x1, y1, x2, y2, stroke: color, 'stroke-width': '2', 'stroke-dasharray': '8,5',
       'marker-end': `url(#arrow-${type === ConnectionType.RESOURCE ? 'resource' : 'state'})`,
@@ -1644,7 +1755,7 @@ class Renderer {
     if (!nodeId) return;
     const node = this.diagram.nodes.get(nodeId);
     if (!node) return;
-    const color = type === ConnectionType.STATE ? '#78909c' : '#ffa726';
+    const color = type === ConnectionType.STATE ? '#7f879c' : '#ffa726';
     const r = (NODE_R[node.type] || 32) + 7;
     this._connectHoverEl = svgEl('circle', {
       cx: node.x, cy: node.y, r,
@@ -1659,7 +1770,7 @@ class Renderer {
   setMarquee(x0, y0, x1, y1) {
     if (!this._marqueeEl) {
       this._marqueeEl = svgEl('rect', {
-        fill: 'rgba(74,158,255,0.12)', stroke: '#4a9eff',
+        fill: 'rgba(182,233,77,0.10)', stroke: '#b6e94d',
         'stroke-width': '1', 'stroke-dasharray': '4,3', 'pointer-events': 'none',
       });
       this.tempLayer.appendChild(this._marqueeEl);

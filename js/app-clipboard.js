@@ -192,6 +192,7 @@ class AppClipboard {
   _saveComponentPrompt() {
     if (!this.editor.selection.size) { this._toast('Select nodes first to save a component.'); return; }
     this._openLibrary();
+    this._setLibraryTab('components');
     const input = document.getElementById('comp-name');
     if (input) { input.scrollIntoView({ block: 'center' }); input.focus(); }
   }

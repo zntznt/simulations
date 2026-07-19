@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <defs>
-    <marker id="a" markerUnits="userSpaceOnUse" markerWidth="7.5" markerHeight="7.5" refX="3" refY="3.75" orient="auto">
-      <path d="M0,0 L7.5,3.75 L0,7.5 Z" fill="#4a9eff"/>
-    </marker>
-  </defs>
-  <path d="M21.74 7.81 A10 10 0 1 1 10.26 7.81" fill="none" stroke="#4a9eff" stroke-width="3.2" stroke-linecap="round" marker-end="url(#a)"/>
-  <circle cx="16" cy="16" r="3.4" fill="#4a9eff"/>
+  <!-- Chase loop mark (8a): two arcs chasing around a center dot. Lime on graphite. -->
+  <rect width="32" height="32" rx="7" fill="#14151a"/>
+  <g fill="none" stroke="#b6e94d" stroke-width="3.8" stroke-linecap="round">
+    <path d="M6.6,12.6 A10,10 0 0 1 25.4,12.6"/>
+    <path d="M25.4,19.4 A10,10 0 0 1 6.6,19.4"/>
+  </g>
+  <circle cx="16" cy="16" r="3.8" fill="#b6e94d"/>
 </svg>

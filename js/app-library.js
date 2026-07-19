@@ -54,6 +54,30 @@ class AppLibrary {
     document.getElementById('lib-name').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); document.getElementById('lib-save').click(); }
     });
+
+    // Tabs: one focused list per view. Counts update on every open/save.
+    for (const key of ['mine', 'components', 'templates']) {
+      document.getElementById(`lib-tab-${key}`)
+        .addEventListener('click', () => this._setLibraryTab(key));
+    }
+  }
+
+  _setLibraryTab(key) {
+    this._libTab = key;
+    for (const k of ['mine', 'components', 'templates']) {
+      const active = k === key;
+      const tab = document.getElementById(`lib-tab-${k}`);
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      document.getElementById(`lib-pane-${k}`).classList.toggle('hidden', !active);
+    }
+  }
+
+  _updateLibraryCounts() {
+    const set = (k, n) => { document.getElementById(`lib-count-${k}`).textContent = n ? String(n) : ''; };
+    set('mine', this._getLibrary().length);
+    set('components', this._getComponents().length);
+    set('templates', this._templates.length);
   }
 
   _getLibrary() {
@@ -122,6 +146,7 @@ class AppLibrary {
   _renderComponentsList() {
     const list = this._getComponents();
     const el = document.getElementById('lib-components');
+    this._updateLibraryCounts();
     el.innerHTML = '';
     if (!list.length) {
       el.innerHTML = '<p class="mc-empty">No components yet. Select nodes on the canvas, then click Save component.</p>';
@@ -163,6 +188,10 @@ class AppLibrary {
     this._renderTemplates();
     this._renderComponentsList();
     this._renderLibraryList();
+    this._updateLibraryCounts();
+    // First run (nothing saved yet) opens on Templates; otherwise keep the
+    // last-used tab, defaulting to the user's own diagrams.
+    this._setLibraryTab(this._libTab || (this._getLibrary().length ? 'mine' : 'templates'));
     this._showModal('lib-overlay');
   }
 
@@ -201,6 +230,7 @@ class AppLibrary {
   _renderLibraryList() {
     const lib = this._getLibrary();
     const el = document.getElementById('lib-list');
+    this._updateLibraryCounts();
     el.innerHTML = '';
     if (!lib.length) {
       el.innerHTML = '<p class="mc-empty">No saved diagrams yet. Save the current diagram with a name above.</p>';
