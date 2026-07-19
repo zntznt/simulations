@@ -174,8 +174,8 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     conn.modifier = false; conn.trigger = false; conn.reverseTrigger = false; conn.activator = false;
     window.app._onSelect(conn.id, 'conn');
     const panel = document.getElementById('props-content');
-    if (!panel.textContent.includes('Triggers target')) return 'missing role chips';
-    const modChip = [...panel.querySelectorAll('.var-chip')].find(c => c.textContent === 'Modifies target');
+    if (!panel.querySelector('.role-chips')) return 'missing role chips';
+    const modChip = [...panel.querySelectorAll('.role-chips .var-chip')].find(c => c.textContent.includes('Modifier'));
     if (!modChip) return 'no modify chip';
     modChip.click();
     if (!conn.modifier || conn.modMode !== 'step') return `bad default mode: ${conn.modMode}`;
@@ -420,8 +420,8 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const a = d.addNode(new MNode(NodeType.POOL, 600, 400));
     const sc = d.addConnection(new MConnection(a.id, a.id, ConnectionType.STATE));
     window.app._onSelect(sc.id, 'conn');
-    const modChip = [...document.querySelectorAll('#props-content .var-chip')]
-      .find(c => c.textContent === 'Modifies target');
+    const modChip = [...document.querySelectorAll('#props-content .role-chips .var-chip')]
+      .find(c => c.textContent.includes('Modifier'));
     const modToggled = !!modChip;
     if (modChip) modChip.click();
 
@@ -843,20 +843,19 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const hasLabel = (t) => [...document.querySelectorAll('#props-content .prop-row label')]
       .some(l => l.textContent.trim() === t);
 
-    // Gate mode should include 'all' option
+    // Gate routing chips should include 'All'
     const g = d.addNode(new MNode(NodeType.GATE, 300, 300));
     window.app._onSelect(g.id, 'node');
-    const modeOpts = [...document.querySelectorAll('#props-content select option')]
-      .map(o => o.value);
-    const hasAll = modeOpts.includes('all');
+    const hasAll = [...document.querySelectorAll('#props-content .chip-row .var-chip')]
+      .some(c => c.textContent.trim() === 'All');
 
     // State connection: trigger role exposes the fire/fail "On" select
     const a = d.addNode(new MNode(NodeType.POOL, 100, 100));
     const b = d.addNode(new MNode(NodeType.POOL, 200, 100));
     const sc = d.addConnection(new MConnection(a.id, b.id, ConnectionType.STATE));
     window.app._onSelect(sc.id, 'conn');
-    const trigChip = [...document.querySelectorAll('#props-content .var-chip')]
-      .find(c => c.textContent === 'Triggers target');
+    const trigChip = [...document.querySelectorAll('#props-content .role-chips .var-chip')]
+      .find(c => c.textContent.includes('Trigger'));
     if (trigChip) trigChip.click();
     const hasFailTrigger = [...document.querySelectorAll('#props-content select option')]
       .some(o => o.textContent.includes('fails to act'));
@@ -864,14 +863,10 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     // Resource connection: distribution rate mode exists
     const rc = d.addConnection(new MConnection(a.id, b.id));
     window.app._onSelect(rc.id, 'conn');
-    // Change rate mode to distribution
-    for (const row of document.querySelectorAll('#props-content .prop-row')) {
-      const lbl = row.querySelector('label');
-      if (lbl && lbl.textContent.trim() === 'Rate mode') {
-        const sel = row.querySelector('select'); sel.value = 'distribution';
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }
+    // Change rate mode to distribution via the mode chips
+    const distChip = [...document.querySelectorAll('#props-content .chip-row .var-chip')]
+      .find(c => c.textContent.trim() === 'Dist');
+    if (distChip) distChip.click();
     const hasDist = hasLabel('Distribution');
 
     return { hasAll, hasFailTrigger, hasDist };
@@ -1273,8 +1268,10 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     window.app._clearAll();
     window.app._closeFeature();
     document.querySelector('#diagram-rail .rail-btn[data-feature="time"]').click();  // time panel
+    // Time mode renders as two selectable cards (Synchronous / Asynchronous).
     const diagText = document.getElementById('props-content').textContent;
-    const hasTimeMode = diagText.includes('Time mode');
+    const hasTimeMode = !!document.querySelector('#props-content .mode-card')
+      && diagText.includes('Synchronous') && diagText.includes('Asynchronous');
 
     window.app.diagram.timeMode = 'async';
     const s = window.app.diagram.addNode(new MNode(NodeType.SOURCE, 200, 200));

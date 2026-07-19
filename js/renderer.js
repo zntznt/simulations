@@ -686,6 +686,24 @@ class Renderer {
   setFiring(ids) {
     this._firing = new Set(ids);
     this.render();
+    // 18e: besides the white flash (CSS), each firing node emits a brief
+    // expanding ring. Skipped under prefers-reduced-motion.
+    const reduce = typeof matchMedia === 'function'
+      && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reduce) {
+      for (const id of this._firing) {
+        const node = this.diagram.nodes.get(id);
+        if (!node) continue;
+        const r = (NODE_R[node.type] || 32) + 2;
+        const ring = svgEl('circle', {
+          class: 'fire-ring', cx: node.x, cy: node.y, r: String(r),
+          fill: 'none', stroke: '#fff', 'stroke-width': '2', 'pointer-events': 'none',
+          style: `transform-origin:${node.x}px ${node.y}px`,
+        });
+        this.ballLayer.appendChild(ring);
+        setTimeout(() => ring.remove(), 300);
+      }
+    }
     // Cancel the previous flash's timer so a stale one can't clear this set early.
     clearTimeout(this._firingTimer);
     this._firingTimer = setTimeout(() => { this._firing.clear(); this.render(); }, 250);
@@ -1285,6 +1303,18 @@ class Renderer {
     const baseColor = isRes ? '#ffa726' : '#7f879c';
     const color = isSel ? '#b6e94d' : baseColor;
 
+    // Pull mode: the target draws resources along this connection, so the line
+    // reads as fine dots driven from the far end, and the pill says so.
+    const isPull = isRes && tgt && (tgt.flowMode === 'pull')
+      && (tgt.type === NodeType.POOL || tgt.type === NodeType.DRAIN)
+      && src && (src.type === NodeType.POOL || src.type === NodeType.SOURCE);
+    // Blocked: an activator is currently disallowing the source node, so
+    // nothing can flow here until the condition holds again.
+    let isBlocked = false;
+    if (isRes && !isPull && this.engine && src) {
+      try { isBlocked = !this.engine._nodeEnabled(src, true); } catch (_) {}
+    }
+
     el.querySelector('.conn-hitbox').setAttribute('d', d);
 
     const path = el.querySelector('.conn-path');
@@ -1296,6 +1326,11 @@ class Renderer {
     else path.removeAttribute('stroke-dasharray');
     const marker = isSel ? 'arrow-sel' : (isRes ? 'arrow-resource' : 'arrow-state');
     path.setAttribute('marker-end', `url(#${marker})`);
+    // Runtime states (11a): pull = fine dots driven by the target; blocked =
+    // the line falls back to 30% while an activator holds the source shut.
+    if (isPull && !isSel) { path.setAttribute('stroke-dasharray', '2.5,4'); path.setAttribute('opacity', '0.55'); }
+    else if (isBlocked && !isSel) path.setAttribute('opacity', '0.3');
+    else path.removeAttribute('opacity');
 
     // Role badge: a small stamped circle 16px before the arrowhead.
     const roleG = el.querySelector('.conn-role');
@@ -1327,19 +1362,43 @@ class Renderer {
     const label = labelG.querySelector('.conn-label');
     const labelBg = labelG.querySelector('.conn-label-bg');
     let txt = conn.label || '';
+    // Pill segments: the rate value first, then one glyph per modifier, each in
+    // its fixed color (interval cyan, chance purple, condition amber, formula
+    // green, modifier blue) so a pill reads the same everywhere (11a).
+    const SEG = {
+      base: '#e8ebf2', interval: '#26c6da', chance: '#ba68c8',
+      cond: '#ffd27a', formula: '#8fe08f', modifier: '#7cc7ff', dim: '#8a90a0',
+    };
+    let segs = null;   // [{ t, color }] — set for resource pills below
     if (isRes) {
       const fromGate = src && src.type === NodeType.GATE;
       // Show the configured rate at rest so every wire communicates its flow
       // strength — including the default 1, which used to be hidden and left new
       // users unsure a rate was even editable. Gate outputs distribute by weight
       // (shown below), not rate, so they're excluded.
-      if (conn.rateMode === RateMode.DICE) txt = txt || conn.dice;
-      else if (conn.rateMode === RateMode.FORMULA) txt = txt || conn.formula;
-      else if (conn.rateMode === RateMode.DISTRIBUTION) txt = txt || (conn.distType || 'dist');
-      else if (!fromGate) txt = txt || String(conn.rate);
-      if (conn.interval > 1) txt += (txt ? ' ' : '') + `/${conn.interval}`;
-      if (conn.chance < 100) txt += (txt ? ' ' : '') + `${conn.chance}%`;
-      if (conn.colorFilter) txt += (txt ? ' ' : '') + '●';
+      segs = [];
+      if (txt) segs.push({ t: txt, color: SEG.base });
+      else if (conn.rateMode === RateMode.DICE) segs.push({ t: conn.dice, color: SEG.base });
+      else if (conn.rateMode === RateMode.FORMULA) {
+        const f = conn.formula.length > 18 ? conn.formula.slice(0, 17) + '…' : conn.formula;
+        segs.push({ t: `ƒ ${f}`, color: SEG.formula });
+      } else if (conn.rateMode === RateMode.DISTRIBUTION) {
+        const p1 = conn.distParam1 ?? '', p2 = conn.distParam2;
+        const d = conn.distType === 'normal' ? `~N(${p1}, ${p2 ?? 1})`
+          : conn.distType === 'uniform' ? `~U(${p1}, ${p2 ?? p1})`
+          : `~${conn.distType || 'dist'}(${p1})`;
+        segs.push({ t: d, color: SEG.base });
+      } else if (!fromGate) segs.push({ t: String(conn.rate), color: SEG.base });
+      if (conn.interval > 1) segs.push({ t: `⏱${conn.interval}`, color: SEG.interval });
+      if (conn.chance < 100) segs.push({ t: `${conn.chance}%`, color: SEG.chance });
+      if (conn.colorFilter) segs.push({ t: '●', color: conn.colorFilter });
+      if (conn.condEnabled) {
+        const ref = conn.condRefMode === 'variable' ? (conn.condVariable || 'var') : 'src';
+        const cond = conn.condOperator === 'between'
+          ? `if ${ref} in ${Math.min(conn.condValue, conn.condValue2)}..${Math.max(conn.condValue, conn.condValue2)}`
+          : `if ${ref}${conn.condOperator}${conn.condValue}`;
+        segs.push({ t: cond, color: SEG.cond });
+      }
       if (fromGate) {
         const gmode = src.gateMode === 'random' ? 'probabilistic' : src.gateMode;
         // Mirror engine._connWeight so formula weights make the labels live.
@@ -1353,18 +1412,24 @@ class Renderer {
           const totalW = allOuts.reduce((s, c) => s + getW(c), 0);
           if (totalW > 0) {
             const pct = Math.round(getW(conn) / totalW * 100);
-            txt = (txt ? txt + ' ' : '') + `${pct}%`;
+            segs.push({ t: `${pct}%`, color: SEG.chance });
           }
         } else if (conn.weightFormula) {
-          txt += (txt ? ' ' : '') + `⚖${conn.weightFormula}`;
+          segs.push({ t: `⚖${conn.weightFormula}`, color: SEG.formula });
         } else if (Number(conn.weight) !== 1) {
-          txt += (txt ? ' ' : '') + `⚖${conn.weight}`;
+          segs.push({ t: `⚖${conn.weight}`, color: SEG.base });
         }
       }
+      // The pull pill replaces the rate story: the target decides what moves.
+      if (isPull) segs = [{ t: `pull · ${tgt.pullPolicy || 'any'}`, color: SEG.dim }];
+      txt = segs.map(s => s.t).join(' ');
     } else if (isTrigger) {
-      txt = conn.label ? `✷ ${conn.label}` : '✷';
-      if ((conn.triggerEvery || 1) > 1) txt += `/${conn.triggerEvery}`;
-      if (conn.triggerChance != null && conn.triggerChance < 100) txt += ` ${conn.triggerChance}%`;
+      // The role badge already stamps ✷ on the line; the pill only appears when
+      // there is more to say (a label, an every-N rhythm, or a chance).
+      txt = conn.label ? `✷ ${conn.label}` : '';
+      if ((conn.triggerEvery || 1) > 1) txt += (txt ? '' : '✷') + `/${conn.triggerEvery}`;
+      if (conn.triggerChance != null && conn.triggerChance < 100) txt += (txt ? ' ' : '✷ ') + `${conn.triggerChance}%`;
+      if (txt) segs = [{ t: txt, color: SEG.cond }];
     } else if (isModifier) {
       const mode = conn.modMode || 'rate';
       if (conn.modFormula) {
@@ -1379,19 +1444,29 @@ class Renderer {
         else if (mode === 'delta') txt = `${sign}${conn.modFactor}×Δ`;
         else txt = `Δ ${sign}${conn.modFactor}×`;
       }
+      segs = [{ t: txt, color: SEG.modifier }];
     } else if (isActivator) {
       txt = conn.actOperator === 'between'
         ? `⊢ ${Math.min(conn.actValue, conn.actValue2)}..${Math.max(conn.actValue, conn.actValue2)}`
         : `⊢ ${conn.actOperator}${conn.actValue}`;
+      segs = [{ t: txt, color: SEG.formula }];
     } else {
       txt = conn.variableName || conn.label || '';
     }
     if (txt) {
       labelG.style.display = '';
-      label.textContent = txt;
+      // Multi-color pills: one tspan per segment. Selection and blocked states
+      // override every segment with a single voice (lime / muted).
+      while (label.firstChild) label.removeChild(label.firstChild);
+      const renderSegs = (segs && segs.length) ? segs : [{ t: txt, color: SEG.base }];
+      renderSegs.forEach((s, i) => {
+        const ts = document.createElementNS(SVG_NS, 'tspan');
+        ts.textContent = (i ? ' ' : '') + s.t;
+        ts.setAttribute('fill', isSel ? '#b6e94d' : (isBlocked ? '#565c68' : s.color));
+        label.appendChild(ts);
+      });
       label.setAttribute('x', lp.x);
       label.setAttribute('y', lp.y);
-      label.setAttribute('fill', isSel ? '#b6e94d' : '#e8ebf2');
       try {
         // ponytail: getBBox() forces a synchronous layout flush; the label's size
         // depends only on its text (anchor=middle/central, so it's centred on lp).
@@ -1407,8 +1482,8 @@ class Renderer {
         labelBg.setAttribute('y', lp.y - h / 2);
         labelBg.setAttribute('width', sz.w + px * 2);
         labelBg.setAttribute('height', h);
-        labelBg.setAttribute('fill', isSel ? '#242d18' : '#1d2027');
-        labelBg.setAttribute('stroke', isSel ? '#b6e94d' : '#2a2e38');
+        labelBg.setAttribute('fill', isSel ? '#242d18' : (isBlocked ? '#16181d' : '#1d2027'));
+        labelBg.setAttribute('stroke', isSel ? '#b6e94d' : (isBlocked ? '#22252e' : '#2a2e38'));
         labelBg.setAttribute('stroke-width', '1');
       } catch (_) {}
     } else {

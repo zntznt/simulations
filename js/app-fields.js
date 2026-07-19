@@ -340,6 +340,28 @@ class AppFields {
     return picker;
   }
 
+  // A row of mode chips (16a): one always active, click to switch. `options`
+  // is [value, label] pairs or plain strings.
+  _chipRow(panel, options, value, onChange, ariaLabel = 'Mode') {
+    const row = document.createElement('div');
+    row.className = 'var-chip-group chip-row';
+    row.setAttribute('role', 'radiogroup');
+    row.setAttribute('aria-label', ariaLabel);
+    for (const opt of options) {
+      const [v, t] = Array.isArray(opt) ? opt : [opt, opt.charAt(0).toUpperCase() + opt.slice(1)];
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'var-chip' + (v === value ? ' active' : '');
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(v === value));
+      b.textContent = t;
+      b.addEventListener('click', () => { if (v !== value) onChange(v); });
+      row.appendChild(b);
+    }
+    panel.appendChild(row);
+    return row;
+  }
+
   _select2(panel, label, options, value, onChange) {
     const row = document.createElement('div');
     row.className = 'prop-row';

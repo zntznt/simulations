@@ -752,6 +752,10 @@ class App {
       this.renderer.fitView();
       this._resetHistory();
       this._renderProps();
+      // Recovery banner (16h): say what came back, offer a fresh start. Only
+      // when there is real content to recover, and never in embed mode.
+      if (this.diagram.nodes.size && !document.body.classList.contains('embed'))
+        this._showRecoveryBanner();
       return;
     }
 
@@ -764,6 +768,42 @@ class App {
     this.renderer.resetView();
     this._resetHistory();
     this._renderProps();
+  }
+
+  // Amber banner shown after an autosave restore: keep working (dismiss) or
+  // discard the recovered diagram and start clean.
+  _showRecoveryBanner() {
+    const bar = document.createElement('div');
+    bar.className = 'recovery-banner';
+    bar.setAttribute('role', 'status');
+    const icon = this._faIcon('clock-rotate-left');
+    const msg = document.createElement('span');
+    const name = this.diagram.meta && this.diagram.meta.name;
+    msg.textContent = name ? `Restored "${name}" from your last session` : 'Restored your last session';
+    const keep = document.createElement('button');
+    keep.className = 'btn btn-primary';
+    keep.textContent = 'Keep working';
+    const discard = document.createElement('button');
+    discard.className = 'btn';
+    discard.textContent = 'Discard';
+    const close = () => bar.remove();
+    keep.addEventListener('click', close);
+    discard.addEventListener('click', async () => {
+      if (!await this._confirmGuard('Discard the restored diagram and start with an empty canvas?', 'Discard restored work')) return;
+      close();
+      const prev = this._snapshot();
+      this._clearAll();
+      this._applyMeta();
+      this.renderer.render();
+      this.renderer.resetView();
+      this._commitReplace(prev);
+      this._renderProps();
+    });
+    bar.append(icon, msg, keep, discard);
+    document.getElementById('canvas-wrap').appendChild(bar);
+    // Quietly fades once the user starts editing anyway.
+    setTimeout(() => { if (bar.isConnected) bar.classList.add('fade'); }, 12000);
+    setTimeout(() => { if (bar.isConnected) bar.remove(); }, 13000);
   }
 
   // Load the built-in predator-prey demo on demand (welcome "Explore the demo").
@@ -1343,6 +1383,28 @@ class App {
     document.getElementById('mc-run').addEventListener('click', () => this._runMonteCarlo());
     document.getElementById('mc-sweep-run').addEventListener('click', () => this._runSweep());
     document.getElementById('mc-sens-run').addEventListener('click', () => this._runSensitivity());
+
+    // Touch layout ☰ overflow: the controls the collapsed topbar hides
+    // (analysis, zoom, file, help), routed to the same handlers.
+    document.getElementById('btn-mobile-menu').addEventListener('click', (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      this._openMenu(r.right - 210, r.bottom + 6, (add, sep) => {
+        add('Timeline chart', 'chart-line', () => document.getElementById('btn-timeline').click());
+        add('Batch (Monte Carlo)…', 'dice', () => document.getElementById('btn-batch').click());
+        sep();
+        add('Fit to view', 'expand', () => this.renderer.fitView());
+        add('Undo', 'rotate-left', () => document.getElementById('btn-undo').click());
+        add('Redo', 'rotate-right', () => document.getElementById('btn-redo').click());
+        sep();
+        add('Library', 'book', () => this._openLibrary());
+        add('New diagram', 'file', () => document.getElementById('btn-new').click());
+        add('Open file…', 'folder-open', () => document.getElementById('btn-load').click());
+        add('Save as JSON', 'download', () => document.getElementById('btn-save').click());
+        add('Copy share link', 'link', () => document.getElementById('btn-share').click());
+        sep();
+        add('Help', 'circle-question', () => this._showModal('help-overlay'));
+      });
+    });
 
     // Help / shortcuts overlay (also on the "?" key)
     document.getElementById('btn-help').addEventListener('click', () => this._showModal('help-overlay'));

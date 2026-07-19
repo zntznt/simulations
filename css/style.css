@@ -446,6 +446,10 @@ select.wide-input option { background: var(--panel2); }
   background: var(--accent-tint); border-color: var(--accent); color: var(--accent);
 }
 
+/* Mode chip rows (rate modes, routing) — one focused choice per row. */
+.chip-row { display: flex; gap: 4px; margin-bottom: 12px; }
+.chip-row .var-chip { flex: 1; padding: 5px 4px; border-radius: 5px; text-align: center; }
+
 /* State-connection role picker (properties panel) */
 .role-chips { flex-wrap: wrap; margin-bottom: 12px; }
 .role-chips .var-chip { flex: 1 1 45%; padding: 5px 8px; }
@@ -666,6 +670,12 @@ input[type="range"] {
   40%  { opacity: 0.4; filter: brightness(2.5); }
   100% { opacity: 1; }
 }
+/* Expanding ring emitted on each firing (18e). */
+.fire-ring { animation: fire-ring 0.25s ease-out forwards; }
+@keyframes fire-ring {
+  0%   { opacity: 0.7; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.35); }
+}
 
 /* ── Connection label pills ── */
 .conn-label { fill: var(--text-bright); font-family: var(--mono); }
@@ -849,10 +859,11 @@ input[type="range"] {
 /* Cancel button shown alongside batch progress. */
 .mc-cancel-btn { padding: 2px 10px; margin-left: 8px; font-size: 11px; border-color: var(--red); color: var(--red); }
 
-/* Batch progress bar (mono count + slim lime bar). */
-.mc-progress { font-family: var(--mono); }
-.mc-progress-bar { height: 6px; border-radius: 3px; background: var(--border-soft); overflow: hidden; }
-.mc-progress-bar > div { height: 100%; background: var(--accent); }
+/* Batch progress: mono count + slim lime bar + red-outline Cancel. */
+.mc-progress { padding-bottom: 4px; }
+.mc-progress .mc-prog-text { font-family: var(--mono); color: var(--text); }
+.mc-progress-bar { height: 6px; border-radius: 3px; background: var(--border-soft); overflow: hidden; margin-top: 6px; }
+.mc-progress-bar > div { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.15s; }
 
 /* Library save rows reuse .mc-controls — kept for them. */
 .mc-controls { display: flex; gap: 12px; align-items: center; padding: 12px 18px; }
@@ -1139,6 +1150,12 @@ input[type="range"] {
   padding: 8px 0; border-bottom: 1px solid var(--border-soft); gap: 10px;
 }
 .lib-row:last-child { border-bottom: none; }
+.lib-thumb {
+  width: 44px; height: 30px; flex-shrink: 0;
+  background: var(--canvas); border: 1px solid var(--border); border-radius: 5px;
+  overflow: hidden;
+}
+.lib-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .lib-info { flex: 1; min-width: 0; font-size: 12px; }
 .lib-info b { display: block; color: var(--text-bright); }
 .lib-date { color: var(--text-dim); font-size: 11px; }
@@ -1150,6 +1167,19 @@ input[type="range"] {
   padding: 8px 8px 2px; margin-bottom: 8px; background: var(--canvas);
 }
 .ai-rule .prop-row label { flex: 0 0 70px; }
+
+/* ── Recovery banner (16h): amber notice after an autosave restore ── */
+.recovery-banner {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; z-index: 8;
+  background: var(--panel); border: 1px solid #ffd27a; border-radius: 10px;
+  padding: 8px 14px; font-size: 12px; color: var(--text);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4); white-space: nowrap;
+  transition: opacity 1s;
+}
+.recovery-banner > i { color: #ffd27a; }
+.recovery-banner .btn { padding: 3px 10px; min-height: 26px; font-size: 12px; }
+.recovery-banner.fade { opacity: 0; }
 
 /* ── Toast ── */
 #app-toast {
@@ -1189,14 +1219,198 @@ input[type="range"] {
 }
 .type-count { font-family: var(--mono); font-size: 12px; color: var(--accent); }
 
-/* Live queue metrics readout (throughput / waiting time / peak line). */
-.queue-metrics { margin-top: 6px; }
+/* Gate output weight cards (18a): slider + mono value + computed share. */
+.gate-out-card {
+  background: var(--canvas); border: 1px solid var(--border); border-radius: 8px;
+  padding: 9px 11px; margin-bottom: 8px;
+}
+.gate-out-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.gate-out-name {
+  font-size: 12px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gate-out-pct { font-family: var(--mono); font-size: 12px; color: var(--accent); flex-shrink: 0; }
+.gate-out-row { display: flex; align-items: center; gap: 10px; }
+.gate-out-row input[type="range"] { flex: 1; width: auto; accent-color: #ba68c8; }
+.gate-out-num {
+  width: 52px; flex-shrink: 0; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 5px; color: var(--text-bright); padding: 4px 6px;
+  font-size: 12px; font-family: var(--mono); text-align: center; outline: none;
+}
+.gate-out-num:focus { border-color: var(--accent); }
+.gate-out-formula { font-family: var(--mono); font-size: 11px; color: #8fe08f; }
+
+/* Converter consumes → emits pair card (18b). */
+.conv-pair {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  background: var(--canvas); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px; margin-bottom: 10px;
+}
+.conv-pair-cell { text-align: center; }
+.conv-pair-num {
+  width: 52px; height: 38px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text-bright); font-size: 17px;
+  font-family: var(--mono); text-align: center; outline: none;
+}
+.conv-pair-num:focus { border-color: var(--accent); }
+.conv-pair-ro {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--accent);
+}
+.conv-pair-label { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+.conv-pair-arrow { color: var(--text-faint); font-size: 13px; }
+
+/* Delay in-flight batch rows (18d): units + maturing progress + release step. */
+.delay-batch {
+  background: var(--canvas); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; margin-bottom: 6px;
+}
+.delay-batch-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 8px; margin-bottom: 6px;
+}
+.delay-batch-units { font-family: var(--mono); font-size: 12px; color: var(--text-bright); }
+.delay-batch-release { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+.delay-batch-bar { height: 5px; border-radius: 3px; background: var(--border-soft); overflow: hidden; }
+.delay-batch-bar > div { height: 100%; background: #26c6da; border-radius: 3px; }
+
+/* Activator live status card (16b): green while allowing, red while blocking. */
+.act-status {
+  border: 1px solid var(--green); border-radius: 8px; background: rgba(76,175,80,0.08);
+  color: var(--green); font-size: 12px; padding: 8px 11px; margin-bottom: 10px;
+}
+.act-status.blocking { border-color: var(--red); background: rgba(239,83,80,0.08); color: var(--red); }
+.act-status:empty { display: none; }
+
+/* Role glyphs on the state-connection role chips keep their fixed colors. */
+.role-chips .var-chip:nth-child(2) .role-glyph { color: #ffd27a; }
+.role-chips .var-chip:nth-child(3) .role-glyph { color: #8fe08f; }
+.role-chips .var-chip:nth-child(4) .role-glyph { color: #7cc7ff; }
+.role-glyph { font-family: var(--mono); }
+
+/* Selectable mode cards (14a Time panel): the active card wears lime. */
+.mode-card {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: var(--canvas); border: 1px solid var(--border); border-radius: 10px;
+  padding: 11px 13px; margin-bottom: 8px; font-family: var(--font);
+  transition: border-color 0.15s, background 0.15s;
+}
+.mode-card:hover { border-color: var(--text-dim); }
+.mode-card.active { border-color: var(--accent); background: var(--accent-tint); }
+.mode-card-title { font-size: 13px; font-weight: 600; color: var(--text-bright); margin-bottom: 3px; }
+.mode-card.active .mode-card-title { color: var(--accent); }
+.mode-card-desc { font-size: 11px; color: var(--text-dim); line-height: 1.45; }
+
+/* Watch panel rows (10c): mono name, tiny sparkline, mono lime value. */
+.watch-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 0; border-bottom: 1px solid var(--border-soft);
+}
+.watch-row:last-child { border-bottom: none; }
+.watch-name {
+  flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.watch-spark { flex-shrink: 0; display: block; }
+.watch-val { flex-shrink: 0; font-family: var(--mono); font-size: 12px; color: var(--accent); }
+
+/* Live queue metrics readout (18c): a canvas-dark card of mono stats. */
+.queue-metrics {
+  margin-top: 6px; background: var(--canvas); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 11px;
+}
 .queue-stat-row {
   display: flex; justify-content: space-between; align-items: baseline;
   gap: 8px; padding: 2px 0; font-size: 12px;
 }
 .queue-stat-label { color: var(--text-dim); }
 .queue-stat-val { font-family: var(--mono); color: var(--text); }
+
+/* ── Touch layout (17a/b) ─────────────────────────────────────────────────
+   Under 768px the shell reorganises: a collapsed topbar (logo, 44px Run,
+   step chip, ☰ overflow), the palette as a bottom bar of 52px tiles, the
+   props panel as a bottom sheet sliding over the canvas, and a floating
+   status pill. Desktop is untouched. */
+.mobile-only { display: none; }
+
+@media (max-width: 768px) {
+  .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
+
+  /* Collapsed topbar: logo mark, Run, Step, step chip, ☰. */
+  #topbar { gap: 8px; min-height: 56px; padding: 4px 10px; flex-wrap: nowrap; }
+  .logo-word { display: none; }
+  .speed-cluster, .analysis-controls, .file-controls, #btn-reset { display: none; }
+  .sim-cluster { height: 52px; border-radius: 10px; }
+  #btn-run { min-height: 44px; min-width: 88px; font-size: 14px; }
+  #btn-step { min-height: 44px; }
+  #step-counter.tb-chip { height: 44px; border-radius: 9px; }
+  #btn-mobile-menu { width: 44px; min-height: 44px; margin-left: auto; flex-shrink: 0; }
+
+  /* Status becomes a floating pill over the canvas (17a). */
+  #sim-status {
+    position: fixed; top: 68px; left: 12px; z-index: 15;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 15px; padding: 5px 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  #sim-status:empty { display: none; }
+
+  /* Canvas on top, palette as a horizontally scrolling bottom bar. */
+  #main { flex-direction: column; }
+  #canvas-wrap { order: 1; }
+  #diagram-rail { display: none; }
+  #props-panel { order: 3; }
+  #palette {
+    order: 2; position: relative; width: 100%; flex-shrink: 0;
+    flex-direction: row; align-items: center; gap: 4px;
+    overflow-x: auto; overflow-y: hidden;
+    border-right: none; border-top: 1px solid var(--border);
+    padding: 16px 10px 10px;
+    scrollbar-width: none;
+  }
+  #palette::before {
+    content: ''; position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
+    width: 36px; height: 4px; border-radius: 2px; background: var(--border);
+  }
+  .palette-section { width: auto; flex-direction: row; align-items: center; flex-shrink: 0; }
+  .palette-section + .palette-section { border-top: none; border-left: 1px solid var(--border-soft); }
+  .palette-header { display: none; }
+  .palette-items, .palette-header[aria-expanded="false"] + .palette-items {
+    display: flex; flex-direction: row; gap: 6px; padding: 0 8px; width: auto;
+  }
+  [data-tool] { width: 52px; min-height: 52px; padding: 6px 2px; border-radius: 12px; }
+  [data-section="tools"] [data-tool], [data-section="connect"] [data-tool] { width: 56px; min-height: 56px; }
+  .pal-kbd { display: none; }
+
+  /* Props panel becomes a bottom sheet sliding over the canvas (17b). The
+     body.props-open class is set whenever there is a selection or an active
+     rail feature to show. */
+  #props-panel {
+    position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 58vh;
+    border-left: none; border-top: 1px solid var(--border);
+    border-radius: 18px 18px 0 0; z-index: 30;
+    transform: translateY(105%); transition: transform 0.25s ease;
+    box-shadow: 0 -12px 40px rgba(0,0,0,0.5); padding-top: 12px;
+  }
+  body.props-open #props-panel { transform: translateY(0); }
+  #props-panel::before {
+    content: ''; position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+    width: 36px; height: 4px; border-radius: 2px; background: var(--border);
+  }
+  /* Touch targets inside the sheet. */
+  #props-panel .btn { min-height: 44px; }
+  #props-panel .prop-row input, #props-panel .prop-row select,
+  #props-panel .wide-input, #props-panel .var-wide-input { min-height: 42px; }
+
+  /* The timeline gives the canvas room back on small screens. */
+  #timeline { height: 150px; }
+}
+
+/* Coarse pointers get 44px-class touch targets even above the breakpoint. */
+@media (pointer: coarse) {
+  .btn { min-height: 40px; }
+  [data-tool], .rail-btn { min-height: 52px; }
+}
 
 /* ── Embed mode (clean, shareable view) ── */
 body.embed #palette,
