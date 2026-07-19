@@ -157,12 +157,14 @@ for whole-diagram swaps).
 
 ## Conventions
 
-- **CSS design tokens** in `css/style.css` `:root` (`--bg`, `--panel`, `--panel2`,
-  `--border`, `--text`, `--text-dim`, `--accent #4a9eff`, `--red`, `--green`,
-  `--font`). Style with tokens, not hardcoded hex. Note: `.btn-primary` and the
-  running Run button use darker shades (`#1565c0` / `#2e7d32`) rather than raw
-  `--accent`/`--green` to meet WCAG AA contrast against white text — match that when
-  putting text on a colored fill.
+- **CSS design tokens** in `css/style.css` `:root` ("Graphite · Lime" system:
+  `--bg`, `--canvas`, `--panel`, `--panel2`, `--border`, `--border-soft`, `--text`,
+  `--text-bright`, `--text-dim`, `--text-faint`, `--accent #b6e94d` lime,
+  `--accent-ink #14151a` for text on lime, `--accent-tint`, `--red`, `--green`,
+  `--font` Space Grotesk, `--mono` JetBrains Mono). Style with tokens, not
+  hardcoded hex. Every numeric value renders in `--mono`. Text on a lime fill is
+  always `--accent-ink` (dark), never white — that pairing is what passes WCAG AA.
+  Fonts are vendored in `vendor/fonts/` (no Google Fonts requests at runtime).
 - **Shared App helpers:** `_faIcon(name)` (Font Awesome `<i aria-hidden>`),
   `_toast(msg)`, and `_confirmGuard(message, title)` (Promise-based styled confirm —
   use instead of `confirm()`).

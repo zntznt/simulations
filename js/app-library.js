@@ -35,15 +35,26 @@ class AppLibrary {
     this._modalize('lib-overlay');
     document.getElementById('lib-save').addEventListener('click', () => {
       const name = document.getElementById('lib-name').value.trim() || 'Untitled';
-      const lib = this._getLibrary();
-      lib.push({ name, date: new Date().toLocaleString(), json: this._snapshot() });
-      if (!this._saveLibrary(lib)) {
-        this._toast(`Could not save “${name}”. Browser storage is full or blocked.`);
-        return;
-      }
-      document.getElementById('lib-name').value = '';
-      this._renderLibraryList();
-      this._toast(`Saved “${name}” to your Library`);
+      // Capture a small canvas snapshot so the row is recognisable at a glance
+      // (15b). Falls back to a blank thumb when rasterizing is unavailable.
+      this._captureThumbnail((thumb) => {
+        const lib = this._getLibrary();
+        const entry = { name, date: new Date().toLocaleString(), json: this._snapshot(), nodes: this.diagram.nodes.size };
+        if (thumb) entry.thumb = thumb;
+        lib.push(entry);
+        if (!this._saveLibrary(lib)) {
+          // Thumbnails are the bulkiest part of an entry; retry without one
+          // before declaring storage full.
+          delete entry.thumb;
+          if (!this._saveLibrary(lib)) {
+            this._toast(`Could not save “${name}”. Browser storage is full or blocked.`);
+            return;
+          }
+        }
+        document.getElementById('lib-name').value = '';
+        this._renderLibraryList();
+        this._toast(`Saved “${name}” to your Library`);
+      });
     });
     document.getElementById('comp-save').addEventListener('click', () => this._saveComponent());
     // Enter in either name field commits its save, so the right-click
@@ -54,6 +65,30 @@ class AppLibrary {
     document.getElementById('lib-name').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); document.getElementById('lib-save').click(); }
     });
+
+    // Tabs: one focused list per view. Counts update on every open/save.
+    for (const key of ['mine', 'components', 'templates']) {
+      document.getElementById(`lib-tab-${key}`)
+        .addEventListener('click', () => this._setLibraryTab(key));
+    }
+  }
+
+  _setLibraryTab(key) {
+    this._libTab = key;
+    for (const k of ['mine', 'components', 'templates']) {
+      const active = k === key;
+      const tab = document.getElementById(`lib-tab-${k}`);
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      document.getElementById(`lib-pane-${k}`).classList.toggle('hidden', !active);
+    }
+  }
+
+  _updateLibraryCounts() {
+    const set = (k, n) => { document.getElementById(`lib-count-${k}`).textContent = n ? String(n) : ''; };
+    set('mine', this._getLibrary().length);
+    set('components', this._getComponents().length);
+    set('templates', this._templates.length);
   }
 
   _getLibrary() {
@@ -122,6 +157,7 @@ class AppLibrary {
   _renderComponentsList() {
     const list = this._getComponents();
     const el = document.getElementById('lib-components');
+    this._updateLibraryCounts();
     el.innerHTML = '';
     if (!list.length) {
       el.innerHTML = '<p class="mc-empty">No components yet. Select nodes on the canvas, then click Save component.</p>';
@@ -163,6 +199,10 @@ class AppLibrary {
     this._renderTemplates();
     this._renderComponentsList();
     this._renderLibraryList();
+    this._updateLibraryCounts();
+    // First run (nothing saved yet) opens on Templates; otherwise keep the
+    // last-used tab, defaulting to the user's own diagrams.
+    this._setLibraryTab(this._libTab || (this._getLibrary().length ? 'mine' : 'templates'));
     this._showModal('lib-overlay');
   }
 
@@ -201,6 +241,7 @@ class AppLibrary {
   _renderLibraryList() {
     const lib = this._getLibrary();
     const el = document.getElementById('lib-list');
+    this._updateLibraryCounts();
     el.innerHTML = '';
     if (!lib.length) {
       el.innerHTML = '<p class="mc-empty">No saved diagrams yet. Save the current diagram with a name above.</p>';
@@ -210,55 +251,128 @@ class AppLibrary {
       const entry = lib[i];
       const row = document.createElement('div');
       row.className = 'lib-row';
+
+      // Thumbnail (44×30) makes each saved diagram recognisable (15b).
+      const thumb = document.createElement('div');
+      thumb.className = 'lib-thumb';
+      if (entry.thumb) {
+        const img = document.createElement('img');
+        img.src = entry.thumb; img.alt = '';
+        thumb.appendChild(img);
+      }
+      row.appendChild(thumb);
+
       const info = document.createElement('div');
       info.className = 'lib-info';
-      info.innerHTML = `<b>${this._esc(entry.name)}</b> <span class="lib-date">${this._esc(entry.date)}</span>`;
+      const sub = entry.nodes != null
+        ? `${entry.nodes} node${entry.nodes !== 1 ? 's' : ''} · ${this._esc(entry.date)}`
+        : this._esc(entry.date);
+      info.innerHTML = `<b>${this._esc(entry.name)}</b><span class="lib-date">${sub}</span>`;
       const btns = document.createElement('div');
       btns.style.cssText = 'display:flex;gap:6px;flex-shrink:0';
       const loadBtn = document.createElement('button');
       loadBtn.textContent = 'Load';
       loadBtn.className = 'btn';
-      loadBtn.addEventListener('click', async () => {
-        if (!await this._confirmGuard(`Load "${entry.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`, 'Load from library')) return;
-        // Parse + validate on a throwaway Diagram BEFORE wiping the current
-        // one, so a corrupt entry can't leave a wrecked diagram behind.
-        let data;
-        try {
-          data = JSON.parse(entry.json);
-          new Diagram().loadJSON(data);
-        } catch (err) {
-          this._toast(`Could not load "${entry.name}": ${err.message}. Your current diagram is unchanged.`);
-          return;
-        }
-        const prev = this._snapshot();
-        this._clearAll();
-        this.diagram.loadJSON(data);
-        this._applyMeta();
-        this.engine.reset();
-        this.renderer.balls.clear();
-        this.renderer.flowFx.clear();
-        this._clearSparklines();
-        this.editor._select(null, null);
-        this.renderer.render();
-        this.renderer.fitView();
-        this._commitReplace(prev);
-        this._hideModal('lib-overlay');
+      loadBtn.addEventListener('click', () => this._loadLibraryEntry(entry));
+
+      // Row overflow: the less-common per-entry actions live behind "…" (15b).
+      const moreBtn = document.createElement('button');
+      moreBtn.appendChild(this._faIcon('ellipsis'));
+      moreBtn.setAttribute('aria-label', `More actions for "${entry.name}"`);
+      moreBtn.className = 'btn';
+      moreBtn.addEventListener('click', (e) => {
+        const r = moreBtn.getBoundingClientRect();
+        this._openMenu(r.left, r.bottom + 4, (add, sep) => {
+          add('Rename…', 'pen', () => this._renameLibraryEntry(row, entry, i));
+          add('Duplicate', 'clone', () => {
+            const copy = { ...entry, name: `${entry.name} copy`, date: new Date().toLocaleString() };
+            lib.splice(i + 1, 0, copy);
+            if (!this._saveLibrary(lib)) this._toast('Could not update the Library. Browser storage is blocked.');
+            this._renderLibraryList();
+          });
+          add('Export as JSON', 'download', () => {
+            const a = Object.assign(document.createElement('a'), {
+              href: URL.createObjectURL(new Blob([entry.json], { type: 'application/json' })),
+              download: `${(entry.name || 'diagram').replace(/[^\w\-]+/g, '_')}.json`,
+            });
+            a.click();
+          });
+          sep();
+          add('Delete', 'trash-can', () => {
+            lib.splice(i, 1);
+            if (!this._saveLibrary(lib)) this._toast('Could not update the Library. Browser storage is blocked.');
+            this._renderLibraryList();
+          }, { danger: true });
+        });
+        e.stopPropagation();
       });
-      const delBtn = document.createElement('button');
-      delBtn.appendChild(this._faIcon('xmark'));
-      delBtn.setAttribute('aria-label', 'Delete saved diagram');
-      delBtn.className = 'btn';
-      delBtn.addEventListener('click', () => {
-        lib.splice(i, 1);
-        if (!this._saveLibrary(lib)) this._toast('Could not update the Library. Browser storage is blocked.');
-        this._renderLibraryList();
-      });
+
       btns.appendChild(loadBtn);
-      btns.appendChild(delBtn);
+      btns.appendChild(moreBtn);
       row.appendChild(info);
       row.appendChild(btns);
       el.appendChild(row);
     }
+  }
+
+  async _loadLibraryEntry(entry) {
+    if (!await this._confirmGuard(`Load "${entry.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`, 'Load from library')) return;
+    // Parse + validate on a throwaway Diagram BEFORE wiping the current
+    // one, so a corrupt entry can't leave a wrecked diagram behind.
+    let data;
+    try {
+      data = JSON.parse(entry.json);
+      new Diagram().loadJSON(data);
+    } catch (err) {
+      this._toast(`Could not load "${entry.name}": ${err.message}. Your current diagram is unchanged.`);
+      return;
+    }
+    const prev = this._snapshot();
+    this._clearAll();
+    this.diagram.loadJSON(data);
+    this._applyMeta();
+    this.engine.reset();
+    this.renderer.balls.clear();
+    this.renderer.flowFx.clear();
+    this._clearSparklines();
+    this.editor._select(null, null);
+    this.renderer.render();
+    this.renderer.fitView();
+    this._commitReplace(prev);
+    this._hideModal('lib-overlay');
+  }
+
+  // Rename in place: the row's name swaps for an input; Enter or blur commits,
+  // Escape cancels. No native prompt() — matches the app's styled dialogs rule.
+  _renameLibraryEntry(row, entry, index) {
+    const nameEl = row.querySelector('.lib-info b');
+    if (!nameEl) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = entry.name;
+    input.className = 'wide-input';
+    input.style.marginBottom = '0';
+    input.setAttribute('aria-label', 'New name');
+    nameEl.replaceWith(input);
+    input.focus(); input.select();
+    let done = false;
+    const commit = (save) => {
+      if (done) return;
+      done = true;
+      const name = input.value.trim();
+      if (save && name && name !== entry.name) {
+        const lib = this._getLibrary();
+        if (lib[index]) { lib[index].name = name; }
+        if (!this._saveLibrary(lib)) this._toast('Could not update the Library. Browser storage is blocked.');
+      }
+      this._renderLibraryList();
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+      e.stopPropagation();
+    });
+    input.addEventListener('blur', () => commit(true));
   }
 }
 

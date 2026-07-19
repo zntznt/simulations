@@ -61,7 +61,10 @@ class AppClipboard {
   // old right-click-to-delete gesture with a discoverable menu, and surfaces the
   // otherwise keyboard-only actions (copy, paste, duplicate, save-as-component).
 
-  _showContextMenu(ctx, x, y) {
+  // Generic popup on the shared ctx-menu chrome: `build(add, sep)` fills the
+  // items, then the menu is positioned, focus-managed and dismissed exactly
+  // like the canvas context menu. Also used by the Library row "…" overflow.
+  _openMenu(x, y, build) {
     this._hideContextMenu(); // clear any prior instance (and its listeners)
     const menu = document.getElementById('ctx-menu');
     menu.innerHTML = '';
@@ -82,25 +85,8 @@ class AppClipboard {
       menu.appendChild(b);
     };
     const sep = () => { const d = document.createElement('div'); d.className = 'menu-sep'; d.setAttribute('role', 'separator'); menu.appendChild(d); };
-    const hasClip = !!(this._clipboard && this._clipboard.nodes && this._clipboard.nodes.length);
 
-    if (ctx.kind === 'node') {
-      const n = ctx.count || 1;
-      const noun = n > 1 ? `${n} nodes` : 'node';
-      add('Duplicate', 'clone', () => this._duplicate(), { shortcut: 'Ctrl+D' });
-      add('Copy', 'copy', () => this._copy(), { shortcut: 'Ctrl+C' });
-      add('Save as component…', 'shapes', () => this._saveComponentPrompt());
-      sep();
-      add(`Delete ${noun}`, 'trash-can', () => this._contextDelete(ctx), { shortcut: 'Del', danger: true });
-    } else if (ctx.kind === 'element') {
-      const nouns = { conn: 'connection', group: 'group', note: 'note', chart: 'chart' };
-      add(`Delete ${nouns[ctx.type] || 'item'}`, 'trash-can', () => this._contextDelete(ctx), { shortcut: 'Del', danger: true });
-    } else {
-      add('Paste', 'paste', () => this._paste(), { shortcut: 'Ctrl+V', disabled: !hasClip });
-      add('Select all', 'object-group', () => this._selectAll(), { shortcut: 'Ctrl+A' });
-      sep();
-      add('Fit to view', 'expand', () => this.renderer.fitView(), { shortcut: 'Ctrl+0' });
-    }
+    build(add, sep);
 
     // When opened by keyboard (Shift+F10 / Menu key), x and y are 0 — centre on the canvas.
     if (!x && !y) {
@@ -148,6 +134,29 @@ class AppClipboard {
     menu.addEventListener('keydown', this._ctxKeyNav);
   }
 
+  _showContextMenu(ctx, x, y) {
+    const hasClip = !!(this._clipboard && this._clipboard.nodes && this._clipboard.nodes.length);
+    this._openMenu(x, y, (add, sep) => {
+      if (ctx.kind === 'node') {
+        const n = ctx.count || 1;
+        const noun = n > 1 ? `${n} nodes` : 'node';
+        add('Duplicate', 'clone', () => this._duplicate(), { shortcut: 'Ctrl+D' });
+        add('Copy', 'copy', () => this._copy(), { shortcut: 'Ctrl+C' });
+        add('Save as component…', 'shapes', () => this._saveComponentPrompt());
+        sep();
+        add(`Delete ${noun}`, 'trash-can', () => this._contextDelete(ctx), { shortcut: 'Del', danger: true });
+      } else if (ctx.kind === 'element') {
+        const nouns = { conn: 'connection', group: 'group', note: 'note', chart: 'chart' };
+        add(`Delete ${nouns[ctx.type] || 'item'}`, 'trash-can', () => this._contextDelete(ctx), { shortcut: 'Del', danger: true });
+      } else {
+        add('Paste', 'paste', () => this._paste(), { shortcut: 'Ctrl+V', disabled: !hasClip });
+        add('Select all', 'object-group', () => this._selectAll(), { shortcut: 'Ctrl+A' });
+        sep();
+        add('Fit to view', 'expand', () => this.renderer.fitView(), { shortcut: 'Ctrl+0' });
+      }
+    });
+  }
+
   _hideContextMenu() {
     const menu = document.getElementById('ctx-menu');
     if (!menu || menu.classList.contains('hidden')) return;
@@ -192,6 +201,7 @@ class AppClipboard {
   _saveComponentPrompt() {
     if (!this.editor.selection.size) { this._toast('Select nodes first to save a component.'); return; }
     this._openLibrary();
+    this._setLibraryTab('components');
     const input = document.getElementById('comp-name');
     if (input) { input.scrollIntoView({ block: 'center' }); input.focus(); }
   }

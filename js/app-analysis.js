@@ -53,8 +53,13 @@ class AppAnalysis {
   // Sets this._mcCancel, which every runner passes to the engine as shouldCancel.
   _mcBeginProgress(out, label) {
     this._mcCancel = false;
-    out.innerHTML = '<p class="mc-empty"><span class="mc-prog-text"></span>'
-      + '<button class="btn mc-cancel-btn" id="mc-cancel">Cancel</button></p>';
+    // Mono status line + slim lime progress bar + a red-outline Cancel. The
+    // block is rendered once; updates only touch the text and the bar width,
+    // so the click handler survives.
+    out.innerHTML = '<div class="mc-progress"><p class="mc-empty">'
+      + '<span class="mc-prog-text"></span>'
+      + '<button class="btn mc-cancel-btn" id="mc-cancel">Cancel</button></p>'
+      + '<div class="mc-progress-bar"><div style="width:0%"></div></div></div>';
     out.querySelector('.mc-prog-text').textContent = label;
     document.getElementById('mc-cancel').addEventListener('click', () => {
       this._mcCancel = true;
@@ -64,10 +69,14 @@ class AppAnalysis {
     this._mcSetRunning(true);
   }
 
-  _mcSetProgress(out, label) {
+  _mcSetProgress(out, label, done = null, total = null) {
     const t = out.querySelector('.mc-prog-text');
     if (t) t.textContent = label;
     else out.innerHTML = `<p class="mc-empty">${this._esc(label)}</p>`;
+    if (done != null && total > 0) {
+      const bar = out.querySelector('.mc-progress-bar > div');
+      if (bar) bar.style.width = `${Math.round(done / total * 100)}%`;
+    }
   }
 
   // Disable the three run buttons during a batch (and restore each to its prior
@@ -101,7 +110,7 @@ class AppAnalysis {
       const res = await this.engine.runMonteCarloAsync(runs, steps, {
         seed: this._mcSeed() || null,
         shouldCancel: () => this._mcCancel,
-        onProgress: (done, total) => this._mcSetProgress(out, `Running… ${done} / ${total}`),
+        onProgress: (done, total) => this._mcSetProgress(out, `Running… ${done} / ${total}`, done, total),
       });
       if (!res) { out.innerHTML = '<p class="mc-empty">Cancelled.</p>'; return; }
       const ms = Math.round(performance.now() - t0);
@@ -227,7 +236,8 @@ class AppAnalysis {
           seed,
           shouldCancel: () => this._mcCancel,
           onProgress: (done, total) => this._mcSetProgress(out,
-            `Sweeping ${name} = ${values[i]} (${i + 1}/${values.length}), run ${done}/${total}`),
+            `Sweeping ${name} = ${values[i]} (${i + 1}/${values.length}), run ${done}/${total}`,
+            i * total + done, values.length * total),
         });
         if (!res) { out.innerHTML = '<p class="mc-empty">Cancelled.</p>'; return; }
         results.push(res);
@@ -302,7 +312,8 @@ class AppAnalysis {
     const totalBatches = 1 + params.length * 2;
     let batch = 0;
     const prog = (label) => (done, total) => this._mcSetProgress(out,
-      `Sensitivity: ${label} (batch ${batch}/${totalBatches}), run ${done}/${total}`);
+      `Sensitivity: ${label} (batch ${batch}/${totalBatches}), run ${done}/${total}`,
+      (batch - 1) * total + done, totalBatches * total);
     const cancelled = () => { out.innerHTML = '<p class="mc-empty">Cancelled.</p>'; };
 
     try {
@@ -466,7 +477,7 @@ class AppAnalysis {
       inp.type = 'text';
       inp.value = src;
       inp.placeholder = 'always gold < 500';
-      inp.style.cssText = 'flex:1;font-family:monospace;font-size:11px;min-width:0;';
+      inp.style.cssText = 'flex:1;font-family:var(--mono);font-size:11px;min-width:0;';
       const validate = () => {
         let ok = true;
         try { parseAssertion(inp.value); } catch { ok = false; }
@@ -663,7 +674,7 @@ class AppAnalysis {
       chain.style.cssText = 'font-size:11px;word-break:break-word;';
       chain.textContent = [...loop.labels, loop.labels[0]].join(' → ');
       const detail = document.createElement('div');
-      detail.style.cssText = 'font-size:10px;color:var(--text-dim);font-family:monospace;';
+      detail.style.cssText = 'font-size:10px;color:var(--text-dim);font-family:var(--mono);';
       detail.textContent = loop.links.map(l => `${signGlyph(l.sign)} ${l.kinds.join('/')}`).join(', ');
       body.appendChild(chain); body.appendChild(detail);
 
@@ -704,8 +715,8 @@ class AppAnalysis {
     pop.id = 'why-popover';
     pop.setAttribute('role', 'dialog');
     pop.setAttribute('aria-label', `Change breakdown for ${data.label}`);
-    pop.style.cssText = 'position:fixed;z-index:1000;max-width:300px;min-width:190px;'
-      + 'background:var(--panel);border:1px solid var(--border);border-radius:8px;'
+    pop.style.cssText = 'position:fixed;z-index:1000;max-width:300px;min-width:230px;'
+      + 'background:var(--panel);border:1px solid var(--accent);border-radius:10px;'
       + 'padding:10px 12px;font-size:11px;color:var(--text);box-shadow:0 8px 24px rgba(0,0,0,.45);';
 
     const head = document.createElement('div');
@@ -720,7 +731,7 @@ class AppAnalysis {
     pop.appendChild(head);
 
     const deltaLine = document.createElement('div');
-    deltaLine.style.cssText = 'font-family:monospace;font-size:11px;margin-bottom:6px;';
+    deltaLine.style.cssText = 'font-family:var(--mono);font-size:11px;margin-bottom:6px;';
     deltaLine.textContent = data.initial
       ? `starts at ${fmt(data.to)}`
       : `${fmt(data.from)} → ${fmt(data.to)}  (Δ ${signed(data.delta)})`;
@@ -730,7 +741,7 @@ class AppAnalysis {
       const r = document.createElement('div');
       r.style.cssText = 'display:flex;gap:8px;align-items:baseline;margin:2px 0;';
       const a = document.createElement('span');
-      a.style.cssText = 'font-family:monospace;min-width:44px;text-align:right;flex-shrink:0;'
+      a.style.cssText = 'font-family:var(--mono);min-width:44px;text-align:right;flex-shrink:0;'
         + `color:${amount > 0 ? 'var(--green)' : (amount < 0 ? 'var(--red)' : 'var(--text-dim)')};`;
       a.textContent = signed(amount);
       const t = document.createElement('span');
@@ -821,7 +832,7 @@ class AppAnalysis {
       r.style.cssText = 'display:flex;align-items:baseline;gap:6px;margin:3px 0;';
       r.appendChild(chip(pass, pass ? 'PASS' : 'FAIL'));
       const t = document.createElement('span');
-      t.style.cssText = 'font-family:monospace;font-size:11px;word-break:break-word;';
+      t.style.cssText = 'font-family:var(--mono);font-size:11px;word-break:break-word;';
       t.textContent = label;
       r.appendChild(t);
       container.appendChild(r);

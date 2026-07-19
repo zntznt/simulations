@@ -27,6 +27,11 @@ class AppProps {
     panel.innerHTML = '';
     this._clearSparklines();
 
+    // Touch layout: the props panel is a bottom sheet that only slides up when
+    // there is something to show (a selection or an active rail feature).
+    document.body.classList.toggle('props-open',
+      !!(this._selectedId || this._activeFeature || this._selCount > 1));
+
     // A diagram-rail feature takes over the panel when active, replacing the
     // selection view until it's toggled off (or a node/connection is selected).
     if (this._activeFeature) {
@@ -101,13 +106,15 @@ class AppProps {
         document.head.appendChild(link);
       }
       if (link.getAttribute('href') !== href) link.setAttribute('href', href);
-      rootStyle.setProperty('--font', `'${meta.font}', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`);
+      rootStyle.setProperty('--font', `'${meta.font}', 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`);
     } else {
       if (link) link.remove();
       rootStyle.removeProperty('--font');
     }
 
     document.title = meta.name ? `${meta.name} (Simulations)` : 'Simulations Economy Designer';
+    const embedTitle = document.getElementById('embed-title');
+    if (embedTitle) embedTitle.textContent = meta.name ? `${meta.name} · ` : '';
   }
 
   // Rasterize the live SVG canvas into a small data-URL thumbnail. Async:
@@ -231,7 +238,7 @@ class AppProps {
     const bgRow = document.createElement('div');
     bgRow.className = 'sim-bg-row';
     const bg = document.createElement('input');
-    bg.type = 'color'; bg.value = meta.bgColor || '#0f1117';
+    bg.type = 'color'; bg.value = meta.bgColor || '#0d0e11';
     bg.addEventListener('input', () => {
       meta.bgColor = bg.value;
       this.renderer.setBackground(meta.bgColor);
@@ -241,7 +248,7 @@ class AppProps {
     bgReset.className = 'btn'; bgReset.textContent = 'Reset';
     bgReset.addEventListener('click', () => {
       meta.bgColor = '';
-      bg.value = '#0f1117';
+      bg.value = '#0d0e11';
       this.renderer.setBackground('');
       this._commit();
     });
@@ -252,7 +259,7 @@ class AppProps {
     const fontSel = document.createElement('select');
     fontSel.className = 'wide-input';
     const defOpt = document.createElement('option');
-    defOpt.value = ''; defOpt.textContent = 'Inter (default)';
+    defOpt.value = ''; defOpt.textContent = 'Space Grotesk (default)';
     fontSel.appendChild(defOpt);
     for (const f of GOOGLE_FONTS) {
       const o = document.createElement('option');
@@ -405,15 +412,32 @@ class AppProps {
     });
   }
 
-  // Time mode (synchronous turn-based vs asynchronous per-node rhythm).
+  // Time mode (synchronous turn-based vs asynchronous per-node rhythm),
+  // presented as two selectable mode cards (14a).
   _timeModeEditor(panel) {
     const tm = this.diagram.timeMode || 'sync';
-    this._select2(panel, 'Time mode', ['sync', 'async'], tm, v => {
-      this.diagram.timeMode = v; this._renderProps(); this._commit();
-    });
-    this._info(panel, tm === 'async'
-      ? 'Asynchronous: each automatic node fires on its own "Fire every" rhythm (set per node).'
-      : 'Synchronous (turn-based): every automatic node fires once per step.');
+    for (const [key, title, desc] of [
+      ['sync', 'Synchronous', 'Turn-based: every automatic node fires once per step.'],
+      ['async', 'Asynchronous', 'Each automatic node fires on its own "Fire every" rhythm, set per node.'],
+    ]) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'mode-card' + (tm === key ? ' active' : '');
+      card.setAttribute('role', 'radio');
+      card.setAttribute('aria-checked', String(tm === key));
+      const h = document.createElement('div');
+      h.className = 'mode-card-title';
+      h.textContent = title;
+      const p = document.createElement('div');
+      p.className = 'mode-card-desc';
+      p.textContent = desc;
+      card.append(h, p);
+      card.addEventListener('click', () => {
+        if (this.diagram.timeMode === key) return;
+        this.diagram.timeMode = key; this._renderProps(); this._commit();
+      });
+      panel.appendChild(card);
+    }
   }
 
   // ── Scenario branching panel ──────────────────────────────────────────────
@@ -577,7 +601,7 @@ class AppProps {
       kept = this._saveBranch();
     }
     this.engine.restoreState(cp.state);
-    document.getElementById('step-counter').textContent = `Step: ${this.engine.step}`;
+    document.getElementById('step-counter').textContent = `Step ${this.engine.step}`;
     document.getElementById('sim-status').textContent = '';
     this.renderer.balls.clear();
     this.renderer.flowFx.clear();
@@ -654,14 +678,48 @@ class AppProps {
       panel.appendChild(p);
       return;
     }
+    // A variable published by a node (register output, named state connection)
+    // has a history series to sparkline; parameters and custom vars may not.
+    const seriesNodeId = (name) => {
+      for (const n of this.diagram.nodes.values())
+        if (n.type === NodeType.REGISTER && n.label === name) return n.id;
+      for (const c of this.diagram.connections.values())
+        if (c.type === ConnectionType.STATE && c.variableName === name) return c.sourceId;
+      return null;
+    };
+    const hist = this.engine.history || [];
     for (const [k, v] of vars) {
       const row = document.createElement('div');
-      row.className = 'prop-row';
-      const kl = document.createElement('label'); kl.textContent = k;
+      row.className = 'watch-row';
+      const kl = document.createElement('span');
+      kl.className = 'watch-name';
+      kl.textContent = k;
+      row.appendChild(kl);
+
+      // 64×18 sparkline when the variable has a recorded series.
+      const nid = seriesNodeId(k);
+      if (nid && hist.length >= 2) {
+        const cv = document.createElement('canvas');
+        cv.width = 64; cv.height = 18;
+        cv.className = 'watch-spark';
+        const vals = hist.map(h => h.snap[nid] ?? 0);
+        const min = Math.min(...vals), max = Math.max(...vals);
+        const ctx = cv.getContext('2d');
+        ctx.strokeStyle = '#b6e94d'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        vals.forEach((val, i) => {
+          const x = (i / (vals.length - 1)) * 63 + 0.5;
+          const y = max - min < 1e-9 ? 9 : 16.5 - ((val - min) / (max - min)) * 15;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        row.appendChild(cv);
+      }
+
       const vl = document.createElement('span');
-      vl.style.cssText = 'color:var(--accent);font-family:monospace;font-size:12px;';
-      vl.textContent = typeof v === 'number' ? (+v.toFixed(3)) : v;
-      row.appendChild(kl); row.appendChild(vl);
+      vl.className = 'watch-val';
+      vl.textContent = typeof v === 'number' ? String(+v.toFixed(3)) : String(v);
+      row.appendChild(vl);
       panel.appendChild(row);
     }
   }
@@ -1040,14 +1098,18 @@ class AppProps {
       ['Max wait', processed > 0 ? `${node.maxWait || 0} steps` : 'n/a'],
       ['Peak line', String(node.maxLen || 0)],
     ];
-    if (node.maxLine > 0) rows.push(['Balked (line full)', String(node.balked || 0)]);
-    if (node.patience > 0) rows.push(['Reneged (gave up)', String(node.reneged || 0)]);
+    if (node.maxLine > 0) rows.push(['Balked (line full)', String(node.balked || 0), 'loss']);
+    if (node.patience > 0) rows.push(['Reneged (gave up)', String(node.reneged || 0), 'loss']);
+    // Throughput leads in lime; losses read in red (18c).
+    rows[2] = ['Processed', String(processed), 'lead'];
     container.innerHTML = '';
-    for (const [label, val] of rows) {
+    for (const [label, val, tone] of rows) {
       const row = document.createElement('div');
       row.className = 'queue-stat-row';
       const l = document.createElement('span'); l.className = 'queue-stat-label'; l.textContent = label;
       const v = document.createElement('span'); v.className = 'queue-stat-val'; v.textContent = val;
+      if (tone === 'lead') v.style.color = 'var(--accent)';
+      else if (tone === 'loss' && val !== '0') v.style.color = 'var(--red)';
       row.appendChild(l); row.appendChild(v);
       container.appendChild(row);
     }
@@ -1089,6 +1151,49 @@ class AppProps {
     }
     const totEl = document.getElementById('diagram-totals');
     if (totEl) this._fillTotals(totEl);
+
+    // Connection readouts (live flow, activator status, delay batches).
+    if (this._selectedType === 'conn') {
+      const conn = this.diagram.connections.get(this._selectedId);
+      const liveEl = document.getElementById('conn-live');
+      if (conn && liveEl) this._fillConnLive(liveEl, conn);
+      const actEl = document.getElementById('act-status');
+      if (conn && actEl) this._fillActStatus(actEl, conn);
+    }
+    const dbEl = document.getElementById('delay-batches');
+    if (dbEl && this._selectedType === 'node') {
+      const node = this.diagram.nodes.get(this._selectedId);
+      if (node && node.type === NodeType.DELAY) this._fillDelayBatches(dbEl, node);
+    }
+  }
+
+  // In-flight batches held by a delay (18d): units, a progress bar filling as
+  // the batch matures, and the step it will release on.
+  _fillDelayBatches(container, node) {
+    container.innerHTML = '';
+    const q = node._queue || [];
+    if (!q.length) { container.innerHTML = '<p class="props-info">Nothing in flight.</p>'; return; }
+    for (const b of q) {
+      const row = document.createElement('div');
+      row.className = 'delay-batch';
+      const head = document.createElement('div');
+      head.className = 'delay-batch-head';
+      const units = document.createElement('span');
+      units.className = 'delay-batch-units';
+      units.textContent = `${b.amount} unit${b.amount !== 1 ? 's' : ''}`;
+      const rel = document.createElement('span');
+      rel.className = 'delay-batch-release';
+      rel.textContent = `releases step ${this.engine.step + (b.stepsLeft || 0)}`;
+      head.appendChild(units); head.appendChild(rel);
+      const bar = document.createElement('div');
+      bar.className = 'delay-batch-bar';
+      const fillEl = document.createElement('div');
+      const p = node.delay > 0 ? Math.max(0, Math.min(1, 1 - (b.stepsLeft || 0) / node.delay)) : 1;
+      fillEl.style.width = `${Math.round(p * 100)}%`;
+      bar.appendChild(fillEl);
+      row.appendChild(head); row.appendChild(bar);
+      container.appendChild(row);
+    }
   }
 
   _groupProps(panel, group) {
@@ -1247,6 +1352,10 @@ class AppProps {
     const typeColor = (typeof NODE_STROKE !== 'undefined' && NODE_STROKE[node.type]) || 'var(--accent)';
     this._titleTyped(panel, `${node.type} node`, node.label || '(unnamed)', typeColor, `node-${node.type}`);
 
+    // Hero readout: the node's headline value, front and centre (4a).
+    if (node.type !== NodeType.SOURCE) this._heroCard(panel, node);
+
+    this._section(panel, 'Properties');
     this._field(panel, 'Label', 'text', node.label, v => { node.label = v; this.renderer.render(); });
 
     // Type-specific fields
@@ -1328,12 +1437,59 @@ class AppProps {
 
       if (!hasRecipe) {
         // ── Legacy single-input mode ──────────────────────────────────────────
-        this._field(panel, 'Input / conversion', 'number', node.inputAmount,
-          v => { node.inputAmount = Math.max(1, parseInt(v) || 1); });
+        // Consumes → emits pair card (18b): the conversion in one glance.
+        const pair = document.createElement('div');
+        pair.className = 'conv-pair';
+        const mk = (labelTxt) => {
+          const cell = document.createElement('div');
+          cell.className = 'conv-pair-cell';
+          const lab = document.createElement('div');
+          lab.className = 'conv-pair-label';
+          lab.textContent = labelTxt;
+          return { cell, lab };
+        };
+        const inCell = mk('consumes');
+        const inInp = document.createElement('input');
+        inInp.type = 'number'; inInp.min = '1';
+        inInp.className = 'conv-pair-num';
+        inInp.value = String(node.inputAmount);
+        inInp.setAttribute('aria-label', 'Resources consumed per conversion');
+        inInp.addEventListener('input', () => {
+          node.inputAmount = Math.max(1, parseInt(inInp.value) || 1);
+          this.renderer.render();
+        });
+        inCell.cell.appendChild(inInp); inCell.cell.appendChild(inCell.lab);
+        const arrow = document.createElement('div');
+        arrow.className = 'conv-pair-arrow';
+        arrow.appendChild(this._faIcon('arrow-right'));
+        const emits = [...this.diagram.connections.values()]
+          .filter(c => c.sourceId === node.id && c.type === ConnectionType.RESOURCE)
+          .reduce((s, c) => s + (Number(c.rate) || 0), 0);
+        const outCell = mk('emits');
+        const outVal = document.createElement('div');
+        outVal.className = 'conv-pair-num conv-pair-ro';
+        outVal.textContent = String(emits || 0);
+        outVal.title = 'Sum of the output connections\' rates';
+        outCell.cell.appendChild(outVal); outCell.cell.appendChild(outCell.lab);
+        pair.appendChild(inCell.cell); pair.appendChild(arrow); pair.appendChild(outCell.cell);
+        panel.appendChild(pair);
+
         this._colorField(panel, 'Output color', node.outputColor || '#ffa726', v => {
           node.outputColor = v; this.renderer.render();
         }, false, true);
         this._info(panel, 'Consumes this many held resources per conversion, then emits each output connection\'s rate in the output color.');
+
+        // Held-inputs readout: progress toward the next conversion.
+        const held = document.createElement('div');
+        held.className = 'sim-meta';
+        const heldRow = document.createElement('div');
+        heldRow.className = 'sim-meta-row';
+        const hl = document.createElement('span'); hl.textContent = 'Held inputs';
+        const hv = document.createElement('b');
+        hv.textContent = `${node.resources || 0} / ${node.inputAmount}`;
+        heldRow.appendChild(hl); heldRow.appendChild(hv);
+        held.appendChild(heldRow);
+        panel.appendChild(held);
 
         const addRecipeBtn = document.createElement('button');
         addRecipeBtn.className = 'btn';
@@ -1437,19 +1593,10 @@ class AppProps {
     }
 
     if (node.type === NodeType.DRAIN) {
-      const stat = document.createElement('div');
-      stat.className = 'reg-value drain-stat';
-      stat.textContent = `${node.drained || 0}`;
-      panel.appendChild(stat);
-      this._info(panel, 'Total resources consumed (drained) this run.');
+      this._info(panel, 'The hero number above is the total consumed (drained) this run.');
     }
 
     if (node.type === NodeType.TRADER) {
-      const stat = document.createElement('div');
-      stat.className = 'reg-value';
-      stat.replaceChildren(this._faIcon('right-left'),
-        document.createTextNode(` ${node.trades || 0}`));
-      panel.appendChild(stat);
       this._info(panel, 'Completed exchanges this run. Wire A → Trader → B: '
         + 'when the trader fires, A pays the incoming connection\'s rate to B and B pays '
         + 'the outgoing connection\'s rate back to A, all or nothing. Extra in/out pairs '
@@ -1458,6 +1605,11 @@ class AppProps {
 
     if (node.type === NodeType.DELAY) {
       this._field(panel, 'Delay steps', 'number', node.delay, v => { node.delay = Math.max(1, parseInt(v) || 1); });
+      this._section(panel, 'In flight');
+      const db = document.createElement('div');
+      db.className = 'type-readout'; db.id = 'delay-batches';
+      panel.appendChild(db);
+      this._fillDelayBatches(db, node);
     }
 
     if (node.type === NodeType.QUEUE) {
@@ -1471,6 +1623,7 @@ class AppProps {
       this._field(panel, 'Patience', 'number', node.patience || 0,
         v => { node.patience = Math.max(0, parseInt(v) || 0); }, '0 = infinite; steps before a waiting unit gives up');
       this._info(panel, 'Model lost demand: with a Max line, arrivals that find the line full are turned away (balk); with a Patience, a unit that waits that many steps without a server gives up (renege). Both are counted as losses below. (This drops the units, unlike a Capacity, which makes the source hold them and retry.)');
+      this._section(panel, 'Live metrics');
       const qm = document.createElement('div');
       qm.className = 'type-readout queue-metrics'; qm.id = 'queue-metrics';
       panel.appendChild(qm);
@@ -1479,17 +1632,76 @@ class AppProps {
 
     if (node.type === NodeType.GATE) {
       if (node.gateMode === 'random') node.gateMode = 'probabilistic';
-      this._select2(panel, 'Gate mode', ['deterministic', 'probabilistic', 'all'], node.gateMode,
-        v => { node.gateMode = v; });
-      this._info(panel, 'Outputs split by each connection\'s Weight. Deterministic gives a proportional share; probabilistic is weighted random per unit; all gives each output its full weight per firing.');
+      this._section(panel, 'Routing');
+      this._chipRow(panel, [
+        ['deterministic', 'Split'], ['probabilistic', 'Random'], ['all', 'All'],
+      ], node.gateMode, v => { node.gateMode = v; this._renderProps(); this.renderer.render(); }, 'Gate mode');
+      this._info(panel, 'Outputs split by each connection\'s Weight. Split gives a proportional share; random is weighted chance per unit; all gives each output its full weight per firing.');
+
+      // Per-output weight cards (18a): slider + mono value + the computed
+      // share each output currently gets.
+      const outs = [...this.diagram.connections.values()]
+        .filter(c => c.sourceId === node.id && c.type === ConnectionType.RESOURCE);
+      if (outs.length) {
+        this._section(panel, 'Outputs');
+        const getW = c => {
+          if (c.weightFormula) { const w = evalFormula(c.weightFormula, this.diagram.variables); return isFinite(w) && w >= 0 ? w : 0; }
+          const w = Number(c.weight); return isFinite(w) && w >= 0 ? w : 1;
+        };
+        const totalW = outs.reduce((s, c) => s + getW(c), 0);
+        for (const c of outs) {
+          const tgtNode = this.diagram.nodes.get(c.targetId);
+          const card = document.createElement('div');
+          card.className = 'gate-out-card';
+
+          const head = document.createElement('div');
+          head.className = 'gate-out-head';
+          const name = document.createElement('span');
+          name.className = 'gate-out-name';
+          name.textContent = `→ ${tgtNode ? (tgtNode.label || tgtNode.type) : '?'}`;
+          const pct = document.createElement('span');
+          pct.className = 'gate-out-pct';
+          pct.textContent = totalW > 0 ? `${Math.round(getW(c) / totalW * 100)}%` : '0%';
+          head.appendChild(name); head.appendChild(pct);
+          card.appendChild(head);
+
+          if (c.weightFormula) {
+            const f = document.createElement('div');
+            f.className = 'gate-out-formula';
+            f.textContent = `⚖ ${c.weightFormula}`;
+            f.title = 'Formula weight. Select the connection to edit it.';
+            card.appendChild(f);
+          } else {
+            const row = document.createElement('div');
+            row.className = 'gate-out-row';
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = '0'; slider.max = String(Math.max(10, Math.ceil(getW(c)))); slider.step = '1';
+            slider.value = String(getW(c));
+            slider.setAttribute('aria-label', `Weight for ${tgtNode ? tgtNode.label : 'output'}`);
+            const num = document.createElement('input');
+            num.type = 'number'; num.min = '0';
+            num.className = 'gate-out-num';
+            num.value = String(c.weight ?? 1);
+            num.setAttribute('aria-label', 'Weight value');
+            const apply = (v) => {
+              const n = parseFloat(v);
+              c.weight = isFinite(n) ? Math.max(0, n) : 0;
+              this.renderer.render();
+              this._renderProps(); // recompute every card's %
+            };
+            slider.addEventListener('change', () => apply(slider.value));
+            slider.addEventListener('input', () => { num.value = slider.value; });
+            num.addEventListener('change', () => apply(num.value));
+            row.appendChild(slider); row.appendChild(num);
+            card.appendChild(row);
+          }
+          panel.appendChild(card);
+        }
+      }
     }
 
     if (node.type === NodeType.REGISTER) {
-      const valRow = document.createElement('div');
-      valRow.className = 'reg-value';
-      valRow.textContent = `= ${node.displayCount}`;
-      panel.appendChild(valRow);
-
       this._formulaField(panel, node.formula,
         v => { node.formula = v; this.renderer.render(); },
         { showTip: false });
@@ -1540,16 +1752,7 @@ class AppProps {
       this._info(panel, 'Halt the simulation when this node\'s value meets the condition.');
     }
 
-    // Chart
-    if (node.type !== NodeType.SOURCE) {
-      this._section(panel, 'History');
-      const sec = document.createElement('div');
-      sec.className = 'chart-section';
-      panel.appendChild(sec);
-      const sl = new Sparkline(sec, node.id, this.engine);
-      this._sparklines.set(node.id, sl);
-      sl.update();
-    }
+    // History sparkline lives in the hero card at the top of the panel.
   }
 
   _connProps(panel, conn) {
@@ -1557,7 +1760,7 @@ class AppProps {
     const tgt = this.diagram.nodes.get(conn.targetId);
     const isRes = conn.type === ConnectionType.RESOURCE;
     this._titleTyped(panel, `${isRes ? 'Resource' : 'State'} connection`,
-      `${src?.label || '?'} → ${tgt?.label || '?'}`, isRes ? '#ffa726' : '#78909c',
+      `${src?.label || '?'} → ${tgt?.label || '?'}`, isRes ? '#ffa726' : '#7f879c',
       isRes ? 'conn-resource' : 'conn-state');
 
     this._section(panel, 'Appearance');
@@ -1666,12 +1869,15 @@ class AppProps {
         rateField();
         this._info(panel, 'When resources mature, each output\'s rate is its share among the delay\'s outputs.');
       } else {
-        // Source / Pool / Converter: rate (fixed / dice / formula).
+        // Source / Pool / Converter: rate (fixed / dice / formula / dist).
         this._section(panel, 'Rate');
-        this._select2(panel, 'Rate mode', Object.values(RateMode), conn.rateMode, v => {
+        this._chipRow(panel, [
+          [RateMode.FIXED, 'Fixed'], [RateMode.DICE, 'Dice'],
+          [RateMode.FORMULA, 'Formula'], [RateMode.DISTRIBUTION, 'Dist'],
+        ], conn.rateMode, v => {
           conn.rateMode = v;
           this._renderProps(); // re-render to show the matching rate field
-        });
+        }, 'Rate mode');
 
         if (conn.rateMode === RateMode.FIXED) {
           rateField();
@@ -1767,6 +1973,13 @@ class AppProps {
         }
       }
 
+      // Live flow readout: what actually moved down this wire (16a).
+      this._section(panel, 'Live');
+      const live = document.createElement('div');
+      live.className = 'sim-meta'; live.id = 'conn-live';
+      panel.appendChild(live);
+      this._fillConnLive(live, conn);
+
     } else {
       // State connection: one primary role, picked up front so the panel only
       // shows the controls that matter. (Model flags stay independent, so old
@@ -1783,15 +1996,21 @@ class AppProps {
 
       const chips = document.createElement('div');
       chips.className = 'var-chip-group role-chips';
-      for (const [key, label] of [
-        ['variable', 'Sets a variable'],
-        ['modify',   'Modifies target'],
-        ['trigger',  'Triggers target'],
-        ['activate', 'Activates target'],
+      for (const [key, glyph, label] of [
+        ['variable', '', 'Variable'],
+        ['trigger',  '✷', 'Trigger'],
+        ['activate', '⊢', 'Activator'],
+        ['modify',   'Δ', 'Modifier'],
       ]) {
         const chip = document.createElement('button');
         chip.className = 'var-chip' + (role === key ? ' active' : '');
-        chip.textContent = label;
+        if (glyph) {
+          const g = document.createElement('span');
+          g.className = 'role-glyph';
+          g.textContent = glyph + ' ';
+          chip.appendChild(g);
+        }
+        chip.appendChild(document.createTextNode(label));
         chip.addEventListener('click', () => {
           if (key === role) return;
           // First time the modifier is enabled, default to the simplest mode:
@@ -1932,8 +2151,56 @@ class AppProps {
         this._conditionRow(panel, 'Condition', conn,
           { enabled: 'activator', op: 'actOperator', val: 'actValue', val2: 'actValue2', lead: 'enable target when source' });
         this._info(panel, 'The target node may only fire while the source value satisfies this condition. The a..b operator is an inclusive range.');
+
+        // Live status: is this activator currently allowing the target (16b)?
+        const status = document.createElement('div');
+        status.className = 'act-status'; status.id = 'act-status';
+        panel.appendChild(status);
+        this._fillActStatus(status, conn);
       }
     }
+  }
+
+  // "Moved last step / total this run" rows for a resource connection, from
+  // the flow records the engine attaches to history entries.
+  _fillConnLive(container, conn) {
+    const hist = this.engine.history || [];
+    let last = 0, total = 0;
+    for (let i = 0; i < hist.length; i++) {
+      const f = hist[i].flows && hist[i].flows.conns && hist[i].flows.conns[conn.id];
+      const amt = typeof f === 'number' ? f : 0;
+      total += amt;
+      if (i === hist.length - 1) last = amt;
+    }
+    container.innerHTML = '';
+    for (const [label, val, lime] of [
+      ['Moved last step', this._fmtFlow(last), true],
+      ['Total this run', this._fmtFlow(total), false],
+    ]) {
+      const row = document.createElement('div');
+      row.className = 'sim-meta-row';
+      const l = document.createElement('span'); l.textContent = label;
+      const b = document.createElement('b'); b.textContent = val;
+      if (lime) b.style.color = 'var(--accent)';
+      row.appendChild(l); row.appendChild(b);
+      container.appendChild(row);
+    }
+  }
+
+  // Green "allowing" / red "blocking" card for an activator connection.
+  _fillActStatus(container, conn) {
+    const src = this.diagram.nodes.get(conn.sourceId);
+    const tgt = this.diagram.nodes.get(conn.targetId);
+    if (!conn.activator || !src || !tgt) { container.innerHTML = ''; return; }
+    let ok = true;
+    try {
+      const val = this.engine._stateValueOf(src);
+      ok = this.engine._evalCond(val, conn.actOperator, conn.actValue, conn.actValue2);
+    } catch { return; }
+    container.classList.toggle('blocking', !ok);
+    container.textContent = ok
+      ? `Allowing: ${tgt.label || tgt.type} may fire`
+      : `Blocking: ${tgt.label || tgt.type} cannot fire`;
   }
 }
 

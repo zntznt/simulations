@@ -1,7 +1,7 @@
 // UI accent color schemes selectable per simulation (meta.scheme). Each remaps
 // the two accent CSS variables; 'default' restores the stylesheet values.
 const COLOR_SCHEMES = {
-  default: { label: 'Ocean (default)', accent: '#4a9eff', accent2: '#ffa726' },
+  default: { label: 'Lime (default)', accent: '#b6e94d', accent2: '#ffa726' },
   forest:  { label: 'Forest',          accent: '#66bb6a', accent2: '#ffca28' },
   sunset:  { label: 'Sunset',          accent: '#ff7043', accent2: '#ab47bc' },
   candy:   { label: 'Candy',           accent: '#ec407a', accent2: '#26c6da' },
@@ -80,7 +80,7 @@ class App {
     this._initDiagramRail();
 
     this.engine.onStep = (step, fired, transfers) => {
-      document.getElementById('step-counter').textContent = `Step: ${step}`;
+      document.getElementById('step-counter').textContent = `Step ${step}`;
 
       // Animate balls for each transfer
       const ballDur = Math.max(150, Math.min(1200, 700 / this.engine.speed));
@@ -108,6 +108,9 @@ class App {
           if (pathEl) this.renderer.flowFx.flash(pathEl, this._fmtFlow(e.amount), e.color, flowDur);
         }
       }
+
+      // Dash-march the connections that actually carried resources this step.
+      this.renderer.setFlowing(transfers.filter(t => t.amount > 0).map(t => t.connId));
 
       if (fired.length) this.renderer.setFiring(fired);
       // ponytail: a tick with no fires and no transfers changes no node value, so
@@ -448,6 +451,13 @@ class App {
     b.replaceChildren(this._faIcon(on ? 'pause' : 'play'),
       document.createTextNode(on ? ' Pause' : ' Run'));
     b.classList.toggle('running', on);
+    // Live status readout beside the step chip. Only touch it for the plain
+    // Running state so richer messages (goal reached) set elsewhere survive.
+    const status = document.getElementById('sim-status');
+    if (status) {
+      if (on) status.textContent = 'Running';
+      else if (status.textContent === 'Running') status.textContent = '';
+    }
   }
 
   // Begin a fresh history baseline (after the initial boot / shared-link load).
@@ -597,7 +607,7 @@ class App {
     const entry = hist[i];
     this.renderer.setScrub(entry.snap);
     if (this._timelineVisible) this.timeline.setScrub(entry.step);
-    document.getElementById('step-counter').textContent = `Step: ${entry.step} (replay)`;
+    document.getElementById('step-counter').textContent = `Step ${entry.step} (replay)`;
     this._refreshScrubber();
   }
 
@@ -610,7 +620,7 @@ class App {
     this.timeline.setScrub(null);
     this._syncScrubPlayButton();
     if (wasScrubbing) {
-      document.getElementById('step-counter').textContent = `Step: ${this.engine.step}`;
+      document.getElementById('step-counter').textContent = `Step ${this.engine.step}`;
       this.renderer.render();
       if (this._activeFeature === 'monitor') this._renderProps();
     }
@@ -696,6 +706,18 @@ class App {
     const params = new URLSearchParams(location.search);
     if (params.has('embed') || /(^|[#&])embed\b/.test(location.hash)) {
       document.body.classList.add('embed');
+      // Mini topbar tail: the diagram's name and a way back to the full app.
+      const tail = document.createElement('span');
+      tail.className = 'embed-open';
+      const name = document.createElement('span');
+      name.id = 'embed-title';
+      tail.appendChild(name);
+      const link = document.createElement('a');
+      link.href = location.href.replace(/([?&])embed(=[^&]*)?/, '$1').replace(/[?&]$/, '');
+      link.target = '_blank'; link.rel = 'noopener';
+      link.textContent = 'open in Simulations ↗';
+      tail.appendChild(link);
+      document.getElementById('topbar').appendChild(tail);
     }
 
     // A diagram encoded in the URL hash (#d=…) takes precedence over autosave.
@@ -730,6 +752,10 @@ class App {
       this.renderer.fitView();
       this._resetHistory();
       this._renderProps();
+      // Recovery banner (16h): say what came back, offer a fresh start. Only
+      // when there is real content to recover, and never in embed mode.
+      if (this.diagram.nodes.size && !document.body.classList.contains('embed'))
+        this._showRecoveryBanner();
       return;
     }
 
@@ -742,6 +768,42 @@ class App {
     this.renderer.resetView();
     this._resetHistory();
     this._renderProps();
+  }
+
+  // Amber banner shown after an autosave restore: keep working (dismiss) or
+  // discard the recovered diagram and start clean.
+  _showRecoveryBanner() {
+    const bar = document.createElement('div');
+    bar.className = 'recovery-banner';
+    bar.setAttribute('role', 'status');
+    const icon = this._faIcon('clock-rotate-left');
+    const msg = document.createElement('span');
+    const name = this.diagram.meta && this.diagram.meta.name;
+    msg.textContent = name ? `Restored "${name}" from your last session` : 'Restored your last session';
+    const keep = document.createElement('button');
+    keep.className = 'btn btn-primary';
+    keep.textContent = 'Keep working';
+    const discard = document.createElement('button');
+    discard.className = 'btn';
+    discard.textContent = 'Discard';
+    const close = () => bar.remove();
+    keep.addEventListener('click', close);
+    discard.addEventListener('click', async () => {
+      if (!await this._confirmGuard('Discard the restored diagram and start with an empty canvas?', 'Discard restored work')) return;
+      close();
+      const prev = this._snapshot();
+      this._clearAll();
+      this._applyMeta();
+      this.renderer.render();
+      this.renderer.resetView();
+      this._commitReplace(prev);
+      this._renderProps();
+    });
+    bar.append(icon, msg, keep, discard);
+    document.getElementById('canvas-wrap').appendChild(bar);
+    // Quietly fades once the user starts editing anyway.
+    setTimeout(() => { if (bar.isConnected) bar.classList.add('fade'); }, 12000);
+    setTimeout(() => { if (bar.isConnected) bar.remove(); }, 13000);
   }
 
   // Load the built-in predator-prey demo on demand (welcome "Explore the demo").
@@ -1321,6 +1383,28 @@ class App {
     document.getElementById('mc-run').addEventListener('click', () => this._runMonteCarlo());
     document.getElementById('mc-sweep-run').addEventListener('click', () => this._runSweep());
     document.getElementById('mc-sens-run').addEventListener('click', () => this._runSensitivity());
+
+    // Touch layout ☰ overflow: the controls the collapsed topbar hides
+    // (analysis, zoom, file, help), routed to the same handlers.
+    document.getElementById('btn-mobile-menu').addEventListener('click', (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      this._openMenu(r.right - 210, r.bottom + 6, (add, sep) => {
+        add('Timeline chart', 'chart-line', () => document.getElementById('btn-timeline').click());
+        add('Batch (Monte Carlo)…', 'dice', () => document.getElementById('btn-batch').click());
+        sep();
+        add('Fit to view', 'expand', () => this.renderer.fitView());
+        add('Undo', 'rotate-left', () => document.getElementById('btn-undo').click());
+        add('Redo', 'rotate-right', () => document.getElementById('btn-redo').click());
+        sep();
+        add('Library', 'book', () => this._openLibrary());
+        add('New diagram', 'file', () => document.getElementById('btn-new').click());
+        add('Open file…', 'folder-open', () => document.getElementById('btn-load').click());
+        add('Save as JSON', 'download', () => document.getElementById('btn-save').click());
+        add('Copy share link', 'link', () => document.getElementById('btn-share').click());
+        sep();
+        add('Help', 'circle-question', () => this._showModal('help-overlay'));
+      });
+    });
 
     // Help / shortcuts overlay (also on the "?" key)
     document.getElementById('btn-help').addEventListener('click', () => this._showModal('help-overlay'));
