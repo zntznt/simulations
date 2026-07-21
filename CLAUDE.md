@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-A browser-based, Machinations-style designer for resource economies and game-system
-feedback loops, with a discrete-time simulation engine. **Pure vanilla JS, no build
-step, no framework** — static files served as-is. The only runtime dependency is the
+A browser-based designer for resource economies and game-system feedback loops,
+with a discrete-time simulation engine. **Pure vanilla JS, no build step, no
+framework** — static files served as-is. The only runtime dependency is the
 vendored math.js bundle (`vendor/math.min.js`) powering the formula language.
 
 See `README.md` for the full feature list and `docs/CONCEPTS.md` for the simulation

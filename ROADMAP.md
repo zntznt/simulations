@@ -1,9 +1,8 @@
 # Simulations — Roadmap & Feature Tracker
 
-A living list of what the engine/editor can do today and what's still missing
-relative to [machinations.io](https://machinations.io/). Check items off as they
-land. Priorities: **P1** = core parity / high value, **P2** = valuable,
-**P3** = nice-to-have.
+A living list of what the engine/editor can do today and what's still missing.
+Check items off as they land. Priorities: **P1** = core / high value,
+**P2** = valuable, **P3** = nice-to-have.
 
 ---
 
@@ -23,7 +22,7 @@ core loop or vendoring). Full detail for each lives in its section further down.
 | 5 | **Web-worker engine** — move the tick loop off-thread | S | Med | Engine is already DOM-free; perf win, not adoption |
 | 6 | **Reusable subgraph components** (parameterized insert) | S | Med | Small extension of the existing component insert; power-user |
 | 7 | **Animated GIF export** | M | Med | Reach/shareability; needs a vendored encoder (gif.js) — acceptable per pragmatic dep policy |
-| — | **Machinations.io importer** | M | Niche | Parked: effort dominated by reverse-engineering their format; narrow audience |
+| — | **External diagram importer** | M | Niche | Parked: effort dominated by reverse-engineering other tools' formats; narrow audience |
 
 **Suggested first sprint: items 1–3** — all serve new-user adoption; 1 and 2 are
 small, 3 is the one larger investment worth making for that audience.
@@ -228,7 +227,7 @@ small, 3 is the one larger investment worth making for that audience.
 ## ✅ Sprawling example library
 
 - [x] **Six large, expert-designed demos** added alongside the five concept
-      demos, to show the engine at machinations.io scale. Each is ~30-37 nodes,
+      demos, to show the engine at production scale. Each is ~30-37 nodes,
       spans multiple interacting subsystems, exercises most of the engine at
       once, and is tuned for rich non-degenerate dynamics (verified headlessly
       through the real `_demo*` methods — no NaN/Inf, no dead/pegged values):
@@ -321,8 +320,8 @@ shipped (above); the rest are unstarted. The actionable ones are ranked in the
   flow with the user; example gallery with live previews.
 - **Plugin hooks.** `onNodeFire` / `onTransfer` / `onStepEnd` registration so
   domain experts can add custom node behaviours without forking the engine.
-- **Machinations.io importer.** Parse their file format into diagram JSON for
-  migration.
+- **External diagram importer.** Parse other tools' file formats into diagram
+  JSON for migration.
 - **Animated GIF / embeddable live widget export** for sharing running models.
 
 ---
