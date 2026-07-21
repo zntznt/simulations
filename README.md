@@ -2,23 +2,22 @@
 
 [![tests](https://github.com/zntznt/simulations/actions/workflows/tests.yml/badge.svg)](https://github.com/zntznt/simulations/actions/workflows/tests.yml)
 
-A browser-based, [Machinations](https://machinations.io/)-style tool for modelling
-resource economies and game-system feedback loops, then **simulating** them step by
-step. Draw nodes and connections on a canvas, press Run, and watch resources flow,
-accumulate, convert, and drain — with charts, batch (Monte Carlo) analysis, and
-shareable diagrams.
+A browser-based tool for modelling resource economies and game-system feedback
+loops, then **simulating** them step by step. Draw nodes and connections on a
+canvas, press Run, and watch resources flow, accumulate, convert, and drain —
+with charts, batch (Monte Carlo) analysis, and shareable diagrams.
 
 Pure vanilla JavaScript. **No build step, no framework** — just static files and
 an SVG canvas. The only runtime code dependency is a vendored copy of
 [math.js](https://mathjs.org/) powering the formula language; Font Awesome icons
 are vendored too.
 
-> **Status — docs in progress.** A major UI/UX overhaul is underway. This README
-> documents the parts that are stable regardless of how the interface looks: the
-> simulation model, the feature set, the architecture, and how to run and test the
-> project. A visual walkthrough, screenshots, and a step-by-step editor tutorial
-> will land **after** the UI/UX pass so they don't go stale. See
-> [Deferred docs](#deferred-docs).
+> **Status — docs in progress.** The editor's visual redesign (the **Graphite ·
+> Lime** design system) has landed. This README documents the parts that are
+> stable regardless of how the interface looks: the simulation model, the
+> feature set, the architecture, and how to run and test the project. A visual
+> walkthrough, screenshots, and a step-by-step editor tutorial are still on the
+> way. See [Deferred docs](#deferred-docs).
 
 ---
 
@@ -254,7 +253,7 @@ explanatory note and an on-canvas chart. Open the **Library** to load one.
 - **Barter Economy** — two towns swap grain for timber through a Trader (an atomic 2-for-2 exchange); each storehouse ends up holding both colours.
 - **Service Desk** — a single-server queue with random (Poisson) arrivals; the line builds and clears — the M/D/1 queue behind every checkout.
 
-### Sprawling demos — full systems at machinations.io scale
+### Sprawling demos — full systems at production scale
 
 Each is a large (~30–37 node), multi-subsystem model that exercises nearly every
 engine feature at once, designed by a panel of domain experts and tuned to
@@ -351,15 +350,14 @@ also records intentional design decisions and known limitations.
 
 ## Deferred docs
 
-Held until after the in‑progress UI/UX overhaul, so they don't immediately go stale:
+Still to come, now that the visual redesign has landed:
 
 - **Screenshots / GIFs** of the editor and analysis views.
 - **A visual, step‑by‑step usage guide** (placing nodes, wiring connections, reading the panels).
 - Any **layout‑specific** reference (exact panel locations, button labels).
 
 The simulation model, file architecture, and APIs documented here and in
-`docs/CONCEPTS.md` are independent of the visual design and should remain accurate
-across the redesign.
+`docs/CONCEPTS.md` are independent of the visual design and remain accurate.
 
 ---
 

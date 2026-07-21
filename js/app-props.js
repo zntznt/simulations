@@ -2112,7 +2112,7 @@ class AppProps {
         this._info(panel, {
           step:  'Each step, add this amount to the target pool/converter (negative subtracts). Use a formula to compute it from variables, e.g. round(gold * 0.05).',
           pulse: 'Each time the source node fires, add this amount to the target pool/converter (negative subtracts). The easy "+1 when the source triggers".',
-          delta: 'When the source value changes, add factor × the change to the target (Machinations-style label modifier).',
+          delta: 'When the source value changes, add factor × the change to the target (a label modifier driven by the change, not the value).',
           rate:  'Each step, add factor × source value to the target (negative = decay). Self-connections are allowed for interest/decay.',
         }[mode]);
 
