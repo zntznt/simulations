@@ -161,8 +161,8 @@ class AppDemos {
     b.note(1030, 250, 250, 280,
       'The Granary makes grain, the Lumberyard makes timber, but each needs the ' +
       "other.\n\nThe Market is a Trader: it swaps 2 grain for 2 timber atomically " +
-      '(all-or-nothing). Imported goods are then consumed. Select a storehouse. ' +
-      'it now holds BOTH colours, proof the barter flowed.');
+      '(all-or-nothing). Imported goods are then consumed. Select a storehouse: ' +
+      'it now holds BOTH colors, proof the barter flowed.');
     this.renderer.render();
   }
 

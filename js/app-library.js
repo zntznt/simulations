@@ -47,13 +47,13 @@ class AppLibrary {
           // before declaring storage full.
           delete entry.thumb;
           if (!this._saveLibrary(lib)) {
-            this._toast(`Could not save “${name}”. Browser storage is full or blocked.`);
+            this._toast(`Could not save "${name}". Browser storage is full or blocked.`);
             return;
           }
         }
         document.getElementById('lib-name').value = '';
         this._renderLibraryList();
-        this._toast(`Saved “${name}” to your Library`);
+        this._toast(`Saved "${name}" to your Library`);
       });
     });
     document.getElementById('comp-save').addEventListener('click', () => this._saveComponent());

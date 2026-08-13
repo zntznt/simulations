@@ -1039,7 +1039,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
       && content().includes('Parameters') && content().includes('constants');
     const active = document.querySelector('#diagram-rail .rail-btn[data-feature="params"]').classList.contains('active');
     open('vars'); // switch features
-    const switched = window.app._activeFeature === 'vars' && content().includes('Custom Variables');
+    const switched = window.app._activeFeature === 'vars' && content().includes('Custom variables');
     open('vars'); // toggle off
     const closed = window.app._activeFeature === null
       && !document.querySelector('#diagram-rail .rail-btn.active');
@@ -1168,7 +1168,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     window.app._closeFeature();
     document.querySelector('#diagram-rail .rail-btn[data-feature="vars"]').click();
     const panel = document.getElementById('props-content');
-    const addBtn = [...panel.querySelectorAll('button')].find(b => b.textContent.includes('Add Variable'));
+    const addBtn = [...panel.querySelectorAll('button')].find(b => b.textContent.includes('Add variable'));
     if (!addBtn) return { error: 'no add button' };
     addBtn.click();
     const rv = window.app.diagram.customVars[0];
@@ -1206,7 +1206,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     window.app._closeFeature();
     document.querySelector('#diagram-rail .rail-btn[data-feature="vars"]').click();
     const panel = document.getElementById('props-content');
-    [...panel.querySelectorAll('button')].find(b => b.textContent.includes('Add Variable')).click();
+    [...panel.querySelectorAll('button')].find(b => b.textContent.includes('Add variable')).click();
     const rv = window.app.diagram.customVars[0];
     rv.kind = 'math';
     window.app._renderProps();
@@ -1292,7 +1292,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const p = window.app.diagram.addNode(new MNode(NodeType.POOL, 200, 200));
     p.activation = ActivationMode.INTERACTIVE;
     document.querySelector('#diagram-rail .rail-btn[data-feature="player"]').click();
-    const hasAI = document.getElementById('props-content').textContent.includes('Artificial Player');
+    const hasAI = document.getElementById('props-content').textContent.includes('Artificial player');
     const ai = window.app.diagram.aiPlayer;
     ai.rules.push({ nodeId: p.id, mode: 'interval', every: 3 });
     ai.enabled = true;
@@ -1915,7 +1915,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     // The resources panel shows the Resource Types editor with the type names.
     document.querySelector('#diagram-rail .rail-btn[data-feature="resources"]').click();
     const diagText = document.getElementById('props-content').textContent;
-    const hasTypesEditor = diagText.includes('Resource Types') && diagText.includes('Gold')
+    const hasTypesEditor = diagText.includes('Resource types') && diagText.includes('Gold')
       && diagText.includes('Totals held');
 
     // A pool holding gold shows the type NAME (not the hex) in its readout.

@@ -361,15 +361,15 @@ class AppProps {
   // a container. Editors are reused as-is; the rail supplies the title.
   _featureMeta() {
     return {
-      time:      { title: 'Time Mode',        kb: 'time-modes',        render: c => this._timeModeEditor(c) },
+      time:      { title: 'Time mode',        kb: 'time-modes',        render: c => this._timeModeEditor(c) },
       params:    { title: 'Parameters',       kb: 'params',            render: c => this._paramsEditor(c) },
-      vars:      { title: 'Custom Variables', kb: 'custom-vars',       render: c => this._customVarsEditor(c) },
-      resources: { title: 'Resource Types',   kb: 'resource-types',    render: c => this._resourceTypesEditor(c) },
-      player:    { title: 'Artificial Player', kb: 'artificial-player', render: c => this._diagramAI(c) },
-      branches:  { title: 'Scenario Branches', kb: 'scenarios',         render: c => this._branchesPanel(c) },
-      checks:    { title: 'Design Tests',     kb: 'econ-assert',       render: c => this._designTestsPanel(c) },
-      loops:     { title: 'Feedback Loops',   kb: 'loops',             render: c => this._loopsPanel(c) },
-      monitor:   { title: 'Live Variables',   kb: 'live-vars',         render: c => this._liveVarsReadout(c) },
+      vars:      { title: 'Custom variables', kb: 'custom-vars',       render: c => this._customVarsEditor(c) },
+      resources: { title: 'Resource types',   kb: 'resource-types',    render: c => this._resourceTypesEditor(c) },
+      player:    { title: 'Artificial player', kb: 'artificial-player', render: c => this._diagramAI(c) },
+      branches:  { title: 'Scenario branches', kb: 'scenarios',         render: c => this._branchesPanel(c) },
+      checks:    { title: 'Design tests',     kb: 'econ-assert',       render: c => this._designTestsPanel(c) },
+      loops:     { title: 'Feedback loops',   kb: 'loops',             render: c => this._loopsPanel(c) },
+      monitor:   { title: 'Live variables',   kb: 'live-vars',         render: c => this._liveVarsReadout(c) },
     };
   }
 
@@ -660,7 +660,7 @@ class AppProps {
     }
 
     const addBtn = document.createElement('button');
-    addBtn.textContent = '+ Add Parameter';
+    addBtn.textContent = '+ Add parameter';
     addBtn.className = 'btn var-add-btn';
     addBtn.addEventListener('click', () => {
       let k = 'param' + (Object.keys(params).length + 1);
@@ -995,7 +995,7 @@ class AppProps {
     });
 
     const addBtn = document.createElement('button');
-    addBtn.textContent = '+ Add Variable';
+    addBtn.textContent = '+ Add variable';
     addBtn.className = 'btn var-add-btn';
     addBtn.addEventListener('click', () => {
       let k = 'var' + (vars.length + 1);
@@ -1011,7 +1011,7 @@ class AppProps {
 
   // Named resource types editor + live per-type totals (diagram panel).
   _resourceTypesEditor(panel) {
-    this._info(panel, 'Give resources readable names. Each type maps a name to a color, which the engine uses to track it. Pick a type from the color fields on sources, converters, and filters.');
+    this._info(panel, 'Give resources readable names. Each type maps a name to a color, which the engine uses to track it. Pick a type from the color fields on sources and converters, or from the color filter on a resource connection.');
 
     const types = this.diagram.resourceTypes;
     types.forEach((t, i) => {
@@ -1039,7 +1039,7 @@ class AppProps {
     });
 
     const add = document.createElement('button');
-    add.textContent = '+ Add Resource Type'; add.className = 'btn var-add-btn';
+    add.textContent = '+ Add resource type'; add.className = 'btn var-add-btn';
     add.addEventListener('click', () => {
       const swatches = ['#ffd700', '#8d6e63', '#4caf50', '#42a5f5', '#ef5350', '#ab47bc', '#ff7043', '#26c6da'];
       types.push({ name: 'Type ' + (types.length + 1), color: swatches[types.length % swatches.length] });

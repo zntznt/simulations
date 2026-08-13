@@ -707,7 +707,7 @@ const KB_ARTICLES = [
   },
 
   {
-    id: 'loops', category: 'Running and analysis', title: 'Feedback loops',
+    id: 'loops', category: 'Running and analysis', title: 'Loop detection',
     keywords: 'loop cycle reinforcing balancing circulation polarity system dynamics spiral runaway stabilize why',
     body: 'The Loops rail panel finds every feedback cycle in the diagram and '
       + 'labels it R, B, F or ?. A reinforcing loop (R) has an even number of '

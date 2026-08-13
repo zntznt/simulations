@@ -1110,8 +1110,12 @@ input[type="range"] {
 .welcome-col dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; margin: 0; }
 .welcome-col dt { font-size: 12px; font-weight: 600; color: var(--accent); white-space: nowrap; }
 .welcome-col dd { font-size: 12px; color: var(--text-dim); margin: 0; }
+/* Wraps: the three buttons need about 468px, so on a phone the row overflowed
+   to the left and pushed the primary "Take a quick tour" clean off screen. At
+   320px the second button went with it. This is the first screen a new user
+   sees, so nothing in it may sit outside the modal. */
 .welcome-actions {
-  display: flex; gap: 10px; justify-content: flex-end;
+  display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end;
   padding: 16px 20px; border-top: 1px solid var(--border); margin-top: 12px;
 }
 
