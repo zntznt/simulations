@@ -239,7 +239,7 @@ class AppProps {
     bgRow.className = 'sim-bg-row';
     const bg = document.createElement('input');
     bg.type = 'color'; bg.value = meta.bgColor || '#0d0e11';
-    bg.setAttribute('aria-label', 'Canvas background colour');
+    bg.setAttribute('aria-label', 'Canvas background color');
     bg.addEventListener('input', () => {
       meta.bgColor = bg.value;
       this.renderer.setBackground(meta.bgColor);
@@ -1011,7 +1011,7 @@ class AppProps {
 
   // Named resource types editor + live per-type totals (diagram panel).
   _resourceTypesEditor(panel) {
-    this._info(panel, 'Give resources readable names. Each type maps a name to a color, which the engine uses to track it. Pick a type from the colour fields on sources, converters, and filters.');
+    this._info(panel, 'Give resources readable names. Each type maps a name to a color, which the engine uses to track it. Pick a type from the color fields on sources, converters, and filters.');
 
     const types = this.diagram.resourceTypes;
     types.forEach((t, i) => {
@@ -1024,7 +1024,7 @@ class AppProps {
       ni.addEventListener('change', () => this._commit());
       const ci = document.createElement('input');
       ci.type = 'color'; ci.value = t.color || '#ffa726';
-      ci.setAttribute('aria-label', `Colour of ${t.name || 'this resource type'}`);
+      ci.setAttribute('aria-label', `Color of ${t.name || 'this resource type'}`);
       ci.style.cssText = 'width:36px;height:28px;padding:1px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:none;flex:0 0 auto;';
       ci.addEventListener('input', () => { t.color = ci.value; this.renderer.render(); });
       ci.addEventListener('change', () => this._commit());
