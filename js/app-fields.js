@@ -7,6 +7,12 @@
 // only after every sync <script> has executed, so the prototype is complete
 // by construction time.
 
+// A node's amount field is the reset baseline before a run and the live count
+// during one. Both the builder in app-props.js and the per-step patcher below
+// name it, and they have to agree, so the two strings live here.
+const AMOUNT_LABEL_AT_REST = 'Starting amount';
+const AMOUNT_LABEL_LIVE = 'Amount (live)';
+
 class AppFields {
   // ── Props helpers ─────────────────────────────────────────────────────────
 
@@ -398,6 +404,16 @@ class AppFields {
     // First number input is always the Resources field.
     const inp = document.querySelector('#props-content input[type="number"]');
     if (inp && document.activeElement !== inp) inp.value = node.resources;
+
+    // That field means two different things either side of step 0, and the
+    // panel is not rebuilt as the run advances, so its label has to be patched
+    // here. Without this the row reads "Starting amount" while showing a
+    // mid-run count, which is simply untrue. Matching the current text first
+    // keeps node kinds whose first number input is something else untouched.
+    const lbl = inp && inp.closest('.prop-row') && inp.closest('.prop-row').querySelector('label');
+    if (lbl && (lbl.textContent === AMOUNT_LABEL_AT_REST || lbl.textContent === AMOUNT_LABEL_LIVE)) {
+      lbl.textContent = this.engine.step > 0 ? AMOUNT_LABEL_LIVE : AMOUNT_LABEL_AT_REST;
+    }
   }
 
   _updateSparklines() { for (const sl of this._sparklines.values()) sl.update(); }

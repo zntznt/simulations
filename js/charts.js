@@ -12,7 +12,12 @@ class Sparkline {
 
   update() {
     const history = this.engine.history;
-    if (!history.length) return;
+    // One point draws nothing but an empty box and a stray midline, which read
+    // as a broken chart at the top of the properties panel. Stay collapsed
+    // until there are two points to join, then reveal.
+    const drawable = history.length >= 2;
+    this.canvas.classList.toggle('hidden', !drawable);
+    if (!drawable) return;
     const values = history.map(h => h.snap[this.nodeId] ?? 0);
     const ctx = this.canvas.getContext('2d');
     const w = this.canvas.width, h = this.canvas.height;
@@ -27,7 +32,6 @@ class Sparkline {
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
 
-    if (values.length < 2) return;
     const step = w / (values.length - 1);
 
     ctx.beginPath();
@@ -69,6 +73,19 @@ function chartFont(px) {
   if (!_chartFontFamily)
     _chartFontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif';
   return `${px}px ${_chartFontFamily}`;
+}
+
+// Snap a rough gap to the nearest 1/2/5 x 10^n, the step ladder people read axis
+// labels on. Picking the *closest* rung rather than always rounding up keeps the
+// line count near the four asked for: a max of 94 wants 20, not 50. Used to put
+// grid lines on values like 20 or 100 instead of on raw fractions of whatever
+// the data happened to peak at.
+function niceStep(rough) {
+  if (!(rough > 0) || !isFinite(rough)) return 1;
+  const power = Math.floor(Math.log10(rough));
+  const err = rough / Math.pow(10, power);
+  const factor = err >= Math.sqrt(50) ? 10 : err >= Math.sqrt(10) ? 5 : err >= Math.sqrt(2) ? 2 : 1;
+  return factor * Math.pow(10, power);
 }
 
 // One color per node, keyed by its creation order in the diagram, shared by
@@ -331,14 +348,16 @@ class TimelineChart {
       ctx.fillStyle = '#8a90a0';
       ctx.font = chartFont(12);
       ctx.textBaseline = 'middle';
-      ctx.textAlign = 'left';
+      // Centred, so the empty drawer reads as a deliberate placeholder rather
+      // than a stray line of text stranded in the top-left corner.
+      ctx.textAlign = 'center';
       // Distinguish "no data yet" from "everything is toggled off" — the latter
       // is recoverable from the legend's Show all chip.
       const hasData = hist.length >= 2 || branches.length;
       const msg = (hasData && allNodes.length && !nodes.length)
         ? 'All series hidden. Click “Show all” in the legend to bring them back.'
         : 'Run the simulation to plot node values over time.';
-      ctx.fillText(msg, 12, h / 2);
+      ctx.fillText(msg, w / 2, h / 2);
       return;
     }
 
@@ -372,8 +391,15 @@ class TimelineChart {
     // the click-to-inspect hit test reuses the exact drawing math.
     this._geom = { padL, plotW, maxStep, yOf: null, nodes };
 
-    const fmtTick = v => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}k`
-      : v % 1 === 0 ? String(v) : v.toFixed(1));
+    // One decimal place is not enough below 0.1: a register oscillating around
+    // 0.05 rendered every tick as "0.0". Scale the precision to the value so
+    // neighbouring labels never collapse into each other.
+    const fmtTick = v => {
+      if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}k`;
+      if (v % 1 === 0) return String(v);
+      const dp = Math.min(4, Math.max(1, 1 - Math.floor(Math.log10(Math.abs(v)))));
+      return String(parseFloat(v.toFixed(dp)));
+    };
 
     // Build the y-mapping and the horizontal guide lines for the active scale.
     // `yOf(node, v)` maps a raw value to a pixel y; readouts always use raw v.
@@ -401,7 +427,15 @@ class TimelineChart {
       guides = [0, 0.25, 0.5, 0.75, 1].map(p => ({ y: padT + plotH - p * plotH, label: `${p * 100}%` }));
     } else {
       yOf = (node, v) => padT + plotH - (v / max) * plotH;
-      guides = [0, 0.25, 0.5, 0.75, 1].map(p => ({ y: padT + plotH - p * plotH, label: fmtTick(max * p) }));
+      // Grid lines land on round values (0, 20, 40 …) instead of raw quarters of
+      // the data max, which produced labels like "23.5 / 47 / 70.5". The value
+      // mapping is untouched: only where the lines sit changes, so the curves
+      // keep filling the plot exactly as before.
+      guides = [];
+      const gstep = niceStep(max / 4);
+      for (let v = 0; v <= max + 1e-9; v += gstep) {
+        guides.push({ y: padT + plotH - (v / max) * plotH, label: fmtTick(v) });
+      }
     }
     this._geom.yOf = yOf;
 

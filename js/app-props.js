@@ -1360,7 +1360,7 @@ class AppProps {
 
     // Type-specific fields
     if (node.type === NodeType.SOURCE) {
-      this._colorField(panel, 'Resource Color', node.resourceColor || '#ffa726', v => {
+      this._colorField(panel, 'Resource color', node.resourceColor || '#ffa726', v => {
         node.resourceColor = v; this.renderer.render();
       }, false, true);
       this._checkRow(panel, 'Limited stock', node.limited, v => {
@@ -1386,8 +1386,9 @@ class AppProps {
     if (node.type !== NodeType.SOURCE && node.type !== NodeType.REGISTER
       && node.type !== NodeType.DRAIN && node.type !== NodeType.TRADER) {
       // node.resources is the live count once a run has stepped; only at rest
-      // does this field set the baseline that Reset returns to. Label it honestly.
-      this._field(panel, this.engine.step > 0 ? 'Amount (live)' : 'Starting amount', 'number', node.resources, v => {
+      // does this field set the baseline that Reset returns to. Label it
+      // honestly here, and keep it honest per step in _refreshResourceCount.
+      this._field(panel, this.engine.step > 0 ? AMOUNT_LABEL_LIVE : AMOUNT_LABEL_AT_REST, 'number', node.resources, v => {
         node.setCount(Math.max(0, parseInt(v) || 0));
         this.renderer.render();
       });

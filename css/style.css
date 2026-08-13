@@ -166,9 +166,33 @@ select {
   display: flex; flex-direction: column; align-items: center; padding: 10px 0;
   gap: 2px; flex-shrink: 0; overflow-y: auto;
   /* Always-visible thin scrollbar: on short windows half the toolbox sits below
-     the fold, and macOS overlay scrollbars give no hint that it scrolls. */
-  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+     the fold, and macOS overlay scrollbars give no hint that it scrolls. The
+     thumb takes --text-faint, not --border, which is invisible on --panel. */
+  scrollbar-width: thin; scrollbar-color: var(--text-faint) transparent;
 }
+
+/* Edge fades that mark the hidden tools. Both are sticky flex items pulled back
+   by a negative margin, so they float over the strip without taking space, and
+   app.js toggles each one as the scroll position changes. The bottom fade
+   carries a caret because "there is more below" is the discovery that matters. */
+#palette::before, #palette::after {
+  content: ''; position: sticky; z-index: 2; flex: none; align-self: stretch;
+  width: 100%; height: 26px; pointer-events: none;
+  opacity: 0; transition: opacity 0.15s;
+}
+#palette::before {
+  top: -10px; margin-bottom: -26px; order: -1;
+  background: linear-gradient(var(--panel) 30%, transparent);
+}
+#palette::after {
+  content: '\f107'; /* fa-angle-down */
+  font-family: 'Font Awesome 6 Free'; font-weight: 900; font-size: 11px;
+  color: var(--text-faint);
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 2px;
+  bottom: -10px; margin-top: -26px;
+  background: linear-gradient(transparent, var(--panel) 65%);
+}
+#palette.scrolled-down::before, #palette.can-scroll::after { opacity: 1; }
 
 /* Collapsible palette sections */
 .palette-section { width: 100%; display: flex; flex-direction: column; align-items: center; }
@@ -326,9 +350,12 @@ select {
   display: flex; flex-direction: column; align-items: stretch; gap: 5px; margin-bottom: 10px;
 }
 
+/* No text-transform: the label strings are already written in the sentence case
+   the rest of the UI uses. Capitalizing them here title-cased every word, which
+   turned "Amount (live)" into "Amount (Live)" (the guide names it the other way)
+   and read the inline condition lead as "Stop When Value" mid-sentence. */
 .prop-row > label {
   flex: none; font-size: 11px; color: var(--text-dim);
-  text-transform: capitalize;
 }
 .prop-row > label:empty { display: none; }
 .prop-row:has(> input[type="checkbox"]),
@@ -508,6 +535,8 @@ select.wide-input option { background: var(--panel2); }
 .chart-section { margin-top: 16px; }
 .chart-label { font-size: 11px; color: var(--text-dim); margin-bottom: 6px; }
 .sparkline { border-radius: 6px; display: block; width: 100%; }
+/* Collapsed until the run has two points to join (see Sparkline.update). */
+.sparkline.hidden { display: none; }
 
 /* Hero readout card (props panel): big mono value on a canvas-dark card. */
 .hero-card {
@@ -732,7 +761,7 @@ input[type="range"] {
   white-space: nowrap; font-family: var(--mono);
 }
 #tl-compare-clear { flex-shrink: 0; }
-#tl-compare-info.hidden, #tl-compare-clear.hidden { display: none; }
+#tl-compare-info.hidden, #tl-compare-clear.hidden, #tl-live.hidden { display: none; }
 .tl-scale {
   flex-shrink: 0; font-size: 11px; padding: 4px 8px;
   background: var(--canvas); border: 1px solid var(--border); border-radius: 5px;
@@ -1368,10 +1397,14 @@ input[type="range"] {
     padding: 16px 10px 10px;
     scrollbar-width: none;
   }
+  /* The strip runs horizontally here, so the vertical edge fades do not apply:
+     ::before reverts to the drag-handle pill and ::after is dropped entirely. */
   #palette::before {
     content: ''; position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
     width: 36px; height: 4px; border-radius: 2px; background: var(--border);
+    margin: 0; order: 0; opacity: 1;
   }
+  #palette::after { display: none; }
   .palette-section { width: auto; flex-direction: row; align-items: center; flex-shrink: 0; }
   .palette-section + .palette-section { border-top: none; border-left: 1px solid var(--border-soft); }
   .palette-header { display: none; }

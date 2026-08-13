@@ -586,15 +586,21 @@ class App {
     if (!range) return;
     const hist = this.engine.history;
     const usable = hist.length >= 2 && !this.engine.running;
+    const scrubbing = this._scrubIndex != null;
     range.disabled = play.disabled = !usable;
-    live.disabled = this._scrubIndex == null;
     range.max = String(Math.max(0, hist.length - 1));
-    if (this._scrubIndex != null) {
+    // The label is a position readout and the button is the way back to the
+    // head of the run. Parking a disabled "Live" button beside a label already
+    // reading "Live" just looked like the same control twice, so the button
+    // only appears while there is somewhere to come back from.
+    live.disabled = !scrubbing;
+    live.classList.toggle('hidden', !scrubbing);
+    if (scrubbing) {
       range.value = String(this._scrubIndex);
       label.textContent = `Step ${hist[this._scrubIndex]?.step ?? 0}`;
     } else {
       range.value = range.max;
-      label.textContent = usable ? 'Live' : 'live';
+      label.textContent = 'Live';
     }
   }
 
@@ -893,8 +899,32 @@ class App {
         header.setAttribute('aria-expanded', String(!expanded));
         saved[name] = !expanded;
         try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {}
+        this._syncPaletteFades();
       });
     });
+
+    // The strip is taller than the window on any laptop-height screen, and the
+    // overlay scrollbar gives no hint that more tools sit below. Drive the CSS
+    // edge fades from the live scroll position so the caret is only up while
+    // there really is something further down.
+    const pal = document.getElementById('palette');
+    if (pal) {
+      pal.addEventListener('scroll', () => this._syncPaletteFades(), { passive: true });
+      if (typeof ResizeObserver === 'function') {
+        new ResizeObserver(() => this._syncPaletteFades()).observe(pal);
+      } else {
+        window.addEventListener('resize', () => this._syncPaletteFades());
+      }
+      this._syncPaletteFades();
+    }
+  }
+
+  _syncPaletteFades() {
+    const pal = document.getElementById('palette');
+    if (!pal) return;
+    const room = pal.scrollHeight - pal.clientHeight;
+    pal.classList.toggle('can-scroll', room > 1 && pal.scrollTop < room - 1);
+    pal.classList.toggle('scrolled-down', room > 1 && pal.scrollTop > 1);
   }
 
   // ── Tool activation ───────────────────────────────────────────────────────
@@ -1138,6 +1168,11 @@ class App {
       this.renderer.balls.clear();
       this.renderer.flowFx.clear();
       this._clearSparklines();
+      // Clearing destroys the selected node's sparkline canvas, and nothing
+      // else rebuilds it, so without this the properties panel lost its chart
+      // for good: it stayed blank through every later run until you reselected
+      // the node. Rebuilding also restores the "Starting amount" label.
+      this._renderProps();
       this.renderer.render();
       if (this._timelineVisible) this.timeline.update();
       this._refreshScrubber();
