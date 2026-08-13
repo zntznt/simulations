@@ -595,6 +595,9 @@ class App {
     // only appears while there is somewhere to come back from.
     live.disabled = !scrubbing;
     live.classList.toggle('hidden', !scrubbing);
+    // Turns the position label amber. The rule existed but nothing ever set the
+    // class, so the one "you are not live" cue in the drawer never fired.
+    document.getElementById('tl-scrub').classList.toggle('scrubbing', scrubbing);
     if (scrubbing) {
       range.value = String(this._scrubIndex);
       label.textContent = `Step ${hist[this._scrubIndex]?.step ?? 0}`;
@@ -899,32 +902,36 @@ class App {
         header.setAttribute('aria-expanded', String(!expanded));
         saved[name] = !expanded;
         try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {}
-        this._syncPaletteFades();
+        this._syncRailFades();
       });
     });
 
-    // The strip is taller than the window on any laptop-height screen, and the
-    // overlay scrollbar gives no hint that more tools sit below. Drive the CSS
-    // edge fades from the live scroll position so the caret is only up while
-    // there really is something further down.
-    const pal = document.getElementById('palette');
-    if (pal) {
-      pal.addEventListener('scroll', () => this._syncPaletteFades(), { passive: true });
+    // Both vertical rails run taller than the window at ordinary laptop sizes,
+    // and their overlay scrollbars give no hint of it: the palette hides five
+    // node tools at 1366x768, and the Setup rail hides Loops and Watch as soon
+    // as the timeline drawer opens. Drive the CSS edge fades from the live
+    // scroll position so a caret is up only while there is more to reach.
+    for (const el of this._scrollRails()) {
+      el.addEventListener('scroll', () => this._syncRailFades(), { passive: true });
       if (typeof ResizeObserver === 'function') {
-        new ResizeObserver(() => this._syncPaletteFades()).observe(pal);
+        new ResizeObserver(() => this._syncRailFades()).observe(el);
       } else {
-        window.addEventListener('resize', () => this._syncPaletteFades());
+        window.addEventListener('resize', () => this._syncRailFades());
       }
-      this._syncPaletteFades();
     }
+    this._syncRailFades();
   }
 
-  _syncPaletteFades() {
-    const pal = document.getElementById('palette');
-    if (!pal) return;
-    const room = pal.scrollHeight - pal.clientHeight;
-    pal.classList.toggle('can-scroll', room > 1 && pal.scrollTop < room - 1);
-    pal.classList.toggle('scrolled-down', room > 1 && pal.scrollTop > 1);
+  _scrollRails() {
+    return ['palette', 'diagram-rail'].map(id => document.getElementById(id)).filter(Boolean);
+  }
+
+  _syncRailFades() {
+    for (const el of this._scrollRails()) {
+      const room = el.scrollHeight - el.clientHeight;
+      el.classList.toggle('can-scroll', room > 1 && el.scrollTop < room - 1);
+      el.classList.toggle('scrolled-down', room > 1 && el.scrollTop > 1);
+    }
   }
 
   // ── Tool activation ───────────────────────────────────────────────────────

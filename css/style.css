@@ -171,20 +171,24 @@ select {
   scrollbar-width: thin; scrollbar-color: var(--text-faint) transparent;
 }
 
-/* Edge fades that mark the hidden tools. Both are sticky flex items pulled back
-   by a negative margin, so they float over the strip without taking space, and
-   app.js toggles each one as the scroll position changes. The bottom fade
-   carries a caret because "there is more below" is the discovery that matters. */
-#palette::before, #palette::after {
+/* Edge fades that mark the items hidden past the fold. Shared by both vertical
+   rails: the tool palette here and the Setup rail on the right, which clips
+   Loops and Watch as soon as the timeline drawer opens. Both fades are sticky
+   flex items pulled back by a negative margin, so they float over the strip
+   without taking space, and app.js toggles each as the scroll position changes.
+   The bottom one carries a caret because "there is more below" is the discovery
+   that matters. */
+#palette::before, #palette::after,
+#diagram-rail::before, #diagram-rail::after {
   content: ''; position: sticky; z-index: 2; flex: none; align-self: stretch;
   width: 100%; height: 26px; pointer-events: none;
   opacity: 0; transition: opacity 0.15s;
 }
-#palette::before {
+#palette::before, #diagram-rail::before {
   top: -10px; margin-bottom: -26px; order: -1;
   background: linear-gradient(var(--panel) 30%, transparent);
 }
-#palette::after {
+#palette::after, #diagram-rail::after {
   content: '\f107'; /* fa-angle-down */
   font-family: 'Font Awesome 6 Free'; font-weight: 900; font-size: 11px;
   color: var(--text-faint);
@@ -192,7 +196,8 @@ select {
   bottom: -10px; margin-top: -26px;
   background: linear-gradient(transparent, var(--panel) 65%);
 }
-#palette.scrolled-down::before, #palette.can-scroll::after { opacity: 1; }
+#palette.scrolled-down::before, #palette.can-scroll::after,
+#diagram-rail.scrolled-down::before, #diagram-rail.can-scroll::after { opacity: 1; }
 
 /* Collapsible palette sections */
 .palette-section { width: 100%; display: flex; flex-direction: column; align-items: center; }
@@ -300,6 +305,7 @@ select {
   width: 70px; background: var(--panel); border-left: 1px solid var(--border);
   display: flex; flex-direction: column; align-items: center; padding: 10px 0;
   gap: 2px; flex-shrink: 0; overflow-y: auto; z-index: 6;
+  scrollbar-width: thin; scrollbar-color: var(--text-faint) transparent;
 }
 .rail-title {
   font-size: 9px; font-weight: 700; color: var(--text-faint);
@@ -768,8 +774,14 @@ input[type="range"] {
   color: var(--text-dim); cursor: pointer; font-family: var(--font);
 }
 .tl-scale:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Cap the legend at two chip rows and scroll it beyond that. A 29-node diagram
+   wrapped to three rows, and because the head and the scrubber never shrink,
+   every row it grew came straight out of the plot: the chart collapsed to 68px
+   inside the fixed-height drawer. Better the legend scrolls than the chart. */
 .tl-legend {
   display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0;
+  max-height: 48px; overflow-y: auto; align-content: flex-start;
+  scrollbar-width: thin; scrollbar-color: var(--text-faint) transparent;
 }
 .tl-chip {
   padding: 2px 10px; border-radius: 11px; font-size: 11px; cursor: pointer;
@@ -786,7 +798,9 @@ input[type="range"] {
 /* Bulk show/hide-all action: an accent-tinted chip, distinct from the
    node-colored series chips and never struck through. */
 .tl-chip-all { --chip-color: var(--accent); font-weight: 600; flex-shrink: 0; margin-right: 2px; }
-#timeline-canvas { flex: 1; width: 100%; min-height: 0; cursor: crosshair; }
+/* min-height keeps the plot readable when the head or the scrubber grow; the
+   drawer is resizable, so it can always be dragged taller. */
+#timeline-canvas { flex: 1; width: 100%; min-height: 90px; cursor: crosshair; }
 
 /* History scrubber (timeline footer) */
 #tl-scrub {
