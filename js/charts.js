@@ -586,7 +586,7 @@ class TimelineChart {
         ctx.fillStyle = '#b6e94d';
         ctx.fillText('A·' + snapA.step, Math.max(padL + 12, Math.min(padL + plotW - 12, xa)), padT + 1);
         ctx.fillText('B·' + snapB.step, Math.max(padL + 12, Math.min(padL + plotW - 12, xb)), padT + 1);
-        this._drawComparePanel(ctx, w, padL, padT, plotW, plotH, l, r, snapA, snapB, nodes);
+        this._drawComparePanel(ctx, w, h, padL, padT, plotW, plotH, l, r, snapA, snapB, nodes);
       }
     }
 
@@ -652,7 +652,7 @@ class TimelineChart {
 
   // Floating panel listing each visible series' value at A and B, the change,
   // and the % change. Placed opposite the selected band so it never covers it.
-  _drawComparePanel(ctx, w, padL, padT, plotW, plotH, bandL, bandR, snapA, snapB, nodes) {
+  _drawComparePanel(ctx, w, h, padL, padT, plotW, plotH, bandL, bandR, snapA, snapB, nodes) {
     const fmt = fmtVal;
     const rows = nodes.map(node => {
       const vA = snapA.snap[node.id] ?? 0, vB = snapB.snap[node.id] ?? 0;
@@ -669,10 +669,19 @@ class TimelineChart {
     });
     const header = `Step ${snapA.step} → ${snapB.step}  ·  Δ${snapB.step - snapA.step} steps`;
 
+    // Same row cap as the hover tooltip: on a big diagram the A→B list is far
+    // taller than the drawer, and unclamped it ran off the bottom of the canvas
+    // with the last row sliced through the glyphs. Keep what fits and count the
+    // rest, so the readout the compare gesture exists for is actually readable.
     ctx.font = "10px 'JetBrains Mono', monospace";
-    const rowW = rows.map(r => ctx.measureText(r.main).width + ctx.measureText(r.delta).width);
+    const fits = Math.max(1, Math.floor((h - 26) / 14) - 1);
+    const shown = rows.slice(0, fits);
+    if (rows.length > fits) {
+      shown[fits - 1] = { color: '#8a90a0', main: `+${rows.length - fits + 1} more`, delta: '', dcolor: '#8a90a0' };
+    }
+    const rowW = shown.map(r => ctx.measureText(r.main).width + ctx.measureText(r.delta).width);
     const tw = Math.max(ctx.measureText(header).width, ...rowW, 0) + 18;
-    const th = (rows.length + 1) * 14 + 10;
+    const th = (shown.length + 1) * 14 + 10;
     // Put the panel on whichever side of the band has more room.
     const center = (bandL + bandR) / 2;
     let tx = center < padL + plotW / 2 ? padL + plotW - tw - 6 : padL + 6;
@@ -687,7 +696,7 @@ class TimelineChart {
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillStyle = '#8a90a0';
     ctx.fillText(header, tx + 9, ty + 5);
-    rows.forEach((r, i) => {
+    shown.forEach((r, i) => {
       const y = ty + 5 + (i + 1) * 14;
       ctx.fillStyle = r.color;
       ctx.fillText(r.main, tx + 9, y);

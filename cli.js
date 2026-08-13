@@ -304,8 +304,8 @@ if (opts.runs === 1) {
     process.stdout.write(`${res.runs} runs x ${res.maxSteps} steps`
       + (res.seed ? ` (seed ${res.seed})` : '') + '\n');
     if (res.endStep) {
-      process.stdout.write(`Goal reached in ${Math.round(res.endedRate * 100)}% of runs`
-        + ` — end step mean ${res.endStep.mean} (min ${res.endStep.min}, max ${res.endStep.max})\n`);
+      process.stdout.write(`Goal reached in ${Math.round(res.endedRate * 100)}% of runs.`
+        + ` End step mean ${res.endStep.mean} (min ${res.endStep.min}, max ${res.endStep.max})\n`);
     }
     const w = Math.max(8, ...res.nodes.map(n => (n.label || n.type).length));
     process.stdout.write('\n' + 'node'.padEnd(w) + pad('mean', 10) + pad('min', 8)

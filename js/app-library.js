@@ -17,7 +17,7 @@ class AppLibrary {
       { name: 'Predator & Prey', desc: 'Two populations lock into a self-sustaining oscillation, a stable limit cycle.', load: () => this._demoEcosystem() },
       { name: 'Epidemic (SIR)', desc: 'The outbreak curve: infections peak as Rₑ falls through 1, then fade.', load: () => this._demoEpidemic() },
       { name: 'Supply Chain', desc: 'A 2:1 smelter and a shipping delay produce pipeline latency, then steady output.', load: () => this._demoSupplyChain() },
-      { name: 'Barter Economy', desc: 'Two towns swap grain for timber through a Trader; watch the colours mix.', load: () => this._demoTradeNetwork() },
+      { name: 'Barter Economy', desc: 'Two towns swap grain for timber through a Trader; watch the colors mix.', load: () => this._demoTradeNetwork() },
       { name: 'Service Desk', desc: 'A single-server queue with random arrivals. The line builds and clears.', load: () => this._demoQueue() },
       { name: 'F2P Mobile Economy', desc: 'A sprawling free-to-play live-ops loop: energy→levels→Gold/XP, a sqrt level curve gating Elite content, a probabilistic gacha gate, and a DAU/IAP economy.', load: () => this._demoF2P() },
       { name: 'Civilization Empire', desc: 'A 4X economy in one diagram: logistic population, five yields, building converters, and a Science-gated tech tree (irrigation, drama, banking, university).', load: () => this._demoCiv() },
