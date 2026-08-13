@@ -3355,6 +3355,24 @@ test('attributeChange handles registers and the run start', () => {
   assert(Math.abs(ar.delta - 2) < 1e-9, 'register delta reflects formula inputs');
 });
 
+// The steps() helper resets first, so nothing here used to exercise a fresh
+// engine. In the app that is the whole first-run path: boot on an empty canvas,
+// draw a Source into a Pool, press Run. Only reset() seeded the flow
+// accumulator, so the first transfer threw, and with it went _record and
+// onStep: the step counter stuck at 0 and every chart stayed empty while the
+// node values on the canvas kept climbing.
+test('a fresh engine steps without a reset first', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE); s.label = 'Mine';
+  const p = node(d, NodeType.POOL); p.label = 'Gold';
+  conn(d, s, p).rate = 2;
+  for (let i = 0; i < 3; i++) e.doStep();   // deliberately no reset()
+  eq(e.step, 3, 'stepped three times');
+  eq(p.resources, 6, 'resources actually moved');
+  eq(e.history.length, 3, 'every step recorded');
+  eq(attributeChange(d, e.history, p.id, 2).entries[0].amount, 2, 'flows attributed');
+});
+
 test('cli --why prints an attribution table', () => {
   const { execFileSync } = require('child_process');
   const os = require('os');

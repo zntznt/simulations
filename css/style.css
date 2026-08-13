@@ -1028,8 +1028,14 @@ input[type="range"] {
   pointer-events: none;
 }
 #tour-spotlight.off { box-shadow: 0 0 0 9999px rgba(0,0,0,0.58); border-color: transparent; }
+/* Click-through card, live buttons. The coach is placed beside its target, so
+   when the target is a palette tool it lands on the canvas just right of the
+   strip, which is exactly where a first diagram goes. Taking the pointer there
+   swallowed the drag the step was asking for, and since these steps advance by
+   watching for the edit and show no Next, the tour stranded with only "Skip
+   tour" left. */
 #tour-coach {
-  position: fixed; pointer-events: auto;
+  position: fixed; pointer-events: none;
   width: 290px; max-width: 92vw;
   background: var(--panel); border: 1px solid var(--accent); border-radius: 10px;
   padding: 14px 16px; box-shadow: 0 10px 36px rgba(0,0,0,0.55);
@@ -1041,7 +1047,7 @@ input[type="range"] {
 #tour-coach p { font-size: 13px; line-height: 1.55; color: var(--text); margin: 0; }
 #tour-coach p b { color: var(--text-bright); }
 .tour-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
-.tour-actions .btn { padding: 4px 12px; font-size: 12px; }
+.tour-actions .btn { padding: 4px 12px; font-size: 12px; pointer-events: auto; }
 .tour-actions .hidden { display: none; }
 
 /* ── Guard / destructive-action confirmation modal ── */
