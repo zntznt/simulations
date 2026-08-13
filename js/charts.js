@@ -369,9 +369,13 @@ class TimelineChart {
       // Distinguish "no data yet" from "everything is toggled off" — the latter
       // is recoverable from the legend's Show all chip.
       const hasData = hist.length >= 2 || branches.length;
-      const msg = (hasData && allNodes.length && !nodes.length)
-        ? 'All series hidden. Click “Show all” in the legend to bring them back.'
-        : 'Run the simulation to plot node values over time.';
+      // The bulk chip only exists from two series up, so a one-series diagram
+      // was told to click a “Show all” that was not in the legend.
+      const msg = !(hasData && allNodes.length && !nodes.length)
+        ? 'Run the simulation to plot node values over time.'
+        : allNodes.length >= 2
+          ? 'All series hidden. Click “Show all” in the legend to bring them back.'
+          : 'Series hidden. Click its chip in the legend to bring it back.';
       ctx.fillText(msg, w / 2, h / 2);
       return;
     }

@@ -544,14 +544,18 @@ class Renderer {
     ghostMark.appendChild(svgEl('circle', { cx: '16', cy: '16', r: '3.4', fill: '#2f3542' }));
     ghostWrap.appendChild(ghostMark);
     this._emptyHint.appendChild(ghostWrap);
+    // Short lines on purpose: SVG text does not wrap, so the one long sentence
+    // this used to be ran 612px wide and was chopped at both ends on any canvas
+    // narrower than that, which includes a 1024px window.
     const hintLines = [
       ['An empty economy', '16', '600', '#8a90a0'],
-      ['Pick a node from the left palette and click to place it, then switch to Resource (R) or State (T) to connect.', '12', '400', '#6b7180'],
+      ['Pick a node from the palette, then click to place it.', '12', '400', '#6b7180'],
+      ['Connect nodes with Resource (R) or State (T).', '12', '400', '#6b7180'],
       ['Or browse the starter templates in Library.', '12', '400', '#6b7180'],
     ];
     hintLines.forEach(([txt, size, weight, fill], i) => {
       const t = svgEl('text', {
-        x: '50%', y: '50%', transform: `translate(0,${i * 24 - 24})`,
+        x: '50%', y: '50%', transform: `translate(0,${(i - (hintLines.length - 1) / 2) * 24})`,
         'text-anchor': 'middle', 'font-family': 'var(--font)',
         'font-size': size, 'font-weight': weight, fill,
       });

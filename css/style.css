@@ -1461,6 +1461,18 @@ input[type="range"] {
   #timeline { height: 150px; }
 }
 
+/* Small phones (iPhone SE class). The touch topbar does not wrap, so at 320px
+   the row wanted 359px and pushed the ☰ off the right edge, leaving 15px of a
+   44px target. html/body do not scroll, so that put Library, File, Help, the
+   Setup panels and everything else behind the menu out of reach entirely.
+   Buy the width back from the Run button and the step chip, both of which stay
+   perfectly legible smaller, rather than dropping a control. */
+@media (max-width: 380px) {
+  #topbar { gap: 6px; padding: 4px 8px; }
+  #btn-run { min-width: 64px; }
+  #step-counter.tb-chip { min-width: 0; padding: 0 8px; }
+}
+
 /* Coarse pointers get 44px-class touch targets even above the breakpoint. */
 @media (pointer: coarse) {
   .btn { min-height: 40px; }
