@@ -1396,8 +1396,30 @@ class AppProps {
       // does this field set the baseline that Reset returns to. Label it
       // honestly here, and keep it honest per step in _refreshResourceCount.
       this._field(panel, this.engine.step > 0 ? AMOUNT_LABEL_LIVE : AMOUNT_LABEL_AT_REST, 'number', node.resources, v => {
-        node.setCount(Math.max(0, parseInt(v) || 0));
+        // Keep the node's own colour. setCount defaults to DEFAULT_COLOR, so
+        // retyping a pool's amount used to convert every typed resource it held
+        // to untyped grey: the node greyed out on the canvas and Holdings
+        // started listing a raw hex instead of the resource type's name.
+        const color = node.displayColor || DEFAULT_COLOR;
+        if (this.engine.step > 0) {
+          // Mid-run this field is labelled "Amount (live)" and reads as a
+          // transient nudge, exactly like the +/- steppers beside it. setCount
+          // also rewrites the reset baseline, so restore it: otherwise Reset
+          // came back to a number typed mid-run rather than the run's start.
+          const baseCount = node._initialResources;
+          const baseMap = { ...node._initialColorMap };
+          node.setCount(Math.max(0, parseInt(v) || 0), color);
+          node._initialResources = baseCount;
+          node._initialColorMap = baseMap;
+        } else {
+          node.setCount(Math.max(0, parseInt(v) || 0), color);
+        }
         this.renderer.render();
+        // The hero readout and the per-type holdings sit in this same panel and
+        // are not rebuilt by an edit, so without this the panel showed the old
+        // number directly above the new one.
+        this._refreshResourceCount();
+        this._refreshTypeReadouts();
       });
       // Quick +/- steppers for adjusting the current amount during play
       // (these nudge the live value without changing the starting baseline).
@@ -1416,9 +1438,10 @@ class AppProps {
           if (delta < 0 && node.resources <= 0) return;
           if (delta > 0 && node.capacity !== Infinity && node.resources >= node.capacity) return;
           if (delta < 0) node.takeResources(1);
-          else node.addResources(1);
+          else node.addResources(1, node.displayColor || DEFAULT_COLOR);
           this.renderer.render();
           this._refreshResourceCount();
+          this._refreshTypeReadouts();
           // At rest the count IS the serialized starting baseline, so the
           // edit must reach undo/autosave; mid-run it is a transient live
           // nudge and deliberately stays out of the history.
