@@ -18,6 +18,11 @@ class AppProps {
     // empty canvas keeps whatever diagram feature is open).
     if (id && this._activeFeature) { this._activeFeature = null; this._syncRailButtons(); }
     this._renderProps();
+    // A tour step can spotlight a field inside this panel. Rebuilding it can
+    // remove that element (deselecting during the Rate step, say), and nothing
+    // else re-ran the placement, so the cut-out stayed put over whatever now
+    // occupies those pixels. Cheap no-op when no tour is running.
+    this._positionTour();
   }
 
   // ── Properties panel ──────────────────────────────────────────────────────

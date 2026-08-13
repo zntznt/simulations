@@ -264,10 +264,16 @@ class App {
         text: 'With the connection selected, find its <b>Rate</b> on the right. That\'s how many resources move each step, your faucet\'s strength. <b>Change it from 1 to 5.</b>',
         enter: () => { this._tour.rateBase = this._rateSnapshot(); },
         done: () => {
-          const base = this._tour.rateBase || {};
+          const base = this._tour.rateBase || (this._tour.rateBase = {});
           for (const c of this.diagram.connections.values()) {
             if (c.type !== ConnectionType.RESOURCE) continue;
-            if (base[c.id] !== undefined && base[c.id] !== this._rateKey(c)) return true;
+            // Adopt connections drawn after the snapshot rather than ignoring
+            // them. Skipping them meant that deleting the connection here and
+            // drawing a fresh one left the step permanently unsatisfiable: no
+            // edit to the new connection could ever count, and the step has no
+            // Next button to escape with.
+            if (base[c.id] === undefined) { base[c.id] = this._rateKey(c); continue; }
+            if (base[c.id] !== this._rateKey(c)) return true;
           }
           return false;
         },
@@ -1477,6 +1483,17 @@ class App {
         if (toolKeys[k]) { e.preventDefault(); this._activateTool(toolKeys[k]); }
         else if (e.key === '?') { e.preventDefault(); this._showModal('help-overlay'); }
         else if (e.key === 'Escape' && this.timeline._sel) { this.timeline.clearSelection(); }
+        // Disarm Delete. Its cursor is the same crosshair every tool uses, so
+        // an armed Delete tool is easy to forget and the next click on the
+        // canvas removes a node. Escape is the obvious way out and did
+        // everything except this. Only Delete: cancelling a half-drawn
+        // connection should not also put the Resource tool away. Handled here
+        // rather than in the editor because clicking a palette button leaves
+        // focus on it, and the editor ignores keys aimed at a button.
+        else if (e.key === 'Escape' && this.editor.tool === 'delete') {
+          this._activateTool('select');
+          this._toast('Delete tool off. Select is active.');
+        }
       }
     });
 
