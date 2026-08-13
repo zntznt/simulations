@@ -1444,6 +1444,14 @@ input[type="range"] {
     content: ''; position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
     width: 36px; height: 4px; border-radius: 2px; background: var(--border);
   }
+  /* The sheet sits over the tool strip, and the only way out used to be
+     guessing that a tap on bare canvas dismisses it. Give it a real close
+     target so the palette is always one tap away. */
+  #props-close {
+    position: absolute; top: 12px; right: 12px; z-index: 1;
+    width: 40px; min-height: 40px; padding: 0;
+  }
+  #props-content { padding-top: 8px; }
   /* Touch targets inside the sheet. */
   #props-panel .btn { min-height: 44px; }
   #props-panel .prop-row input, #props-panel .prop-row select,

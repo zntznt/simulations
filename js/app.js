@@ -1428,11 +1428,32 @@ class App {
 
     // Touch layout ☰ overflow: the controls the collapsed topbar hides
     // (analysis, zoom, file, help), routed to the same handlers.
+    // Touch layout only: the properties sheet covers the tool strip, so it
+    // needs a way out that is not "tap bare canvas and hope".
+    document.getElementById('props-close').addEventListener('click', () => {
+      if (this._activeFeature) this._closeFeature();
+      this.editor._select(null, null);
+    });
+
     document.getElementById('btn-mobile-menu').addEventListener('click', (e) => {
       const r = e.currentTarget.getBoundingClientRect();
       this._openMenu(r.right - 210, r.bottom + 6, (add, sep) => {
+        add('Reset', 'arrows-rotate', () => document.getElementById('btn-reset').click());
         add('Timeline chart', 'chart-line', () => document.getElementById('btn-timeline').click());
         add('Batch (Monte Carlo)…', 'dice', () => document.getElementById('btn-batch').click());
+        sep();
+        // This layout hides the Setup rail outright, so its panels (parameters,
+        // variables, resource types, design tests, feedback loops and the rest)
+        // have no other way in. Built from the rail's own buttons so the two
+        // lists cannot drift apart as features are added.
+        const meta = this._featureMeta();
+        for (const btn of document.querySelectorAll('#diagram-rail .rail-btn')) {
+          const name = btn.dataset.feature;
+          if (!meta[name]) continue;
+          const icon = [...(btn.querySelector('i')?.classList || [])]
+            .find(c => c.startsWith('fa-') && c !== 'fa-solid');
+          add(meta[name].title, icon ? icon.slice(3) : 'sliders', () => this._toggleFeature(name));
+        }
         sep();
         add('Fit to view', 'expand', () => this.renderer.fitView());
         add('Undo', 'rotate-left', () => document.getElementById('btn-undo').click());
