@@ -37,6 +37,9 @@ class App {
     this.editor.onToolChange = (tool) => this._syncToolButtons(tool);
     this.editor.onHint = (msg) => this._toast(msg);
     this.editor.onContextMenu = (ctx, x, y) => this._showContextMenu(ctx, x, y);
+    // The editor's key handler is on window, so Delete would reach the canvas
+    // behind an open dialog. App owns which overlays count as modal.
+    this.editor.isKeyboardBlocked = () => this._modalOpen();
 
     this._selectedId = null;
     this._selectedType = null;
@@ -842,8 +845,15 @@ class App {
     const closeAll = (except = null) => {
       for (const m of menus) {
         if (m === except) continue;
-        m.querySelector('.menu-popup')?.classList.add('hidden');
-        m.querySelector('[aria-haspopup]')?.setAttribute('aria-expanded', 'false');
+        const pop = m.querySelector('.menu-popup');
+        const trigger = m.querySelector('[aria-haspopup]');
+        // Hiding a popup that still holds focus resets the browser to <body>,
+        // so Tab restarts from the top of the page and a dialog opened from the
+        // menu has nothing to restore focus to. Hand it back to the trigger.
+        const owned = pop && !pop.classList.contains('hidden') && pop.contains(document.activeElement);
+        pop?.classList.add('hidden');
+        trigger?.setAttribute('aria-expanded', 'false');
+        if (owned && trigger) trigger.focus();
       }
     };
     for (const m of menus) {
@@ -860,8 +870,10 @@ class App {
       });
       pop.addEventListener('click', (e) => {
         if (e.target.closest('.menu-item')) {
+          const owned = pop.contains(document.activeElement);
           pop.classList.add('hidden');
           btn.setAttribute('aria-expanded', 'false');
+          if (owned) btn.focus();
         }
       });
       // Arrow keys move through the menu; Home/End jump to the extremes.
@@ -963,8 +975,47 @@ class App {
 
   _hideModal(overlayId) {
     document.getElementById(overlayId).classList.add('hidden');
-    if (this._modalReturnFocus && this._modalReturnFocus.focus) this._modalReturnFocus.focus();
+    const back = this._modalReturnFocus;
     this._modalReturnFocus = null;
+    if (!back || !back.focus) return;
+    // A dialog opened from a dropdown stored the menu item as its return
+    // target, and that item is hidden the moment the menu closes. Focusing it
+    // silently does nothing and the keyboard restarts from <body>, so fall back
+    // to the menu's trigger button.
+    if (!back.isConnected || back.offsetParent === null) {
+      const trigger = back.closest && back.closest('.menu')
+        && back.closest('.menu').querySelector('[aria-haspopup]');
+      if (trigger) trigger.focus();
+      return;
+    }
+    back.focus();
+  }
+
+  // Every overlay that takes the screen, topmost last. Used to keep diagram
+  // shortcuts from firing at the canvas behind an open dialog.
+  static MODAL_IDS = ['lib-overlay', 'mc-overlay', 'help-overlay', 'kb-overlay',
+    'welcome-overlay', 'guard-overlay'];
+
+  _modalOpen() {
+    return App.MODAL_IDS.some(id => {
+      const el = document.getElementById(id);
+      return el && !el.classList.contains('hidden');
+    });
+  }
+
+  // Close the topmost dialog. The guard runs its own handler (it has a promise
+  // to settle), so it is not closed from here.
+  _closeTopModal() {
+    for (let i = App.MODAL_IDS.length - 1; i >= 0; i--) {
+      const id = App.MODAL_IDS[i];
+      if (id === 'guard-overlay') continue;
+      const el = document.getElementById(id);
+      if (el && !el.classList.contains('hidden')) {
+        if (id === 'welcome-overlay') this._dismissWelcome(); else this._hideModal(id);
+        return true;
+      }
+    }
+    return false;
   }
 
   // Keyboard behaviour for a modal overlay: Escape closes, Tab cycles within.
@@ -1002,9 +1053,11 @@ class App {
         confirmBtn.removeEventListener('click', onConfirm);
         cancelBtn.removeEventListener('click', onCancel);
         overlay.removeEventListener('click', onBackdrop);
-        overlay.removeEventListener('keydown', onKey);
-        if (this._modalReturnFocus && this._modalReturnFocus.focus) this._modalReturnFocus.focus();
-        this._modalReturnFocus = null;
+        document.removeEventListener('keydown', onKey, true);
+        // Its own field: the guard often opens over another dialog, and sharing
+        // _modalReturnFocus wiped that dialog's restore target.
+        if (this._guardReturnFocus && this._guardReturnFocus.focus) this._guardReturnFocus.focus();
+        this._guardReturnFocus = null;
         resolve(result);
       };
 
@@ -1014,7 +1067,9 @@ class App {
       const onKey = (e) => {
         if (e.key === 'Escape') { e.stopPropagation(); cleanup(false); }
         if (e.key !== 'Tab') return;
-        const focusables = [confirmBtn, cancelBtn];
+        // DOM order, not visual guesswork: reversed, the trap wrapped off the
+        // wrong button and Tab walked straight out of the alertdialog.
+        const focusables = [cancelBtn, confirmBtn];
         const first = focusables[0], last = focusables[focusables.length - 1];
         if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
         else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
@@ -1023,9 +1078,11 @@ class App {
       confirmBtn.addEventListener('click', onConfirm);
       cancelBtn.addEventListener('click', onCancel);
       overlay.addEventListener('click', onBackdrop);
-      overlay.addEventListener('keydown', onKey);
+      // On document, capturing: clicking the dialog's own chrome drops focus to
+      // <body>, and an overlay-bound handler would then never see Escape.
+      document.addEventListener('keydown', onKey, true);
 
-      this._modalReturnFocus = document.activeElement;
+      this._guardReturnFocus = document.activeElement;
       overlay.classList.remove('hidden');
       cancelBtn.focus();
     });
@@ -1395,6 +1452,15 @@ class App {
     window.addEventListener('keydown', (e) => {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      // Clicking a dialog's own chrome (its title, a section heading, the
+      // results area) puts focus on <body>, and from there these shortcuts used
+      // to reach the diagram behind the dialog: Ctrl+A selected every node,
+      // Ctrl+V pasted, S/D/R/T swapped tools, all invisibly. Escape is handled
+      // here for the same reason, since _modalize listens on the overlay.
+      if (this._modalOpen()) {
+        if (e.key === 'Escape' && this._closeTopModal()) e.preventDefault();
+        return;
+      }
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       if (mod) {
@@ -1437,6 +1503,7 @@ class App {
 
     document.getElementById('btn-mobile-menu').addEventListener('click', (e) => {
       const r = e.currentTarget.getBoundingClientRect();
+      e.currentTarget.setAttribute('aria-expanded', 'true');
       this._openMenu(r.right - 210, r.bottom + 6, (add, sep) => {
         add('Reset', 'arrows-rotate', () => document.getElementById('btn-reset').click());
         add('Timeline chart', 'chart-line', () => document.getElementById('btn-timeline').click());

@@ -239,6 +239,7 @@ class AppProps {
     bgRow.className = 'sim-bg-row';
     const bg = document.createElement('input');
     bg.type = 'color'; bg.value = meta.bgColor || '#0d0e11';
+    bg.setAttribute('aria-label', 'Canvas background colour');
     bg.addEventListener('input', () => {
       meta.bgColor = bg.value;
       this.renderer.setBackground(meta.bgColor);
@@ -638,6 +639,10 @@ class AppProps {
       });
       const vi = document.createElement('input');
       vi.type = 'number'; vi.value = params[key]; vi.style.flex = '1';
+      // The row is name + value + delete with no visible label, so without this
+      // a screen reader announces the value as an anonymous blank spin button.
+      vi.setAttribute('aria-label', `Value of ${key}`);
+      ki.setAttribute('aria-label', `Name of parameter ${key}`);
       // Update live as you type, but commit one undo step on blur (the panel's
       // delegated `change` listener) rather than per keystroke.
       vi.addEventListener('input', () => {
@@ -1014,10 +1019,12 @@ class AppProps {
       row.className = 'prop-row';
       const ni = document.createElement('input');
       ni.type = 'text'; ni.value = t.name; ni.placeholder = 'name'; ni.style.flex = '1';
+      ni.setAttribute('aria-label', 'Resource type name');
       ni.addEventListener('input', () => { t.name = ni.value; this.renderer.render(); });
       ni.addEventListener('change', () => this._commit());
       const ci = document.createElement('input');
       ci.type = 'color'; ci.value = t.color || '#ffa726';
+      ci.setAttribute('aria-label', `Colour of ${t.name || 'this resource type'}`);
       ci.style.cssText = 'width:36px;height:28px;padding:1px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:none;flex:0 0 auto;';
       ci.addEventListener('input', () => { t.color = ci.value; this.renderer.render(); });
       ci.addEventListener('change', () => this._commit());
