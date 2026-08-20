@@ -162,6 +162,11 @@ class AppClipboard {
     if (!menu || menu.classList.contains('hidden')) return;
     menu.classList.add('hidden');
     if (this._ctxReturnFocus && typeof this._ctxReturnFocus.focus === 'function') {
+      // Buttons that own this menu advertise its state; the canvas (right-click)
+      // carries no such attribute, so only touch it where it exists.
+      if (this._ctxReturnFocus.hasAttribute('aria-expanded')) {
+        this._ctxReturnFocus.setAttribute('aria-expanded', 'false');
+      }
       this._ctxReturnFocus.focus();
       this._ctxReturnFocus = null;
     }

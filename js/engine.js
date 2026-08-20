@@ -7,6 +7,11 @@ class SimEngine {
     this.speed = 2;
     this.history = [];
     this._histStride = 1; // record every Nth step; doubles as runs grow long
+    // Flow accumulator for spike attribution (see reset). Seeded here too: a
+    // fresh engine can be stepped without a reset first, which is exactly what
+    // happens when someone builds a diagram by hand and presses Run, and
+    // doStep writes into this on the first transfer.
+    this._spanFlows = { conns: {}, mods: {} };
     // Callback: (step, firedIds, transfers[{connId, color, amount}])
     this.onStep = null;
     // Terminal state when a node's end/goal condition is met.

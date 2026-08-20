@@ -18,6 +18,11 @@ class AppProps {
     // empty canvas keeps whatever diagram feature is open).
     if (id && this._activeFeature) { this._activeFeature = null; this._syncRailButtons(); }
     this._renderProps();
+    // A tour step can spotlight a field inside this panel. Rebuilding it can
+    // remove that element (deselecting during the Rate step, say), and nothing
+    // else re-ran the placement, so the cut-out stayed put over whatever now
+    // occupies those pixels. Cheap no-op when no tour is running.
+    this._positionTour();
   }
 
   // ── Properties panel ──────────────────────────────────────────────────────
@@ -239,6 +244,7 @@ class AppProps {
     bgRow.className = 'sim-bg-row';
     const bg = document.createElement('input');
     bg.type = 'color'; bg.value = meta.bgColor || '#0d0e11';
+    bg.setAttribute('aria-label', 'Canvas background color');
     bg.addEventListener('input', () => {
       meta.bgColor = bg.value;
       this.renderer.setBackground(meta.bgColor);
@@ -360,15 +366,15 @@ class AppProps {
   // a container. Editors are reused as-is; the rail supplies the title.
   _featureMeta() {
     return {
-      time:      { title: 'Time Mode',        kb: 'time-modes',        render: c => this._timeModeEditor(c) },
+      time:      { title: 'Time mode',        kb: 'time-modes',        render: c => this._timeModeEditor(c) },
       params:    { title: 'Parameters',       kb: 'params',            render: c => this._paramsEditor(c) },
-      vars:      { title: 'Custom Variables', kb: 'custom-vars',       render: c => this._customVarsEditor(c) },
-      resources: { title: 'Resource Types',   kb: 'resource-types',    render: c => this._resourceTypesEditor(c) },
-      player:    { title: 'Artificial Player', kb: 'artificial-player', render: c => this._diagramAI(c) },
-      branches:  { title: 'Scenario Branches', kb: 'scenarios',         render: c => this._branchesPanel(c) },
-      checks:    { title: 'Design Tests',     kb: 'econ-assert',       render: c => this._designTestsPanel(c) },
-      loops:     { title: 'Feedback Loops',   kb: 'loops',             render: c => this._loopsPanel(c) },
-      monitor:   { title: 'Live Variables',   kb: 'live-vars',         render: c => this._liveVarsReadout(c) },
+      vars:      { title: 'Custom variables', kb: 'custom-vars',       render: c => this._customVarsEditor(c) },
+      resources: { title: 'Resource types',   kb: 'resource-types',    render: c => this._resourceTypesEditor(c) },
+      player:    { title: 'Artificial player', kb: 'artificial-player', render: c => this._diagramAI(c) },
+      branches:  { title: 'Scenario branches', kb: 'scenarios',         render: c => this._branchesPanel(c) },
+      checks:    { title: 'Design tests',     kb: 'econ-assert',       render: c => this._designTestsPanel(c) },
+      loops:     { title: 'Feedback loops',   kb: 'loops',             render: c => this._loopsPanel(c) },
+      monitor:   { title: 'Live variables',   kb: 'live-vars',         render: c => this._liveVarsReadout(c) },
     };
   }
 
@@ -638,6 +644,10 @@ class AppProps {
       });
       const vi = document.createElement('input');
       vi.type = 'number'; vi.value = params[key]; vi.style.flex = '1';
+      // The row is name + value + delete with no visible label, so without this
+      // a screen reader announces the value as an anonymous blank spin button.
+      vi.setAttribute('aria-label', `Value of ${key}`);
+      ki.setAttribute('aria-label', `Name of parameter ${key}`);
       // Update live as you type, but commit one undo step on blur (the panel's
       // delegated `change` listener) rather than per keystroke.
       vi.addEventListener('input', () => {
@@ -655,7 +665,7 @@ class AppProps {
     }
 
     const addBtn = document.createElement('button');
-    addBtn.textContent = '+ Add Parameter';
+    addBtn.textContent = '+ Add parameter';
     addBtn.className = 'btn var-add-btn';
     addBtn.addEventListener('click', () => {
       let k = 'param' + (Object.keys(params).length + 1);
@@ -990,7 +1000,7 @@ class AppProps {
     });
 
     const addBtn = document.createElement('button');
-    addBtn.textContent = '+ Add Variable';
+    addBtn.textContent = '+ Add variable';
     addBtn.className = 'btn var-add-btn';
     addBtn.addEventListener('click', () => {
       let k = 'var' + (vars.length + 1);
@@ -1006,7 +1016,7 @@ class AppProps {
 
   // Named resource types editor + live per-type totals (diagram panel).
   _resourceTypesEditor(panel) {
-    this._info(panel, 'Give resources readable names. Each type maps a name to a color, which the engine uses to track it. Pick a type from the colour fields on sources, converters, and filters.');
+    this._info(panel, 'Give resources readable names. Each type maps a name to a color, which the engine uses to track it. Pick a type from the color fields on sources and converters, or from the color filter on a resource connection.');
 
     const types = this.diagram.resourceTypes;
     types.forEach((t, i) => {
@@ -1014,10 +1024,12 @@ class AppProps {
       row.className = 'prop-row';
       const ni = document.createElement('input');
       ni.type = 'text'; ni.value = t.name; ni.placeholder = 'name'; ni.style.flex = '1';
+      ni.setAttribute('aria-label', 'Resource type name');
       ni.addEventListener('input', () => { t.name = ni.value; this.renderer.render(); });
       ni.addEventListener('change', () => this._commit());
       const ci = document.createElement('input');
       ci.type = 'color'; ci.value = t.color || '#ffa726';
+      ci.setAttribute('aria-label', `Color of ${t.name || 'this resource type'}`);
       ci.style.cssText = 'width:36px;height:28px;padding:1px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:none;flex:0 0 auto;';
       ci.addEventListener('input', () => { t.color = ci.value; this.renderer.render(); });
       ci.addEventListener('change', () => this._commit());
@@ -1032,7 +1044,7 @@ class AppProps {
     });
 
     const add = document.createElement('button');
-    add.textContent = '+ Add Resource Type'; add.className = 'btn var-add-btn';
+    add.textContent = '+ Add resource type'; add.className = 'btn var-add-btn';
     add.addEventListener('click', () => {
       const swatches = ['#ffd700', '#8d6e63', '#4caf50', '#42a5f5', '#ef5350', '#ab47bc', '#ff7043', '#26c6da'];
       types.push({ name: 'Type ' + (types.length + 1), color: swatches[types.length % swatches.length] });
@@ -1360,7 +1372,7 @@ class AppProps {
 
     // Type-specific fields
     if (node.type === NodeType.SOURCE) {
-      this._colorField(panel, 'Resource Color', node.resourceColor || '#ffa726', v => {
+      this._colorField(panel, 'Resource color', node.resourceColor || '#ffa726', v => {
         node.resourceColor = v; this.renderer.render();
       }, false, true);
       this._checkRow(panel, 'Limited stock', node.limited, v => {
@@ -1386,10 +1398,33 @@ class AppProps {
     if (node.type !== NodeType.SOURCE && node.type !== NodeType.REGISTER
       && node.type !== NodeType.DRAIN && node.type !== NodeType.TRADER) {
       // node.resources is the live count once a run has stepped; only at rest
-      // does this field set the baseline that Reset returns to. Label it honestly.
-      this._field(panel, this.engine.step > 0 ? 'Amount (live)' : 'Starting amount', 'number', node.resources, v => {
-        node.setCount(Math.max(0, parseInt(v) || 0));
+      // does this field set the baseline that Reset returns to. Label it
+      // honestly here, and keep it honest per step in _refreshResourceCount.
+      this._field(panel, this.engine.step > 0 ? AMOUNT_LABEL_LIVE : AMOUNT_LABEL_AT_REST, 'number', node.resources, v => {
+        // Keep the node's own colour. setCount defaults to DEFAULT_COLOR, so
+        // retyping a pool's amount used to convert every typed resource it held
+        // to untyped grey: the node greyed out on the canvas and Holdings
+        // started listing a raw hex instead of the resource type's name.
+        const color = node.displayColor || DEFAULT_COLOR;
+        if (this.engine.step > 0) {
+          // Mid-run this field is labelled "Amount (live)" and reads as a
+          // transient nudge, exactly like the +/- steppers beside it. setCount
+          // also rewrites the reset baseline, so restore it: otherwise Reset
+          // came back to a number typed mid-run rather than the run's start.
+          const baseCount = node._initialResources;
+          const baseMap = { ...node._initialColorMap };
+          node.setCount(Math.max(0, parseInt(v) || 0), color);
+          node._initialResources = baseCount;
+          node._initialColorMap = baseMap;
+        } else {
+          node.setCount(Math.max(0, parseInt(v) || 0), color);
+        }
         this.renderer.render();
+        // The hero readout and the per-type holdings sit in this same panel and
+        // are not rebuilt by an edit, so without this the panel showed the old
+        // number directly above the new one.
+        this._refreshResourceCount();
+        this._refreshTypeReadouts();
       });
       // Quick +/- steppers for adjusting the current amount during play
       // (these nudge the live value without changing the starting baseline).
@@ -1408,9 +1443,10 @@ class AppProps {
           if (delta < 0 && node.resources <= 0) return;
           if (delta > 0 && node.capacity !== Infinity && node.resources >= node.capacity) return;
           if (delta < 0) node.takeResources(1);
-          else node.addResources(1);
+          else node.addResources(1, node.displayColor || DEFAULT_COLOR);
           this.renderer.render();
           this._refreshResourceCount();
+          this._refreshTypeReadouts();
           // At rest the count IS the serialized starting baseline, so the
           // edit must reach undo/autosave; mid-run it is a transient live
           // nudge and deliberately stays out of the history.

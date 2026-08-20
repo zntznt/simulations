@@ -37,6 +37,9 @@ class App {
     this.editor.onToolChange = (tool) => this._syncToolButtons(tool);
     this.editor.onHint = (msg) => this._toast(msg);
     this.editor.onContextMenu = (ctx, x, y) => this._showContextMenu(ctx, x, y);
+    // The editor's key handler is on window, so Delete would reach the canvas
+    // behind an open dialog. App owns which overlays count as modal.
+    this.editor.isKeyboardBlocked = () => this._modalOpen();
 
     this._selectedId = null;
     this._selectedType = null;
@@ -261,10 +264,16 @@ class App {
         text: 'With the connection selected, find its <b>Rate</b> on the right. That\'s how many resources move each step, your faucet\'s strength. <b>Change it from 1 to 5.</b>',
         enter: () => { this._tour.rateBase = this._rateSnapshot(); },
         done: () => {
-          const base = this._tour.rateBase || {};
+          const base = this._tour.rateBase || (this._tour.rateBase = {});
           for (const c of this.diagram.connections.values()) {
             if (c.type !== ConnectionType.RESOURCE) continue;
-            if (base[c.id] !== undefined && base[c.id] !== this._rateKey(c)) return true;
+            // Adopt connections drawn after the snapshot rather than ignoring
+            // them. Skipping them meant that deleting the connection here and
+            // drawing a fresh one left the step permanently unsatisfiable: no
+            // edit to the new connection could ever count, and the step has no
+            // Next button to escape with.
+            if (base[c.id] === undefined) { base[c.id] = this._rateKey(c); continue; }
+            if (base[c.id] !== this._rateKey(c)) return true;
           }
           return false;
         },
@@ -586,15 +595,24 @@ class App {
     if (!range) return;
     const hist = this.engine.history;
     const usable = hist.length >= 2 && !this.engine.running;
+    const scrubbing = this._scrubIndex != null;
     range.disabled = play.disabled = !usable;
-    live.disabled = this._scrubIndex == null;
     range.max = String(Math.max(0, hist.length - 1));
-    if (this._scrubIndex != null) {
+    // The label is a position readout and the button is the way back to the
+    // head of the run. Parking a disabled "Live" button beside a label already
+    // reading "Live" just looked like the same control twice, so the button
+    // only appears while there is somewhere to come back from.
+    live.disabled = !scrubbing;
+    live.classList.toggle('hidden', !scrubbing);
+    // Turns the position label amber. The rule existed but nothing ever set the
+    // class, so the one "you are not live" cue in the drawer never fired.
+    document.getElementById('tl-scrub').classList.toggle('scrubbing', scrubbing);
+    if (scrubbing) {
       range.value = String(this._scrubIndex);
       label.textContent = `Step ${hist[this._scrubIndex]?.step ?? 0}`;
     } else {
       range.value = range.max;
-      label.textContent = usable ? 'Live' : 'live';
+      label.textContent = 'Live';
     }
   }
 
@@ -833,8 +851,15 @@ class App {
     const closeAll = (except = null) => {
       for (const m of menus) {
         if (m === except) continue;
-        m.querySelector('.menu-popup')?.classList.add('hidden');
-        m.querySelector('[aria-haspopup]')?.setAttribute('aria-expanded', 'false');
+        const pop = m.querySelector('.menu-popup');
+        const trigger = m.querySelector('[aria-haspopup]');
+        // Hiding a popup that still holds focus resets the browser to <body>,
+        // so Tab restarts from the top of the page and a dialog opened from the
+        // menu has nothing to restore focus to. Hand it back to the trigger.
+        const owned = pop && !pop.classList.contains('hidden') && pop.contains(document.activeElement);
+        pop?.classList.add('hidden');
+        trigger?.setAttribute('aria-expanded', 'false');
+        if (owned && trigger) trigger.focus();
       }
     };
     for (const m of menus) {
@@ -851,8 +876,10 @@ class App {
       });
       pop.addEventListener('click', (e) => {
         if (e.target.closest('.menu-item')) {
+          const owned = pop.contains(document.activeElement);
           pop.classList.add('hidden');
           btn.setAttribute('aria-expanded', 'false');
+          if (owned) btn.focus();
         }
       });
       // Arrow keys move through the menu; Home/End jump to the extremes.
@@ -893,8 +920,36 @@ class App {
         header.setAttribute('aria-expanded', String(!expanded));
         saved[name] = !expanded;
         try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {}
+        this._syncRailFades();
       });
     });
+
+    // Both vertical rails run taller than the window at ordinary laptop sizes,
+    // and their overlay scrollbars give no hint of it: the palette hides five
+    // node tools at 1366x768, and the Setup rail hides Loops and Watch as soon
+    // as the timeline drawer opens. Drive the CSS edge fades from the live
+    // scroll position so a caret is up only while there is more to reach.
+    for (const el of this._scrollRails()) {
+      el.addEventListener('scroll', () => this._syncRailFades(), { passive: true });
+      if (typeof ResizeObserver === 'function') {
+        new ResizeObserver(() => this._syncRailFades()).observe(el);
+      } else {
+        window.addEventListener('resize', () => this._syncRailFades());
+      }
+    }
+    this._syncRailFades();
+  }
+
+  _scrollRails() {
+    return ['palette', 'diagram-rail'].map(id => document.getElementById(id)).filter(Boolean);
+  }
+
+  _syncRailFades() {
+    for (const el of this._scrollRails()) {
+      const room = el.scrollHeight - el.clientHeight;
+      el.classList.toggle('can-scroll', room > 1 && el.scrollTop < room - 1);
+      el.classList.toggle('scrolled-down', room > 1 && el.scrollTop > 1);
+    }
   }
 
   // ── Tool activation ───────────────────────────────────────────────────────
@@ -926,8 +981,47 @@ class App {
 
   _hideModal(overlayId) {
     document.getElementById(overlayId).classList.add('hidden');
-    if (this._modalReturnFocus && this._modalReturnFocus.focus) this._modalReturnFocus.focus();
+    const back = this._modalReturnFocus;
     this._modalReturnFocus = null;
+    if (!back || !back.focus) return;
+    // A dialog opened from a dropdown stored the menu item as its return
+    // target, and that item is hidden the moment the menu closes. Focusing it
+    // silently does nothing and the keyboard restarts from <body>, so fall back
+    // to the menu's trigger button.
+    if (!back.isConnected || back.offsetParent === null) {
+      const trigger = back.closest && back.closest('.menu')
+        && back.closest('.menu').querySelector('[aria-haspopup]');
+      if (trigger) trigger.focus();
+      return;
+    }
+    back.focus();
+  }
+
+  // Every overlay that takes the screen, topmost last. Used to keep diagram
+  // shortcuts from firing at the canvas behind an open dialog.
+  static MODAL_IDS = ['lib-overlay', 'mc-overlay', 'help-overlay', 'kb-overlay',
+    'welcome-overlay', 'guard-overlay'];
+
+  _modalOpen() {
+    return App.MODAL_IDS.some(id => {
+      const el = document.getElementById(id);
+      return el && !el.classList.contains('hidden');
+    });
+  }
+
+  // Close the topmost dialog. The guard runs its own handler (it has a promise
+  // to settle), so it is not closed from here.
+  _closeTopModal() {
+    for (let i = App.MODAL_IDS.length - 1; i >= 0; i--) {
+      const id = App.MODAL_IDS[i];
+      if (id === 'guard-overlay') continue;
+      const el = document.getElementById(id);
+      if (el && !el.classList.contains('hidden')) {
+        if (id === 'welcome-overlay') this._dismissWelcome(); else this._hideModal(id);
+        return true;
+      }
+    }
+    return false;
   }
 
   // Keyboard behaviour for a modal overlay: Escape closes, Tab cycles within.
@@ -965,9 +1059,11 @@ class App {
         confirmBtn.removeEventListener('click', onConfirm);
         cancelBtn.removeEventListener('click', onCancel);
         overlay.removeEventListener('click', onBackdrop);
-        overlay.removeEventListener('keydown', onKey);
-        if (this._modalReturnFocus && this._modalReturnFocus.focus) this._modalReturnFocus.focus();
-        this._modalReturnFocus = null;
+        document.removeEventListener('keydown', onKey, true);
+        // Its own field: the guard often opens over another dialog, and sharing
+        // _modalReturnFocus wiped that dialog's restore target.
+        if (this._guardReturnFocus && this._guardReturnFocus.focus) this._guardReturnFocus.focus();
+        this._guardReturnFocus = null;
         resolve(result);
       };
 
@@ -977,7 +1073,9 @@ class App {
       const onKey = (e) => {
         if (e.key === 'Escape') { e.stopPropagation(); cleanup(false); }
         if (e.key !== 'Tab') return;
-        const focusables = [confirmBtn, cancelBtn];
+        // DOM order, not visual guesswork: reversed, the trap wrapped off the
+        // wrong button and Tab walked straight out of the alertdialog.
+        const focusables = [cancelBtn, confirmBtn];
         const first = focusables[0], last = focusables[focusables.length - 1];
         if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
         else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
@@ -986,9 +1084,11 @@ class App {
       confirmBtn.addEventListener('click', onConfirm);
       cancelBtn.addEventListener('click', onCancel);
       overlay.addEventListener('click', onBackdrop);
-      overlay.addEventListener('keydown', onKey);
+      // On document, capturing: clicking the dialog's own chrome drops focus to
+      // <body>, and an overlay-bound handler would then never see Escape.
+      document.addEventListener('keydown', onKey, true);
 
-      this._modalReturnFocus = document.activeElement;
+      this._guardReturnFocus = document.activeElement;
       overlay.classList.remove('hidden');
       cancelBtn.focus();
     });
@@ -1138,6 +1238,11 @@ class App {
       this.renderer.balls.clear();
       this.renderer.flowFx.clear();
       this._clearSparklines();
+      // Clearing destroys the selected node's sparkline canvas, and nothing
+      // else rebuilds it, so without this the properties panel lost its chart
+      // for good: it stayed blank through every later run until you reselected
+      // the node. Rebuilding also restores the "Starting amount" label.
+      this._renderProps();
       this.renderer.render();
       if (this._timelineVisible) this.timeline.update();
       this._refreshScrubber();
@@ -1353,6 +1458,15 @@ class App {
     window.addEventListener('keydown', (e) => {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      // Clicking a dialog's own chrome (its title, a section heading, the
+      // results area) puts focus on <body>, and from there these shortcuts used
+      // to reach the diagram behind the dialog: Ctrl+A selected every node,
+      // Ctrl+V pasted, S/D/R/T swapped tools, all invisibly. Escape is handled
+      // here for the same reason, since _modalize listens on the overlay.
+      if (this._modalOpen()) {
+        if (e.key === 'Escape' && this._closeTopModal()) e.preventDefault();
+        return;
+      }
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       if (mod) {
@@ -1369,6 +1483,17 @@ class App {
         if (toolKeys[k]) { e.preventDefault(); this._activateTool(toolKeys[k]); }
         else if (e.key === '?') { e.preventDefault(); this._showModal('help-overlay'); }
         else if (e.key === 'Escape' && this.timeline._sel) { this.timeline.clearSelection(); }
+        // Disarm Delete. Its cursor is the same crosshair every tool uses, so
+        // an armed Delete tool is easy to forget and the next click on the
+        // canvas removes a node. Escape is the obvious way out and did
+        // everything except this. Only Delete: cancelling a half-drawn
+        // connection should not also put the Resource tool away. Handled here
+        // rather than in the editor because clicking a palette button leaves
+        // focus on it, and the editor ignores keys aimed at a button.
+        else if (e.key === 'Escape' && this.editor.tool === 'delete') {
+          this._activateTool('select');
+          this._toast('Delete tool off. Select is active.');
+        }
       }
     });
 
@@ -1386,11 +1511,33 @@ class App {
 
     // Touch layout ☰ overflow: the controls the collapsed topbar hides
     // (analysis, zoom, file, help), routed to the same handlers.
+    // Touch layout only: the properties sheet covers the tool strip, so it
+    // needs a way out that is not "tap bare canvas and hope".
+    document.getElementById('props-close').addEventListener('click', () => {
+      if (this._activeFeature) this._closeFeature();
+      this.editor._select(null, null);
+    });
+
     document.getElementById('btn-mobile-menu').addEventListener('click', (e) => {
       const r = e.currentTarget.getBoundingClientRect();
+      e.currentTarget.setAttribute('aria-expanded', 'true');
       this._openMenu(r.right - 210, r.bottom + 6, (add, sep) => {
+        add('Reset', 'arrows-rotate', () => document.getElementById('btn-reset').click());
         add('Timeline chart', 'chart-line', () => document.getElementById('btn-timeline').click());
         add('Batch (Monte Carlo)…', 'dice', () => document.getElementById('btn-batch').click());
+        sep();
+        // This layout hides the Setup rail outright, so its panels (parameters,
+        // variables, resource types, design tests, feedback loops and the rest)
+        // have no other way in. Built from the rail's own buttons so the two
+        // lists cannot drift apart as features are added.
+        const meta = this._featureMeta();
+        for (const btn of document.querySelectorAll('#diagram-rail .rail-btn')) {
+          const name = btn.dataset.feature;
+          if (!meta[name]) continue;
+          const icon = [...(btn.querySelector('i')?.classList || [])]
+            .find(c => c.startsWith('fa-') && c !== 'fa-solid');
+          add(meta[name].title, icon ? icon.slice(3) : 'sliders', () => this._toggleFeature(name));
+        }
         sep();
         add('Fit to view', 'expand', () => this.renderer.fitView());
         add('Undo', 'rotate-left', () => document.getElementById('btn-undo').click());

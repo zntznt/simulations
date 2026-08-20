@@ -7,6 +7,12 @@
 // only after every sync <script> has executed, so the prototype is complete
 // by construction time.
 
+// A node's amount field is the reset baseline before a run and the live count
+// during one. Both the builder in app-props.js and the per-step patcher below
+// name it, and they have to agree, so the two strings live here.
+const AMOUNT_LABEL_AT_REST = 'Starting amount';
+const AMOUNT_LABEL_LIVE = 'Amount (live)';
+
 class AppFields {
   // ── Props helpers ─────────────────────────────────────────────────────────
 
@@ -160,6 +166,12 @@ class AppFields {
     il.textContent = keys.lead || 'when';
 
     const op = document.createElement('select');
+    // The visible lead ("stop when value") names the operator, so wire it up as
+    // a real label; without it the row announced a bare combobox and a bare
+    // spin button, and clicking the text focused nothing.
+    op.id = this._uid();
+    il.htmlFor = op.id;
+    op.setAttribute('aria-label', `${title} operator`);
     const ops = ['>', '>=', '<', '<=', '==', '!='];
     if (keys.val2) ops.push('between');
     for (const o of ops) {
@@ -171,6 +183,7 @@ class AppFields {
 
     const val = document.createElement('input');
     val.type = 'number';
+    val.setAttribute('aria-label', `${title} value`);
     val.value = obj[keys.val];
     val.addEventListener('input', () => { obj[keys.val] = parseFloat(val.value) || 0; this.renderer.render(); });
 
@@ -179,6 +192,7 @@ class AppFields {
     if (keys.val2) {
       val2 = document.createElement('input');
       val2.type = 'number';
+      val2.setAttribute('aria-label', `${title} upper bound`);
       val2.value = obj[keys.val2] || 0;
       val2.style.display = obj[keys.op] === 'between' ? '' : 'none';
       val2.addEventListener('input', () => { obj[keys.val2] = parseFloat(val2.value) || 0; this.renderer.render(); });
@@ -265,7 +279,7 @@ class AppFields {
       const link = document.createElement('button');
       link.type = 'button';
       link.className = 'formula-hint-link';
-      link.textContent = 'add a Parameter';
+      link.textContent = 'Add a Parameter';
       link.addEventListener('click', () => this._toggleFeature('params'));
       hint.appendChild(link);
       hint.appendChild(document.createTextNode(', or name a State connection to publish a node’s value.'));
@@ -284,6 +298,8 @@ class AppFields {
   _colorField(panel, label, value, onChange, clearable = false, withTypes = false) {
     const picker = document.createElement('input');
     picker.type = 'color';
+    picker.id = this._uid();
+    picker.setAttribute('aria-label', label);
     picker.value = value || '#ffa726';
     picker.style.cssText = 'width:36px;height:28px;padding:1px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:none;';
     picker.addEventListener('input', () => onChange(picker.value));
@@ -393,11 +409,24 @@ class AppFields {
     // Big hero readout tracks the live value for every node kind.
     const hero = document.getElementById('props-hero-value');
     if (hero) hero.textContent = String(node.displayCount);
-    if (node.type === NodeType.REGISTER || node.type === NodeType.DRAIN) return;
+    // Same exclusions the amount field is built under (app-props.js). A Trader
+    // has no amount row, so its first number input is the End/goal value, and
+    // the refresh below was overwriting that goal with the trader's count.
+    if (node.type === NodeType.REGISTER || node.type === NodeType.DRAIN
+      || node.type === NodeType.TRADER) return;
 
     // First number input is always the Resources field.
     const inp = document.querySelector('#props-content input[type="number"]');
     if (inp && document.activeElement !== inp) inp.value = node.resources;
+
+    // That field means two different things either side of step 0, and the
+    // panel is not rebuilt as the run advances, so its label has to be patched
+    // here. Without this the row reads "Starting amount" while showing a
+    // mid-run count, which is simply untrue.
+    const lbl = inp && inp.closest('.prop-row') && inp.closest('.prop-row').querySelector('label');
+    if (lbl && (lbl.textContent === AMOUNT_LABEL_AT_REST || lbl.textContent === AMOUNT_LABEL_LIVE)) {
+      lbl.textContent = this.engine.step > 0 ? AMOUNT_LABEL_LIVE : AMOUNT_LABEL_AT_REST;
+    }
   }
 
   _updateSparklines() { for (const sl of this._sparklines.values()) sl.update(); }

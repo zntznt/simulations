@@ -166,9 +166,38 @@ select {
   display: flex; flex-direction: column; align-items: center; padding: 10px 0;
   gap: 2px; flex-shrink: 0; overflow-y: auto;
   /* Always-visible thin scrollbar: on short windows half the toolbox sits below
-     the fold, and macOS overlay scrollbars give no hint that it scrolls. */
-  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+     the fold, and macOS overlay scrollbars give no hint that it scrolls. The
+     thumb takes --text-faint, not --border, which is invisible on --panel. */
+  scrollbar-width: thin; scrollbar-color: var(--text-faint) transparent;
 }
+
+/* Edge fades that mark the items hidden past the fold. Shared by both vertical
+   rails: the tool palette here and the Setup rail on the right, which clips
+   Loops and Watch as soon as the timeline drawer opens. Both fades are sticky
+   flex items pulled back by a negative margin, so they float over the strip
+   without taking space, and app.js toggles each as the scroll position changes.
+   The bottom one carries a caret because "there is more below" is the discovery
+   that matters. */
+#palette::before, #palette::after,
+#diagram-rail::before, #diagram-rail::after {
+  content: ''; position: sticky; z-index: 2; flex: none; align-self: stretch;
+  width: 100%; height: 26px; pointer-events: none;
+  opacity: 0; transition: opacity 0.15s;
+}
+#palette::before, #diagram-rail::before {
+  top: -10px; margin-bottom: -26px; order: -1;
+  background: linear-gradient(var(--panel) 30%, transparent);
+}
+#palette::after, #diagram-rail::after {
+  content: '\f107'; /* fa-angle-down */
+  font-family: 'Font Awesome 6 Free'; font-weight: 900; font-size: 11px;
+  color: var(--text-faint);
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 2px;
+  bottom: -10px; margin-top: -26px;
+  background: linear-gradient(transparent, var(--panel) 65%);
+}
+#palette.scrolled-down::before, #palette.can-scroll::after,
+#diagram-rail.scrolled-down::before, #diagram-rail.can-scroll::after { opacity: 1; }
 
 /* Collapsible palette sections */
 .palette-section { width: 100%; display: flex; flex-direction: column; align-items: center; }
@@ -276,6 +305,7 @@ select {
   width: 70px; background: var(--panel); border-left: 1px solid var(--border);
   display: flex; flex-direction: column; align-items: center; padding: 10px 0;
   gap: 2px; flex-shrink: 0; overflow-y: auto; z-index: 6;
+  scrollbar-width: thin; scrollbar-color: var(--text-faint) transparent;
 }
 .rail-title {
   font-size: 9px; font-weight: 700; color: var(--text-faint);
@@ -326,9 +356,12 @@ select {
   display: flex; flex-direction: column; align-items: stretch; gap: 5px; margin-bottom: 10px;
 }
 
+/* No text-transform: the label strings are already written in the sentence case
+   the rest of the UI uses. Capitalizing them here title-cased every word, which
+   turned "Amount (live)" into "Amount (Live)" (the guide names it the other way)
+   and read the inline condition lead as "Stop When Value" mid-sentence. */
 .prop-row > label {
   flex: none; font-size: 11px; color: var(--text-dim);
-  text-transform: capitalize;
 }
 .prop-row > label:empty { display: none; }
 .prop-row:has(> input[type="checkbox"]),
@@ -508,6 +541,8 @@ select.wide-input option { background: var(--panel2); }
 .chart-section { margin-top: 16px; }
 .chart-label { font-size: 11px; color: var(--text-dim); margin-bottom: 6px; }
 .sparkline { border-radius: 6px; display: block; width: 100%; }
+/* Collapsed until the run has two points to join (see Sparkline.update). */
+.sparkline.hidden { display: none; }
 
 /* Hero readout card (props panel): big mono value on a canvas-dark card. */
 .hero-card {
@@ -732,15 +767,21 @@ input[type="range"] {
   white-space: nowrap; font-family: var(--mono);
 }
 #tl-compare-clear { flex-shrink: 0; }
-#tl-compare-info.hidden, #tl-compare-clear.hidden { display: none; }
+#tl-compare-info.hidden, #tl-compare-clear.hidden, #tl-live.hidden { display: none; }
 .tl-scale {
   flex-shrink: 0; font-size: 11px; padding: 4px 8px;
   background: var(--canvas); border: 1px solid var(--border); border-radius: 5px;
   color: var(--text-dim); cursor: pointer; font-family: var(--font);
 }
 .tl-scale:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Cap the legend at two chip rows and scroll it beyond that. A 29-node diagram
+   wrapped to three rows, and because the head and the scrubber never shrink,
+   every row it grew came straight out of the plot: the chart collapsed to 68px
+   inside the fixed-height drawer. Better the legend scrolls than the chart. */
 .tl-legend {
   display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0;
+  max-height: 48px; overflow-y: auto; align-content: flex-start;
+  scrollbar-width: thin; scrollbar-color: var(--text-faint) transparent;
 }
 .tl-chip {
   padding: 2px 10px; border-radius: 11px; font-size: 11px; cursor: pointer;
@@ -757,7 +798,9 @@ input[type="range"] {
 /* Bulk show/hide-all action: an accent-tinted chip, distinct from the
    node-colored series chips and never struck through. */
 .tl-chip-all { --chip-color: var(--accent); font-weight: 600; flex-shrink: 0; margin-right: 2px; }
-#timeline-canvas { flex: 1; width: 100%; min-height: 0; cursor: crosshair; }
+/* min-height keeps the plot readable when the head or the scrubber grow; the
+   drawer is resizable, so it can always be dragged taller. */
+#timeline-canvas { flex: 1; width: 100%; min-height: 90px; cursor: crosshair; }
 
 /* History scrubber (timeline footer) */
 #tl-scrub {
@@ -985,8 +1028,14 @@ input[type="range"] {
   pointer-events: none;
 }
 #tour-spotlight.off { box-shadow: 0 0 0 9999px rgba(0,0,0,0.58); border-color: transparent; }
+/* Click-through card, live buttons. The coach is placed beside its target, so
+   when the target is a palette tool it lands on the canvas just right of the
+   strip, which is exactly where a first diagram goes. Taking the pointer there
+   swallowed the drag the step was asking for, and since these steps advance by
+   watching for the edit and show no Next, the tour stranded with only "Skip
+   tour" left. */
 #tour-coach {
-  position: fixed; pointer-events: auto;
+  position: fixed; pointer-events: none;
   width: 290px; max-width: 92vw;
   background: var(--panel); border: 1px solid var(--accent); border-radius: 10px;
   padding: 14px 16px; box-shadow: 0 10px 36px rgba(0,0,0,0.55);
@@ -998,7 +1047,7 @@ input[type="range"] {
 #tour-coach p { font-size: 13px; line-height: 1.55; color: var(--text); margin: 0; }
 #tour-coach p b { color: var(--text-bright); }
 .tour-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
-.tour-actions .btn { padding: 4px 12px; font-size: 12px; }
+.tour-actions .btn { padding: 4px 12px; font-size: 12px; pointer-events: auto; }
 .tour-actions .hidden { display: none; }
 
 /* ── Guard / destructive-action confirmation modal ── */
@@ -1061,8 +1110,12 @@ input[type="range"] {
 .welcome-col dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; margin: 0; }
 .welcome-col dt { font-size: 12px; font-weight: 600; color: var(--accent); white-space: nowrap; }
 .welcome-col dd { font-size: 12px; color: var(--text-dim); margin: 0; }
+/* Wraps: the three buttons need about 468px, so on a phone the row overflowed
+   to the left and pushed the primary "Take a quick tour" clean off screen. At
+   320px the second button went with it. This is the first screen a new user
+   sees, so nothing in it may sit outside the modal. */
 .welcome-actions {
-  display: flex; gap: 10px; justify-content: flex-end;
+  display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end;
   padding: 16px 20px; border-top: 1px solid var(--border); margin-top: 12px;
 }
 
@@ -1368,10 +1421,14 @@ input[type="range"] {
     padding: 16px 10px 10px;
     scrollbar-width: none;
   }
+  /* The strip runs horizontally here, so the vertical edge fades do not apply:
+     ::before reverts to the drag-handle pill and ::after is dropped entirely. */
   #palette::before {
     content: ''; position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
     width: 36px; height: 4px; border-radius: 2px; background: var(--border);
+    margin: 0; order: 0; opacity: 1;
   }
+  #palette::after { display: none; }
   .palette-section { width: auto; flex-direction: row; align-items: center; flex-shrink: 0; }
   .palette-section + .palette-section { border-top: none; border-left: 1px solid var(--border-soft); }
   .palette-header { display: none; }
@@ -1397,6 +1454,14 @@ input[type="range"] {
     content: ''; position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
     width: 36px; height: 4px; border-radius: 2px; background: var(--border);
   }
+  /* The sheet sits over the tool strip, and the only way out used to be
+     guessing that a tap on bare canvas dismisses it. Give it a real close
+     target so the palette is always one tap away. */
+  #props-close {
+    position: absolute; top: 12px; right: 12px; z-index: 1;
+    width: 40px; min-height: 40px; padding: 0;
+  }
+  #props-content { padding-top: 8px; }
   /* Touch targets inside the sheet. */
   #props-panel .btn { min-height: 44px; }
   #props-panel .prop-row input, #props-panel .prop-row select,
@@ -1404,6 +1469,18 @@ input[type="range"] {
 
   /* The timeline gives the canvas room back on small screens. */
   #timeline { height: 150px; }
+}
+
+/* Small phones (iPhone SE class). The touch topbar does not wrap, so at 320px
+   the row wanted 359px and pushed the ☰ off the right edge, leaving 15px of a
+   44px target. html/body do not scroll, so that put Library, File, Help, the
+   Setup panels and everything else behind the menu out of reach entirely.
+   Buy the width back from the Run button and the step chip, both of which stay
+   perfectly legible smaller, rather than dropping a control. */
+@media (max-width: 380px) {
+  #topbar { gap: 6px; padding: 4px 8px; }
+  #btn-run { min-width: 64px; }
+  #step-counter.tb-chip { min-width: 0; padding: 0 8px; }
 }
 
 /* Coarse pointers get 44px-class touch targets even above the breakpoint. */

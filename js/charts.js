@@ -12,7 +12,12 @@ class Sparkline {
 
   update() {
     const history = this.engine.history;
-    if (!history.length) return;
+    // One point draws nothing but an empty box and a stray midline, which read
+    // as a broken chart at the top of the properties panel. Stay collapsed
+    // until there are two points to join, then reveal.
+    const drawable = history.length >= 2;
+    this.canvas.classList.toggle('hidden', !drawable);
+    if (!drawable) return;
     const values = history.map(h => h.snap[this.nodeId] ?? 0);
     const ctx = this.canvas.getContext('2d');
     const w = this.canvas.width, h = this.canvas.height;
@@ -27,7 +32,6 @@ class Sparkline {
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
 
-    if (values.length < 2) return;
     const step = w / (values.length - 1);
 
     ctx.beginPath();
@@ -69,6 +73,27 @@ function chartFont(px) {
   if (!_chartFontFamily)
     _chartFontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif';
   return `${px}px ${_chartFontFamily}`;
+}
+
+// Snap a rough gap to the nearest 1/2/5 x 10^n, the step ladder people read axis
+// labels on. Picking the *closest* rung rather than always rounding up keeps the
+// line count near the four asked for: a max of 94 wants 20, not 50. Used to put
+// grid lines on values like 20 or 100 instead of on raw fractions of whatever
+// the data happened to peak at.
+function niceStep(rough) {
+  if (!(rough > 0) || !isFinite(rough)) return 1;
+  const power = Math.floor(Math.log10(rough));
+  const err = rough / Math.pow(10, power);
+  const factor = err >= Math.sqrt(50) ? 10 : err >= Math.sqrt(10) ? 5 : err >= Math.sqrt(2) ? 2 : 1;
+  return factor * Math.pow(10, power);
+}
+
+// A readout value, trimmed to two decimals. Formula-driven series land on
+// values like 1.1469463130731183, and printing those raw made the hover
+// tooltip both unreadable and wide enough to shove itself off the canvas.
+function fmtVal(v) {
+  if (typeof v !== 'number' || !isFinite(v)) return String(v);
+  return v % 1 === 0 ? String(v) : String(Math.round(v * 100) / 100);
 }
 
 // One color per node, keyed by its creation order in the diagram, shared by
@@ -283,9 +308,16 @@ class TimelineChart {
 
   update() {
     const cv = this.canvas;
-    const w = cv.width = cv.clientWidth || 600;
-    const h = cv.height = cv.clientHeight || 180;
+    const w = cv.clientWidth || 600;
+    const h = cv.clientHeight || 180;
+    // Size the bitmap in device pixels but keep every coordinate below in CSS
+    // pixels, so the chart is sharp on a 2x display without disturbing the
+    // pixel-to-step math the hover and brush hit tests depend on.
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
     const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = '#16181d';
     ctx.fillRect(0, 0, w, h);
@@ -331,21 +363,30 @@ class TimelineChart {
       ctx.fillStyle = '#8a90a0';
       ctx.font = chartFont(12);
       ctx.textBaseline = 'middle';
-      ctx.textAlign = 'left';
+      // Centred, so the empty drawer reads as a deliberate placeholder rather
+      // than a stray line of text stranded in the top-left corner.
+      ctx.textAlign = 'center';
       // Distinguish "no data yet" from "everything is toggled off" — the latter
       // is recoverable from the legend's Show all chip.
       const hasData = hist.length >= 2 || branches.length;
-      const msg = (hasData && allNodes.length && !nodes.length)
-        ? 'All series hidden. Click “Show all” in the legend to bring them back.'
-        : 'Run the simulation to plot node values over time.';
-      ctx.fillText(msg, 12, h / 2);
+      // The bulk chip only exists from two series up, so a one-series diagram
+      // was told to click a “Show all” that was not in the legend.
+      const msg = !(hasData && allNodes.length && !nodes.length)
+        ? 'Run the simulation to plot node values over time.'
+        : allNodes.length >= 2
+          ? 'All series hidden. Click “Show all” in the legend to bring them back.'
+          : 'Series hidden. Click its chip in the legend to bring it back.';
+      ctx.fillText(msg, w / 2, h / 2);
       return;
     }
 
     // Domain spans live run AND ghost branches, in real step units (history
     // entries may be stride-sampled, and branches can be longer than the
     // live run). Also gather the stats the log/normalized scales need.
-    let max = 1, maxStep = 1, minPos = Infinity;
+    // `min` floors at 0 so an all-positive chart keeps its familiar zero
+    // baseline; it only drops below when a series actually goes negative, which
+    // used to be mapped underneath the plot floor and never drawn at all.
+    let max = 1, min = 0, maxStep = 1, minPos = Infinity;
     const nstats = new Map(nodes.map(n => [n.id, { min: Infinity, max: -Infinity }]));
     const scan = (hh) => {
       for (const snap of hh) {
@@ -354,6 +395,7 @@ class TimelineChart {
           const v = snap.snap[node.id];
           if (v == null) continue;
           if (v > max) max = v;
+          if (v < min) min = v;
           if (v > 0 && v < minPos) minPos = v;
           const st = nstats.get(node.id);
           if (v < st.min) st.min = v;
@@ -372,11 +414,21 @@ class TimelineChart {
     // the click-to-inspect hit test reuses the exact drawing math.
     this._geom = { padL, plotW, maxStep, yOf: null, nodes };
 
-    const fmtTick = v => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}k`
-      : v % 1 === 0 ? String(v) : v.toFixed(1));
+    // One decimal place is not enough below 0.1: a register oscillating around
+    // 0.05 rendered every tick as "0.0". Scale the precision to the value so
+    // neighbouring labels never collapse into each other.
+    const fmtTick = v => {
+      if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}k`;
+      if (v % 1 === 0) return String(v);
+      const dp = Math.min(4, Math.max(1, 1 - Math.floor(Math.log10(Math.abs(v)))));
+      return String(parseFloat(v.toFixed(dp)));
+    };
 
     // Build the y-mapping and the horizontal guide lines for the active scale.
     // `yOf(node, v)` maps a raw value to a pixel y; readouts always use raw v.
+    // How many guide lines the drawer can hold: labels are 11px, so a squeezed
+    // timeline that used to stack five of them into ~34px now thins out first.
+    const nTicks = Math.max(2, Math.min(4, Math.floor(plotH / 22)));
     let yOf, guides;
     const logOk = this._scale === 'log' && isFinite(minPos) && max > minPos;
     if (logOk) {
@@ -388,7 +440,8 @@ class TimelineChart {
         return padT + plotH - ((Math.max(lo, Math.min(hi, lv)) - lo) / span) * plotH;
       };
       guides = [];
-      for (let e = lo; e <= hi; e++) {
+      const stride = Math.max(1, Math.ceil(span / nTicks));
+      for (let e = lo; e <= hi; e += stride) {
         guides.push({ y: padT + plotH - ((e - lo) / span) * plotH, label: fmtTick(Math.pow(10, e)) });
       }
     } else if (this._scale === 'norm') {
@@ -398,10 +451,22 @@ class TimelineChart {
         if (st.max - st.min < 1e-9) return padT + plotH - 0.5 * plotH;
         return padT + plotH - ((v - st.min) / (st.max - st.min)) * plotH;
       };
-      guides = [0, 0.25, 0.5, 0.75, 1].map(p => ({ y: padT + plotH - p * plotH, label: `${p * 100}%` }));
+      guides = Array.from({ length: nTicks + 1 }, (_, i) => i / nTicks)
+        .map(p => ({ y: padT + plotH - p * plotH, label: `${Math.round(p * 100)}%` }));
     } else {
-      yOf = (node, v) => padT + plotH - (v / max) * plotH;
-      guides = [0, 0.25, 0.5, 0.75, 1].map(p => ({ y: padT + plotH - p * plotH, label: fmtTick(max * p) }));
+      // Span [min, max], where min is 0 unless a series really went negative.
+      const span = (max - min) || 1;
+      yOf = (node, v) => padT + plotH - ((v - min) / span) * plotH;
+      // Grid lines land on round values (0, 20, 40 …) instead of raw quarters of
+      // the data max, which produced labels like "23.5 / 47 / 70.5", and the
+      // count follows the drawer height so short charts stop stacking five
+      // labels into 34px.
+      guides = [];
+      const gstep = niceStep(span / nTicks);
+      const first = Math.ceil(min / gstep) * gstep;
+      for (let v = first; v <= max + 1e-9; v += gstep) {
+        guides.push({ y: padT + plotH - ((v - min) / span) * plotH, label: fmtTick(v) });
+      }
     }
     this._geom.yOf = yOf;
 
@@ -521,7 +586,7 @@ class TimelineChart {
         ctx.fillStyle = '#b6e94d';
         ctx.fillText('A·' + snapA.step, Math.max(padL + 12, Math.min(padL + plotW - 12, xa)), padT + 1);
         ctx.fillText('B·' + snapB.step, Math.max(padL + 12, Math.min(padL + plotW - 12, xb)), padT + 1);
-        this._drawComparePanel(ctx, w, padL, padT, plotW, plotH, l, r, snapA, snapB, nodes);
+        this._drawComparePanel(ctx, w, h, padL, padT, plotW, plotH, l, r, snapA, snapB, nodes);
       }
     }
 
@@ -549,17 +614,28 @@ class TimelineChart {
         ctx.beginPath(); ctx.arc(cx, yOf(node, v), 3, 0, Math.PI * 2); ctx.fill();
       });
 
-      // Tooltip box
-      const lines = [`Step ${snap.step}`, ...nodes.map(node => {
-        const v = snap.snap[node.id] ?? 0;
-        return `${node.label || node.type}: ${v}`;
-      })];
+      // Tooltip box. A big diagram has more series than the drawer is tall, so
+      // keep only the rows that fit and count the rest on the last line rather
+      // than running the box off the bottom of the canvas.
+      const rows = nodes.map(node => ({
+        color: this._colorOf(node),
+        text: `${node.label || node.type}: ${fmtVal(snap.snap[node.id] ?? 0)}`,
+      }));
+      // Measured against the canvas, not the plot box: the tooltip may sit over
+      // the padding, it just must not run off the bottom edge.
+      const fits = Math.max(1, Math.floor((h - 26) / 14) - 1);
+      const shown = rows.slice(0, fits);
+      if (rows.length > fits) {
+        shown[fits - 1] = { color: '#8a90a0', text: `+${rows.length - fits + 1} more` };
+      }
+      const lines = [{ color: '#8a90a0', text: `Step ${snap.step}` }, ...shown];
       ctx.font = "10px 'JetBrains Mono', monospace";
-      const tw = Math.max(...lines.map(l => ctx.measureText(l).width)) + 18;
+      const tw = Math.max(...lines.map(l => ctx.measureText(l.text).width)) + 18;
       const th = lines.length * 14 + 10;
       let tx = cx + 10;
       if (tx + tw > w - 4) tx = cx - tw - 10;
-      const ty = padT + 2;
+      tx = Math.max(4, Math.min(tx, w - tw - 4));
+      const ty = padT + 2; // row cap above guarantees th fits inside plotH
 
       ctx.fillStyle = 'rgba(13,14,17,0.93)';
       ctx.strokeStyle = '#2a2e38'; ctx.lineWidth = 1;
@@ -568,16 +644,16 @@ class TimelineChart {
 
       ctx.textAlign = 'left'; ctx.textBaseline = 'top';
       lines.forEach((line, i) => {
-        ctx.fillStyle = i === 0 ? '#8a90a0' : this._colorOf(nodes[i - 1]);
-        ctx.fillText(line, tx + 9, ty + 5 + i * 14);
+        ctx.fillStyle = line.color;
+        ctx.fillText(line.text, tx + 9, ty + 5 + i * 14);
       });
     }
   }
 
   // Floating panel listing each visible series' value at A and B, the change,
   // and the % change. Placed opposite the selected band so it never covers it.
-  _drawComparePanel(ctx, w, padL, padT, plotW, plotH, bandL, bandR, snapA, snapB, nodes) {
-    const fmt = v => (v % 1 === 0 ? String(v) : (Math.round(v * 100) / 100).toFixed(2));
+  _drawComparePanel(ctx, w, h, padL, padT, plotW, plotH, bandL, bandR, snapA, snapB, nodes) {
+    const fmt = fmtVal;
     const rows = nodes.map(node => {
       const vA = snapA.snap[node.id] ?? 0, vB = snapB.snap[node.id] ?? 0;
       const d = vB - vA;
@@ -593,10 +669,19 @@ class TimelineChart {
     });
     const header = `Step ${snapA.step} → ${snapB.step}  ·  Δ${snapB.step - snapA.step} steps`;
 
+    // Same row cap as the hover tooltip: on a big diagram the A→B list is far
+    // taller than the drawer, and unclamped it ran off the bottom of the canvas
+    // with the last row sliced through the glyphs. Keep what fits and count the
+    // rest, so the readout the compare gesture exists for is actually readable.
     ctx.font = "10px 'JetBrains Mono', monospace";
-    const rowW = rows.map(r => ctx.measureText(r.main).width + ctx.measureText(r.delta).width);
+    const fits = Math.max(1, Math.floor((h - 26) / 14) - 1);
+    const shown = rows.slice(0, fits);
+    if (rows.length > fits) {
+      shown[fits - 1] = { color: '#8a90a0', main: `+${rows.length - fits + 1} more`, delta: '', dcolor: '#8a90a0' };
+    }
+    const rowW = shown.map(r => ctx.measureText(r.main).width + ctx.measureText(r.delta).width);
     const tw = Math.max(ctx.measureText(header).width, ...rowW, 0) + 18;
-    const th = (rows.length + 1) * 14 + 10;
+    const th = (shown.length + 1) * 14 + 10;
     // Put the panel on whichever side of the band has more room.
     const center = (bandL + bandR) / 2;
     let tx = center < padL + plotW / 2 ? padL + plotW - tw - 6 : padL + 6;
@@ -611,7 +696,7 @@ class TimelineChart {
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillStyle = '#8a90a0';
     ctx.fillText(header, tx + 9, ty + 5);
-    rows.forEach((r, i) => {
+    shown.forEach((r, i) => {
       const y = ty + 5 + (i + 1) * 14;
       ctx.fillStyle = r.color;
       ctx.fillText(r.main, tx + 9, y);

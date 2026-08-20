@@ -20,6 +20,7 @@ class Editor {
     this.onToolChange = null;    // callback(tool) when the editor changes its own tool
     this.onHint = null;          // callback(msg) for transient user hints
     this.onContextMenu = null;   // callback(ctx, clientX, clientY) for the right-click menu
+    this.isKeyboardBlocked = null; // callback() -> true while a modal dialog owns the keyboard
     this._dragSourceNodeId = null; // node id where a select-mode drag originated
     this._touchMode = null;      // 'single' | 'pinch'
     this._pinch = null;          // last pinch state {dist, cx, cy}
@@ -809,6 +810,9 @@ class Editor {
   _onKey(e) {
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || e.target.isContentEditable) return;
+    // A dialog is up: Delete and the pan/space gesture must not reach the
+    // canvas behind it. The host decides what counts as modal.
+    if (this.isKeyboardBlocked && this.isKeyboardBlocked()) return;
     // Hold Space to pan the canvas from anywhere (released in _onKeyUp).
     if (e.code === 'Space') {
       if (!this._spaceDown) { this._spaceDown = true; this._restoreCursor(); }
@@ -869,6 +873,8 @@ class Editor {
 
   _onKeyUp(e) {
     if (e.code === 'Space') {
+      // Always clear, even behind a dialog: _onKey may have swallowed the
+      // keydown, and a stuck _spaceDown would leave the canvas in pan mode.
       this._spaceDown = false;
       if (!this._panDrag) this._restoreCursor();
     }
