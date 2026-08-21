@@ -2821,6 +2821,11 @@ function kitchenSink() {
   pool2.flowMode = 'pull'; pool2.pullPolicy = 'all'; pool2.activation = 'passive';
   const multi = mk(NodeType.POOL, 100, 300, 'Mixed Bag');
   multi.resources = 30; multi.colorMap = { '#ff0000': 10, '#00ff00': 20 };
+  // A node caught mid-run: its live count and colours have drifted from the
+  // reset baseline, which is the only state that serializes the baseline back.
+  const drifted = mk(NodeType.POOL, 100, 400, 'Drifted');
+  drifted.setCount(60, '#ffd54f');
+  drifted.resources = 25; drifted.colorMap = { '#ffd54f': 25 };
   const src1 = mk(NodeType.SOURCE, 0, 100, 'Mine'); src1.resourceColor = '#8d6e63';
   const src2 = mk(NodeType.SOURCE, 0, 200, 'Well'); src2.limited = true; src2.resources = 40; src2.fireEvery = 3; src2.firePhase = 1;
   const drain = mk(NodeType.DRAIN, 300, 100, 'Spend');
@@ -2856,6 +2861,53 @@ function kitchenSink() {
   d.addChart(ch);
   return d;
 }
+
+test('a mid-run save keeps the authored starting amount', () => {
+  const d = new Diagram();
+  const src = d.addNode(new MNode(NodeType.SOURCE, 0, 0)); src.label = 'Mine';
+  const pool = d.addNode(new MNode(NodeType.POOL, 100, 0)); pool.label = 'Gold';
+  pool.setCount(80, '#ffd54f');
+  d.addConnection(new MConnection(src.id, pool.id, ConnectionType.RESOURCE)).rate = 1;
+
+  // At rest the baseline and the live count agree, so nothing extra is written
+  // and existing files keep their exact shape.
+  const atRest = d.toJSON().nodes.find(n => n.label === 'Gold');
+  eq(atRest.initialResources, undefined, 'no baseline field written at rest');
+  eq(atRest.initialColorMap, undefined, 'no baseline colorMap written at rest');
+
+  // Run a few steps, then serialize mid-run, exactly as autosave would.
+  const e = new SimEngine(d);
+  e.reset();
+  for (let i = 0; i < 5; i++) e.doStep();
+  assert(pool.resources !== 80, 'the live count actually moved');
+  const saved = JSON.parse(JSON.stringify(d.toJSON()));
+  const savedPool = saved.nodes.find(n => n.label === 'Gold');
+  eq(savedPool.resources, pool.resources, 'live count still serialized as-is');
+  eq(savedPool.initialResources, 80, 'authored baseline recorded alongside it');
+
+  // Reload that file and reset: the run must return to the authored 80, not to
+  // wherever the run happened to be when it was written.
+  const d2 = new Diagram(); d2.loadJSON(saved);
+  const pool2 = [...d2.nodes.values()].find(n => n.label === 'Gold');
+  eq(pool2.resources, pool.resources, 'reopens showing the mid-run count');
+  const e2 = new SimEngine(d2);
+  e2.reset();
+  eq(pool2.resources, 80, 'Reset returns to the authored starting amount');
+  eq(pool2.colorMap['#ffd54f'], 80, 'and to the authored colours');
+  eq(pool2.initialResources, undefined, 'no stray public field left on the node');
+});
+
+test('a file with no baseline field keeps the old meaning', () => {
+  // Every diagram saved before this field existed: the live count IS the
+  // baseline, so loading one must not change how it resets.
+  const d = new Diagram();
+  d.loadJSON({ nodes: [{ id: 'p1', type: 'pool', x: 0, y: 0, label: 'Gold',
+    resources: 42, colorMap: { '#ffd54f': 42 }, capacity: null }], connections: [] });
+  const p = d.nodes.get('p1');
+  eq(p._initialResources, 42, 'baseline derived from the live count as before');
+  const e = new SimEngine(d); e.reset();
+  eq(p.resources, 42, 'resets to it');
+});
 
 test('kitchen-sink diagram round-trips through .econ text', () => {
   const json1 = kitchenSink().toJSON();
