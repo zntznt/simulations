@@ -409,13 +409,25 @@ class SimEngine {
 
   _updateVariables() {
     const d = this.diagram;
+    // Every name the diagram still defines. The store is otherwise only ever
+    // added to, so a parameter, variable or state connection that is deleted
+    // or renamed left its last value behind for good: formulas kept resolving
+    // the dead name, the run kept flowing on a value the user had removed, and
+    // the Watch panel kept listing it. A rename was the worst of it, since both
+    // the old and the new name stayed live at once.
+    const owned = new Set();
+
     // Seed from user-defined params first, then random variables; state
     // connections override both.
     for (const [k, v] of Object.entries(d.params || {})) {
-      if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)) d.variables[k] = v;
+      if (!VALID_IDENT.test(k)) continue;
+      owned.add(k);
+      if (typeof v === 'number' && isFinite(v)) d.variables[k] = v;
     }
     for (const rv of d.customVars || []) {
-      if (rv.name && VALID_IDENT.test(rv.name) && isFinite(rv.value)) d.variables[rv.name] = rv.value;
+      if (!rv.name || !VALID_IDENT.test(rv.name)) continue;
+      owned.add(rv.name);
+      if (isFinite(rv.value)) d.variables[rv.name] = rv.value;
     }
     for (const conn of d.connections.values()) {
       if (conn.type !== ConnectionType.STATE) continue;
@@ -425,6 +437,18 @@ class SimEngine {
       if (!name) continue;
       const val = this._stateValueOf(src);
       d.variables[name] = isFinite(val) ? val : 0;
+      owned.add(name);
+    }
+    // Registers publish under their own label from _evalRegisters, which runs
+    // immediately after this everywhere it is called. Counting them as owned
+    // keeps a live register's value from being dropped and re-added each step,
+    // while a deleted register's label still falls away with its node.
+    for (const n of d.nodes.values()) {
+      if (n.type === NodeType.REGISTER && n.label && VALID_IDENT.test(n.label)) owned.add(n.label);
+    }
+
+    for (const k of Object.keys(d.variables)) {
+      if (!owned.has(k)) delete d.variables[k];
     }
   }
 
