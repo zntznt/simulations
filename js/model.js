@@ -482,6 +482,22 @@ class MNode {
       flowMode: this.flowMode !== 'push' ? this.flowMode : undefined,
       pullPolicy: this.pullPolicy,
     };
+    // The reset baseline, recorded only once the live count has drifted from it
+    // (i.e. the diagram is being written mid-run). At rest the two match and
+    // both fields are omitted, so at-rest files are byte-identical to before.
+    // Without this, loadJSON derives the baseline from the live count, and any
+    // mid-run write — an explicit save, a share link, or just the autosave
+    // ticking over — silently became the model's new starting amount.
+    // Infinite sources are excluded: JSON cannot carry Infinity, and loadJSON
+    // already restores their baseline from the node type.
+    if (isFinite(this._initialResources) && this._initialResources !== d.resources) {
+      d.initialResources = this._initialResources;
+      const base = this._initialColorMap || {};
+      const bk = Object.keys(base);
+      const sameMap = bk.length === Object.keys(this.colorMap).length
+        && bk.every(k => base[k] === this.colorMap[k]);
+      if (!sameMap) d.initialColorMap = { ...base };
+    }
     if (this.type === NodeType.SOURCE) { d.resourceColor = this.resourceColor; d.limited = this.limited || undefined; }
     if (this.type === NodeType.GATE) d.gateMode = this.gateMode;
     if (this.type === NodeType.REGISTER) { d.value = this.value; d.formula = this.formula; }
@@ -504,8 +520,16 @@ class MNode {
     this.capacity = d.capacity == null ? Infinity : d.capacity;
     this.colorMap = { ...(d.colorMap || {}) };
     const infiniteSource = this.type === NodeType.SOURCE && !this.limited;
-    this._initialResources = infiniteSource ? Infinity : this.resources;
-    this._initialColorMap = { ...this.colorMap };
+    // A file written mid-run carries its baseline explicitly; in every other
+    // case the live count IS the baseline, because the diagram was at rest when
+    // it was written. Older files have neither field and keep the old meaning.
+    this._initialResources = infiniteSource ? Infinity
+      : (d.initialResources !== undefined ? d.initialResources : this.resources);
+    this._initialColorMap = { ...(d.initialColorMap || this.colorMap) };
+    // Object.assign above copied these in as stray public fields; they are
+    // read here and nowhere else, so drop them rather than let them ride along.
+    delete this.initialResources;
+    delete this.initialColorMap;
     if (infiniteSource) { this.resources = Infinity; }
     if (this.type === NodeType.SOURCE) this.produced = 0;
     if (this.type === NodeType.DRAIN) this.drained = 0;
