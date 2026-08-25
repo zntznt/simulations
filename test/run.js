@@ -1437,6 +1437,58 @@ test('diagram.params constants are available in register formulas', () => {
   eq(reg.value, 14, 'register reads diagram param');
 });
 
+test('deleting a param or variable takes it out of the shared store', () => {
+  const { d, e } = setup();
+  d.params['boost'] = 5;
+  d.customVars = [{ name: 'jitter', kind: 'array', values: [2], dist: 'uniform', update: 'step', value: 2 }];
+  const src = node(d, NodeType.SOURCE);
+  const pool = node(d, NodeType.POOL);
+  const c = conn(d, src, pool); c.rateMode = RateMode.FORMULA; c.formula = 'boost + jitter';
+  steps(e, 3);
+  eq(pool.resources, 21, '7 per step while both are defined');
+
+  // The user deletes both mid-run. Variables commit at the end of a tick
+  // (CONCEPTS.md "one-step lag"), so the step already in flight still sees the
+  // old values and everything after it sees nothing.
+  delete d.params['boost'];
+  d.customVars = [];
+  e.doStep();
+  eq('boost' in d.variables, false, 'deleted param dropped from the store');
+  eq('jitter' in d.variables, false, 'deleted variable dropped from the store');
+  e.doStep(); e.doStep();
+  eq(pool.resources, 28, 'flow stops once the lagged step has passed');
+});
+
+test('renaming a param does not leave the old name resolvable', () => {
+  const { d, e } = setup();
+  d.params['rate_a'] = 3;
+  const src = node(d, NodeType.SOURCE);
+  const pool = node(d, NodeType.POOL);
+  const c = conn(d, src, pool); c.rateMode = RateMode.FORMULA; c.formula = 'rate_a';
+  steps(e, 1);
+  eq(d.variables['rate_a'], 3, 'old name live before the rename');
+  d.params = { rate_b: 3 };
+  e.doStep();
+  eq('rate_a' in d.variables, false, 'old name gone, so a stale formula cannot silently keep working');
+  eq(d.variables['rate_b'], 3, 'new name live');
+});
+
+test('pruning the store leaves live register labels alone', () => {
+  const { d, e } = setup();
+  const pool = node(d, NodeType.POOL); pool.label = 'Gold'; pool.setCount(4);
+  const reg = node(d, NodeType.REGISTER); reg.label = 'Score'; reg.formula = 'gold * 2';
+  conn(d, pool, reg, ConnectionType.STATE).variableName = 'gold';
+  steps(e, 2);
+  eq(d.variables['Score'], 8, 'register publishes under its own label');
+  e.doStep();
+  eq(d.variables['Score'], 8, 'and survives the prune on later steps');
+
+  // A register that is removed should still fall out of the store.
+  d.removeNode(reg.id);
+  e.doStep();
+  eq('Score' in d.variables, false, 'deleted register label pruned');
+});
+
 // ── P2: distribution rate mode ───────────────────────────────────────────────
 console.log('\nDistribution rates');
 
