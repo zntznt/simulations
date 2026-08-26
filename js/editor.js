@@ -182,6 +182,15 @@ class Editor {
     }
     if (e.button !== 0) return;
 
+    // A press on the canvas gives it focus, so the keyboard shortcuts act on
+    // what was just clicked. This has to be explicit: selecting anything calls
+    // renderer.render(), which rebuilds the element under the press, and some
+    // paths (the label pill, the reshape handles) preventDefault to suppress
+    // text selection while dragging. Either one stops the browser from moving
+    // focus here on its own, which used to leave it on whichever toolbar button
+    // was last pressed, where _onKey drops every key it sees.
+    if (document.activeElement !== this.svg) this.svg.focus({ preventScroll: true });
+
     const pt = this.renderer.svgPoint(e.clientX, e.clientY);
 
     // Check for a label-pill drag (walk up from target looking for conn-label-g).
