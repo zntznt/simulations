@@ -1905,6 +1905,51 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('hit-test honours visual stacking (annotation over node wins; bare node still selectable)');
   else fail('hit-test order: ' + JSON.stringify(hitOrder));
 
+  // A click on the canvas has to take focus, or the keyboard shortcuts act on
+  // nothing. Selecting re-renders the element out from under the press and some
+  // paths preventDefault, so focus used to stay on the last toolbar button
+  // pressed, where _onKey drops every key. Delete then did nothing at all.
+  const clickFocus = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._closeFeature();
+    const d = window.app.diagram;
+    const a = d.addNode(new MNode(NodeType.SOURCE, 200, 200));
+    const b = d.addNode(new MNode(NodeType.POOL, 460, 200));
+    const conn = d.addConnection(new MConnection(a.id, b.id, 'resource'));
+    window.app.editor.setTool('select');
+    window.app.renderer.render();
+
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const press = (target) => {
+      const box = target.getBoundingClientRect();
+      const sx = box.left + box.width / 2, sy = box.top + box.height / 2;
+      for (const t of ['mousedown', 'mouseup'])
+        canvas.dispatchEvent(new MouseEvent(t, { clientX: sx, clientY: sy, button: 0, bubbles: true }));
+    };
+    // Park focus on a toolbar button, the way any tool or transport click leaves it.
+    const btn = document.getElementById('btn-run');
+    btn.focus();
+    const parked = document.activeElement === btn;
+
+    // Select the connection by its rate pill, then press Delete as a user would:
+    // the event goes to whatever actually holds focus.
+    const pill = document.querySelector('.conn-label-g');
+    if (!pill) return { parked, noPill: true };
+    press(pill);
+    const focusedCanvas = document.activeElement === canvas;
+    const selected = window.app.renderer.selectedId === conn.id;
+    document.activeElement.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+    const deleted = !d.connections.has(conn.id);
+
+    return { parked, focusedCanvas, selected, deleted, nodes: d.nodes.size };
+  });
+  if (clickFocus.parked && clickFocus.focusedCanvas && clickFocus.selected
+    && clickFocus.deleted && clickFocus.nodes === 2)
+    ok('canvas click takes focus: connection picked by its pill deletes with Delete');
+  else fail('canvas click focus: ' + JSON.stringify(clickFocus));
+
   // P2: named resource types — editor, type pickers, per-type readouts.
   const p2types = await page.evaluate(() => {
     window.app._clearAll();
