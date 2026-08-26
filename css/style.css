@@ -609,6 +609,16 @@ select.wide-input option { background: var(--panel2); }
   padding: 5px; background: var(--panel2); border: 1px solid var(--border);
   border-radius: 10px; box-shadow: 0 10px 32px rgba(0,0,0,0.5);
   display: flex; flex-direction: column; gap: 1px;
+  /* Never taller than the window. The touch overflow menu carries everything
+     the collapsed topbar hides, which is more than a landscape phone can show:
+     at 667x375 it ran 702px tall and left ten items past the bottom edge, with
+     html/body unable to scroll and the JS clamp pinned at the top. Bounded, it
+     scrolls itself instead. dvh where supported, so a browser's own retracting
+     toolbar does not push the last item out of reach again. */
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: var(--text-faint) transparent;
 }
 .ctx-menu.hidden { display: none; }
 .ctx-menu .menu-item { display: flex; align-items: center; gap: 9px; }
