@@ -61,7 +61,14 @@ class App {
     this._activeFeature = null; // which diagram-rail feature occupies the props panel
     this._flowReadout = true;   // transient "+N" flow badges on connections during a run
     this._tour = null;          // { idx, base } while the interactive tour is running
-    this._tourReposition = () => this._positionTour(); // stable ref for listeners
+    // Stable ref for the listeners. Scroll fires far more often than the
+    // spotlight needs moving and _positionTour measures the target, so coalesce
+    // to one placement per frame.
+    this._tourReposition = () => {
+      if (this._tourRaf) return;
+      this._tourRaf = requestAnimationFrame(() => { this._tourRaf = 0; this._positionTour(); });
+    };
+    this._tourRaf = 0;
     this._tourKey = (e) => { if (e.key === 'Escape') this._endTour(false); };
 
     // Scenario branching: checkpoints are full sim-state snapshots you can
@@ -328,6 +335,10 @@ class App {
     };
     document.getElementById('tour').classList.remove('hidden');
     window.addEventListener('resize', this._tourReposition);
+    // Scroll does not bubble, so capture is what catches it from the palette,
+    // the properties panel or any other scrollable ancestor. Without this the
+    // cut-out stays where the target used to be and highlights the wrong control.
+    window.addEventListener('scroll', this._tourReposition, { capture: true, passive: true });
     window.addEventListener('keydown', this._tourKey, true);
     this._enterStep(this._tourSteps()[0]);
     this._renderTourStep();
@@ -346,6 +357,14 @@ class App {
     next.classList.toggle('hidden', !(step.final || step.info));
     next.textContent = step.final ? 'Finish' : 'Next';
     document.getElementById('tour-skip').classList.toggle('hidden', !!step.final);
+    // Bring the target into view before measuring it. The palette and the
+    // properties panel both scroll, and on a short window a step's control can
+    // sit below the fold, which used to leave the card pointing at a cut-out
+    // nobody could see. "nearest" scrolls the least amount that works and does
+    // nothing when the control is already visible, so a step that needs no
+    // scrolling does not twitch.
+    const tgt = step.target ? document.querySelector(step.target) : null;
+    if (tgt && tgt.scrollIntoView) tgt.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     this._positionTour();
   }
 
@@ -426,6 +445,8 @@ class App {
     this._tour = null;
     document.getElementById('tour').classList.add('hidden');
     window.removeEventListener('resize', this._tourReposition);
+    window.removeEventListener('scroll', this._tourReposition, { capture: true });
+    if (this._tourRaf) { cancelAnimationFrame(this._tourRaf); this._tourRaf = 0; }
     window.removeEventListener('keydown', this._tourKey, true);
     try { localStorage.setItem('sim_seen_tour', '1'); } catch { /* ignore */ }
     if (completed) this._toast('Tour complete. Happy building!');
