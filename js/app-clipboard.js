@@ -106,6 +106,10 @@ class AppClipboard {
     // menu already fired before this listener attaches, so it won't self-close.
     this._ctxDismiss = (e) => {
       if (e && e.type === 'mousedown' && menu.contains(e.target)) return;
+      // A menu tall enough to scroll has to keep the wheel for itself, or the
+      // first scroll toward the items below the fold would dismiss it instead.
+      if (e && e.type === 'wheel' && menu.contains(e.target)
+        && menu.scrollHeight > menu.clientHeight) return;
       if (e && e.type === 'keydown' && e.key !== 'Escape') return;
       this._hideContextMenu();
     };
