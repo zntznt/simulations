@@ -807,12 +807,121 @@ class Editor {
     if (e.cancelable) e.preventDefault();
   }
 
+  // ── Keyboard operation of the canvas ────────────────────────────────────────
+  // The canvas is role="application" and a tab stop, which promises assistive
+  // tech that it handles keys itself, but nothing was bound to it: every
+  // existing shortcut (Delete, the arrow nudge, Escape) needs a selection, and
+  // a selection could only be made with a mouse. Tab walks the nodes, Enter
+  // acts with the current tool, and the rest of the editor works as it already
+  // did once something is selected.
+
+  _canvasFocused() { return document.activeElement === this.svg; }
+
+  // Reading order, so Tab walks the diagram roughly the way it is laid out
+  // rather than in creation order.
+  _nodesInReadingOrder() {
+    return [...this.diagram.nodes.values()].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  }
+
+  // Select a node from the keyboard and make sure it can actually be seen.
+  // Only pans when the node is outside the viewport: recentring on every step
+  // would make the whole diagram lurch while tabbing between visible nodes.
+  _keyboardGoTo(node) {
+    if (!node) return;
+    this._select(node.id, 'node');
+    const r = this.svg.getBoundingClientRect();
+    const sx = node.x * this.renderer._scale + this.renderer._panX;
+    const sy = node.y * this.renderer._scale + this.renderer._panY;
+    const m = 60;
+    if (sx < m || sy < m || sx > r.width - m || sy > r.height - m) {
+      this.renderer.centerOn(node.x, node.y);
+    }
+    this.renderer.render();
+  }
+
+  // Enter is "do the current tool here", the keyboard's stand-in for a click.
+  _keyboardActivate() {
+    const tool = this.tool;
+    const selected = this.renderer.selectedId
+      && this.diagram.nodes.get(this.renderer.selectedId);
+
+    if (tool.startsWith('place-')) {
+      // No pointer to place under, so drop it in the middle of what is on
+      // screen, which is where the eye already is.
+      const r = this.svg.getBoundingClientRect();
+      const pt = this.renderer.svgPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const sn = this._snapPt(pt.x, pt.y);
+      let placed = null, kind = 'node';
+      if (tool === 'place-note') { placed = this.diagram.addNote(new MNote(sn.x, sn.y)); kind = 'note'; }
+      else if (tool === 'place-chart') { placed = this.diagram.addChart(new MChart(sn.x, sn.y)); kind = 'chart'; }
+      else if (tool === 'place-group') { placed = this.diagram.addGroup(new MGroup(sn.x, sn.y, 220, 160)); kind = 'group'; }
+      else placed = this.diagram.addNode(new MNode(tool.replace('place-', ''), sn.x, sn.y));
+      this.renderer.render();
+      this._select(placed.id, kind);
+      this._changed();
+      if (this.autoRevert) { this.setTool('select'); if (this.onToolChange) this.onToolChange('select'); }
+      return true;
+    }
+
+    if (tool === 'connect-resource' || tool === 'connect-state') {
+      if (!selected) { if (this.onHint) this.onHint('Tab to a node first, then press Enter to start the connection.'); return true; }
+      const connType = tool === 'connect-state' ? ConnectionType.STATE : ConnectionType.RESOURCE;
+      if (!this._connecting) {
+        this._connecting = { sourceId: selected.id, type: connType };
+        if (this.onHint) this.onHint(`Connecting from ${selected.label || selected.type}. Tab to the target, then press Enter.`);
+        return true;
+      }
+      // State connections may target their own source (a pool applying decay
+      // to itself, say); resource self-loops are not allowed, same as a drag.
+      const allowSelf = this._connecting.type === ConnectionType.STATE;
+      if (selected.id !== this._connecting.sourceId || allowSelf) {
+        const conn = this.diagram.addConnection(
+          new MConnection(this._connecting.sourceId, selected.id, this._connecting.type)
+        );
+        this._connecting = null;
+        this.renderer.clearTemp();
+        this.renderer.render();
+        this._select(conn.id, 'conn');
+        this._changed();
+      } else if (this.onHint) {
+        this.onHint('A resource connection cannot loop back to its own source.');
+      }
+      return true;
+    }
+
+    // Select tool: mirror what a click does mid-run, which is to fire an
+    // interactive node (see the click path in _onUp).
+    if (selected && this.engine.running && selected.activation === ActivationMode.INTERACTIVE) {
+      this.engine.fireInteractive(selected.id);
+      return true;
+    }
+    return false;
+  }
+
   _onKey(e) {
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || e.target.isContentEditable) return;
     // A dialog is up: Delete and the pan/space gesture must not reach the
     // canvas behind it. The host decides what counts as modal.
     if (this.isKeyboardBlocked && this.isKeyboardBlocked()) return;
+
+    // Tab and Enter are only claimed while the canvas itself holds focus, so
+    // the rest of the page keeps ordinary tab traversal. Escape clears the
+    // selection, and the next Tab then leaves the canvas normally, so this is
+    // never a keyboard trap.
+    if (this._canvasFocused() && e.key === 'Tab' && this.diagram.nodes.size) {
+      const order = this._nodesInReadingOrder();
+      const at = order.findIndex(n => n.id === this.renderer.selectedId);
+      if (at === -1 && e.shiftKey) return;      // nothing selected: Shift+Tab leaves
+      if (at === order.length - 1 && !e.shiftKey) { this._select(null, null); this.renderer.render(); return; }
+      e.preventDefault();
+      const next = at === -1 ? 0 : at + (e.shiftKey ? -1 : 1);
+      this._keyboardGoTo(order[Math.max(0, Math.min(order.length - 1, next))]);
+      return;
+    }
+    if (this._canvasFocused() && e.key === 'Enter') {
+      if (this._keyboardActivate()) { e.preventDefault(); return; }
+    }
     // Hold Space to pan the canvas from anywhere (released in _onKeyUp).
     if (e.code === 'Space') {
       if (!this._spaceDown) { this._spaceDown = true; this._restoreCursor(); }
