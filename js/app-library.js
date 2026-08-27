@@ -225,16 +225,29 @@ class AppLibrary {
     }
   }
 
-  async _loadTemplate(t) {
-    if (!await this._confirmGuard(`Load "${t.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`, 'Load template')) return;
+  // Swap the current diagram for a starter template. Shared with _loadDemo so
+  // the two cannot drift; each caller adds its own last step.
+  _installTemplate(t) {
     const prev = this._snapshot();
     this._clearAll();
     t.load();
     this.diagram.meta.name = t.name;
     this.diagram.meta.description = t.desc;
     this._applyMeta();
+    // Reset AFTER the template has built its nodes, not before. _clearAll resets
+    // too, but that runs against an empty diagram, so the step-0 baseline it
+    // records holds nothing. Leaving it that way meant the first point of every
+    // chart was a hole: run a freshly loaded template and the series began at
+    // step 1, so the starting amounts never plotted and spike attribution had no
+    // "from" value for the first step.
+    this.engine.reset();
     this._commitReplace(prev);
     this.renderer.fitView();
+  }
+
+  async _loadTemplate(t) {
+    if (!await this._confirmGuard(`Load "${t.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`, 'Load template')) return;
+    this._installTemplate(t);
     this._hideModal('lib-overlay');
   }
 

@@ -175,6 +175,37 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     if (n > 0) ok(`template "${name}" loaded (${n} nodes)`); else fail(`template "${name}" empty`);
   }
 
+  // Loading a template has to reset the engine AFTER the template builds its
+  // nodes. _clearAll resets too, but against an empty diagram, so the step-0
+  // baseline it writes is empty and every chart series opens on a hole: the
+  // starting amounts never plot and the curve begins at step 1. Both entry
+  // points (Library template, welcome demo) go through _installTemplate.
+  const step0 = await page.evaluate(async () => {
+    const out = {};
+    // Drive the real entry points, not the shared helper, so this test measures
+    // behaviour rather than the presence of a particular function.
+    for (const [label, load] of [['template', () => window.app._loadTemplate(window.app._templates[0])],
+                                 ['demo', () => window.app._loadDemo()]]) {
+      await load();
+      const e = window.app.engine, d = window.app.diagram;
+      const h0 = e.history[0];
+      const snap = h0 ? h0.snap : null;
+      const ids = snap ? Object.keys(snap) : [];
+      // Every node the template built must appear in the step-0 baseline.
+      const covered = d.nodes.size > 0 && [...d.nodes.keys()].every(id => snap && snap[id] !== undefined);
+      // And stepping must leave no hole at index 0 of a series.
+      const probe = [...d.nodes.values()][0];
+      for (let i = 0; i < 3; i++) e.doStep();
+      const series = e.history.map(h => (h.snap && h.snap[probe.id] !== undefined) ? h.snap[probe.id] : null);
+      out[label] = { nodes: d.nodes.size, step0Entries: ids.length, covered, firstIsNull: series[0] === null, len: series.length };
+    }
+    return out;
+  });
+  if (step0.template.covered && !step0.template.firstIsNull
+    && step0.demo.covered && !step0.demo.firstIsNull)
+    ok('template/demo load records a step-0 baseline, so charts start at step 0 instead of a hole');
+  else fail('template step-0 baseline: ' + JSON.stringify(step0));
+
   // Navigation: zoom controls step the scale and update the readout; fit-to-content
   // re-frames without error.
   const nav = await page.evaluate(() => {
