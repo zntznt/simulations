@@ -850,14 +850,7 @@ class App {
   _loadDemo() {
     const t = this._templates[0]; // Predator & Prey
     if (!t) return;
-    const prev = this._snapshot();
-    this._clearAll();
-    t.load();
-    this.diagram.meta.name = t.name;
-    this.diagram.meta.description = t.desc;
-    this._applyMeta();
-    this._commitReplace(prev);
-    this.renderer.fitView();
+    this._installTemplate(t);
     this._renderProps();
   }
 
