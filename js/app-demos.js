@@ -338,7 +338,8 @@ class AppDemos {
 
     // ── CHARTS & NOTES ──────────────────────────────────────────────────────────
     b.chart(110, 420, 420, 110, 'Energy · Gold · XP', [energy.id, gold.id, xp.id]);
-    b.chart(560, 610, 240, 100, 'Rarity drops', [common.id, rare.id, epic.id, legend.id]);
+    // Clear of the Rarity Roll gate at (650, 690), which this used to cover.
+    b.chart(560, 1040, 240, 100, 'Rarity drops', [common.id, rare.id, epic.id, legend.id]);
     b.chart(1620, 60, 220, 200, 'Power · DAU · Level', [power.id, dau.id, level.id]);
     b.chart(1480, 460, 360, 70, 'Gems · Gear', [gems.id, gear.id]);
 
@@ -495,7 +496,8 @@ class AppDemos {
     b.st(techDrama, buildTheater, c => { c.activator = true; c.actOperator = '>='; c.actValue = 1; c.label = '⊢ drama'; });
 
     // ───────────────────────── CHARTS & NOTES ─────────────────────────
-    b.chart(150, 470, 320, 200, 'Empire: Population · Food · Culture', [population.id, foodStore.id, culture.id]);
+    // Clear of the prodYield register at (150, 485), which sat under this.
+    b.chart(150, 750, 320, 200, 'Empire: Population · Food · Culture', [population.id, foodStore.id, culture.id]);
     b.chart(920, 730, 540, 175, 'Tech unlocks (0->1): Irrigation · Drama · Banking · University',
       [techIrrigation.id, techDrama.id, techBanking.id, techUniversity.id]);
     b.note(120, 720, 480, 120,
@@ -830,12 +832,20 @@ class AppDemos {
     b.st(nx, gdp, c => { c.variableName = 'nx'; });
 
     // ── CHARTS & NOTES ──
-    b.chart(1140, 790, 360, 270, 'GDP · Money · Employment', [gdp.id, moneySupply.id, employment.id]);
-    b.note(140, 130, 300, 150,
+    // Below the banking group, not across it: at y=790 this covered the
+    // Investment pool, and a chart paints above nodes and wins the hit test.
+    b.chart(1140, 1120, 360, 270, 'GDP · Money · Employment', [gdp.id, moneySupply.id, employment.id]);
+    // Captions sit above their group, not inside it. At the old y they overlapped
+    // the dashboard row and swallowed a register each: the note box covered gdp
+    // and, on the right, rate. Notes paint above nodes and win the hit test, so
+    // those two could not be clicked, selected or inspected at all. The band
+    // above the groups is empty, and the widest free gap on the dashboard row is
+    // 169px against a 300px note, so there is nowhere on that row to put them.
+    b.note(140, -70, 300, 150,
       'CIRCULAR FLOW. Household income splits at the gate into Consumption (C -> firms), ' +
       'Saving (S -> banks) and Taxes (T -> treasury). Firms pay Wages back to households, ' +
       'a closed loop that conserves money exactly.');
-    b.note(1560, 130, 350, 150,
+    b.note(1560, -70, 350, 150,
       'BUSINESS CYCLE. When GDP dips below target the Central Bank injects money (QE) ' +
       'through a 6-step Policy Lag, while banks lend more (accelerator). The lag makes ' +
       'output OVERSHOOT, then an inflation tax cools it, a self-sustaining cycle.');

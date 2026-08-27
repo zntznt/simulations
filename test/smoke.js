@@ -206,6 +206,32 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('template/demo load records a step-0 baseline, so charts start at step 0 instead of a hole');
   else fail('template step-0 baseline: ' + JSON.stringify(step0));
 
+  // Annotations paint above nodes and win the hit test, so a note or chart laid
+  // over a node makes it unclickable: it cannot be selected, inspected or
+  // edited, and the properties panel opens the annotation instead. That is easy
+  // to introduce by hand-placing demo coordinates and invisible in review, so
+  // sweep every demo and require each node to be reachable at its own position.
+  const buriedSweep = await page.evaluate(() => {
+    const names = Object.getOwnPropertyNames(Object.getPrototypeOf(window.app))
+      .filter(k => /^_demo[A-Z]/.test(k));
+    const bad = [];
+    for (const nm of names) {
+      window.app._clearAll();
+      window.app[nm]();
+      window.app.renderer.render();
+      for (const node of window.app.diagram.nodes.values()) {
+        const hit = window.app.renderer.hitTest(node.x, node.y);
+        if (!hit || hit.type !== 'node' || hit.id !== node.id) {
+          bad.push(`${nm}:${node.label || node.type}->${hit ? hit.type : 'nothing'}`);
+        }
+      }
+    }
+    return { demos: names.length, bad };
+  });
+  if (buriedSweep.demos > 0 && buriedSweep.bad.length === 0)
+    ok(`no demo buries a node under a note or chart (${buriedSweep.demos} demos swept)`);
+  else fail('buried demo nodes: ' + JSON.stringify(buriedSweep));
+
   // Navigation: zoom controls step the scale and update the readout; fit-to-content
   // re-frames without error.
   const nav = await page.evaluate(() => {
