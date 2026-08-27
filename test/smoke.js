@@ -101,6 +101,56 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (tourOk) ok('tour: place→connect→rate→Run, then Library/rail/Batch hand-off cards, then finish');
   else fail('tour: ' + JSON.stringify(tour));
 
+  // The spotlight is position:fixed and measured from the target, so anything
+  // that scrolls the target has to re-place it. The palette and the properties
+  // panel both scroll, and scroll events do not bubble, so this only works from
+  // a capture-phase listener. A step also has to bring its own target into view:
+  // on a short window the first control sits below the fold, which used to point
+  // the card at a cut-out nobody could see.
+  const tourScroll = await page.evaluate(async () => {
+    const t = window.app;
+    if (t._tour) t._endTour(false);
+    t._startTour();
+    const step = t._tourSteps()[t._tour.idx];
+    const target = document.querySelector(step.target);
+    const spot = document.getElementById('tour-spotlight');
+    // #tour-spotlight transitions top/left over .2s, so measuring a frame after
+    // a move reads a mid-flight position. Wait the transition out before reading.
+    const settle = () => new Promise(r => setTimeout(r, 320));
+
+    // Find the scrollable ancestor actually holding the target.
+    let box = target.parentElement;
+    while (box && box !== document.body) {
+      const st = getComputedStyle(box);
+      if (/(auto|scroll)/.test(st.overflowY) && box.scrollHeight > box.clientHeight) break;
+      box = box.parentElement;
+    }
+    if (!box || box === document.body) { t._endTour(false); return { noScroller: true }; }
+
+    await settle();
+    const boxRect = box.getBoundingClientRect();
+    const startRect = target.getBoundingClientRect();
+    // The step scrolled it into view, so it sits inside its container.
+    const inView = startRect.bottom > boxRect.top && startRect.top < boxRect.bottom;
+
+    const drift = () => {
+      const tr = target.getBoundingClientRect(), sr = spot.getBoundingClientRect();
+      return Math.round(Math.abs((sr.top + 6) - tr.top));   // spotlight pads by 6
+    };
+    const before = drift();
+    const from = box.scrollTop;
+    box.scrollTop = from + 90;
+    box.dispatchEvent(new Event('scroll', { bubbles: false }));
+    await settle();
+    const moved = box.scrollTop !== from;
+    const after = drift();
+    t._endTour(false);
+    return { inView, before, after, moved };
+  });
+  if (tourScroll.inView && tourScroll.moved && tourScroll.before <= 1 && tourScroll.after <= 1)
+    ok('tour: step scrolls its target into view, and the spotlight follows a container scroll');
+  else fail('tour spotlight scroll: ' + JSON.stringify(tourScroll));
+
   // Skipping the tour mid-way ends it immediately.
   const tourSkip = await page.evaluate(() => {
     const t = window.app;
