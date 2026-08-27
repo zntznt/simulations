@@ -637,6 +637,7 @@ function dslParse(text) {
 
 function _econParseNodeLine(kind, tokens, lineNo, colorOf) {
   const nd = new MNode(kind, 0, 0).toJSON();
+  let startColor = null;   // a source's `of color`, applied after the whole line is read
   nd.id = ''; // assigned after all nodes parse
   let i = 1;
   if (i >= tokens.length) throw _econErr(`${kind} needs a name`, lineNo);
@@ -666,6 +667,10 @@ function _econParseNodeLine(kind, tokens, lineNo, colorOf) {
         let color = kind === 'source' ? null : DEFAULT_COLOR;
         if (tokens[i + 1] === 'of') { color = colorOf(tokens[i + 2] || '', lineNo); i += 2; }
         if (kind !== 'source' && amount > 0) nd.colorMap = { [color]: amount };
+        // A source cannot be given its colorMap here: `limited` may still be
+        // further along this line, and an unlimited source has its stock zeroed
+        // after the loop. Keep the color and decide once the line is fully read.
+        else if (kind === 'source') startColor = color;
       }
       i++;
       continue;
@@ -700,8 +705,23 @@ function _econParseNodeLine(kind, tokens, lineNo, colorOf) {
     i++;
   }
   // Sources keep their stock in `resources` only when limited; the JSON shape
-  // mirrors MNode.toJSON (resources 0 for unlimited).
-  if (kind === 'source' && !nd.limited) nd.resources = 0;
+  // mirrors MNode.toJSON (resources 0 for unlimited). A limited source also has
+  // to get its colorMap back: setCount() gave it one when the user ticked
+  // "Limited stock", dslSerialize writes it as `= N of color`, but nothing read
+  // it back, so reconcile() refilled the stock as untyped grey. Any outgoing
+  // colorFilter or downstream recipe then matched nothing and the round-trip
+  // that docs/ECONOMY_AS_CODE.md calls lossless silently changed the run.
+  if (kind === 'source') {
+    if (!nd.limited) nd.resources = 0;
+    else if (nd.resources > 0) {
+      // Mirror the serializer exactly: it emits `of X` only when the color is
+      // not DEFAULT_COLOR, so an absent `of` means the default, NOT the node's
+      // resourceColor. Falling back to resourceColor instead would invent a
+      // color the file never carried (the kitchen-sink fixture has a limited
+      // source whose stock is default grey while its resourceColor is orange).
+      nd.colorMap = { [startColor || DEFAULT_COLOR]: nd.resources };
+    }
+  }
   return nd;
 }
 

@@ -232,6 +232,59 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`no demo buries a node under a note or chart (${buriedSweep.demos} demos swept)`);
   else fail('buried demo nodes: ' + JSON.stringify(buriedSweep));
 
+  // mousedown/mousemove/mouseup used to be bound to the canvas alone, so letting
+  // go over the properties panel never reached _onUp: the gesture stayed live,
+  // the next move dragged or panned with no button held, and the move never got
+  // committed because _changed() lives inside _onUp. Escape did not clear it
+  // either. Releasing outside must end the gesture and commit it.
+  const outsideRelease = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._closeFeature();
+    const n = window.app.diagram.addNode(new MNode(NodeType.POOL, 400, 400));
+    window.app.editor.setTool('select');
+    window.app.renderer.render();
+    window.app._commit();
+
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const rn = window.app.renderer;
+    const cx = r.left + n.x * rn._scale + rn._panX;
+    const cy = r.top + n.y * rn._scale + rn._panY;
+    const at = (el, type, x, y) => el.dispatchEvent(
+      new MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true }));
+
+    const undoBefore = window.app._undoStack.length;
+    at(canvas, 'mousedown', cx, cy);
+    at(canvas, 'mousemove', cx + 60, cy + 20);
+    // Release well outside the canvas, on an element that is not inside the svg.
+    at(document.body, 'mousemove', r.right + 80, cy + 20);
+    at(document.body, 'mouseup', r.right + 80, cy + 20);
+
+    const stuck = !!window.app.editor._drag;
+    const committed = window.app._undoStack.length > undoBefore;
+    const posAfterRelease = { x: n.x, y: n.y };
+    // A move with no button held must not drag the node any further.
+    at(canvas, 'mousemove', cx - 120, cy - 90);
+    const crept = n.x !== posAfterRelease.x || n.y !== posAfterRelease.y;
+
+    // Same for a pan: it used to keep panning under a buttonless cursor.
+    window.app.editor._panDrag = null;
+    const pan0 = rn._panX;
+    canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: cx, clientY: cy, button: 1, bubbles: true }));
+    at(canvas, 'mousemove', cx + 40, cy);
+    at(document.body, 'mouseup', r.right + 80, cy);
+    const panStuck = !!window.app.editor._panDrag;
+    const panAfter = rn._panX;
+    at(canvas, 'mousemove', cx - 200, cy - 150);
+    const panCrept = rn._panX !== panAfter;
+
+    return { stuck, committed, crept, panStuck, panCrept, pan0 };
+  });
+  if (!outsideRelease.stuck && outsideRelease.committed && !outsideRelease.crept
+    && !outsideRelease.panStuck && !outsideRelease.panCrept)
+    ok('gesture released outside the canvas ends and commits, nothing follows a buttonless cursor');
+  else fail('outside release: ' + JSON.stringify(outsideRelease));
+
   // Navigation: zoom controls step the scale and update the readout; fit-to-content
   // re-frames without error.
   const nav = await page.evaluate(() => {

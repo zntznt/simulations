@@ -734,6 +734,55 @@ test('a limited source emits its stock then runs dry', () => {
   eq(s.produced, 10, 'produced equals the emitted stock');
 });
 
+test('.econ round-trip keeps a limited source colored stock', () => {
+  // dslSerialize writes the stock as `= N of color`, but the parser skipped the
+  // colorMap for sources, so reconcile() refilled it as untyped grey. Any
+  // outgoing colorFilter then matched nothing and the run changed completely.
+  const ORE = '#8d6e63';
+  const build = () => {
+    const d = new Diagram();
+    const s = new MNode(NodeType.SOURCE, 100, 100); s.label = 'Mine';
+    s.limited = true; s.resourceColor = ORE; s.setCount(20, ORE);
+    const p = new MNode(NodeType.POOL, 400, 100); p.label = 'Store';
+    d.addNode(s); d.addNode(p);
+    const c = new MConnection(s.id, p.id, ConnectionType.RESOURCE);
+    c.colorFilter = ORE;
+    d.addConnection(c);
+    return d;
+  };
+  const back = new Diagram();
+  back.loadJSON(dslParse(dslSerialize(build().toJSON())));
+  const s2 = [...back.nodes.values()].find(n => n.type === NodeType.SOURCE);
+  eq(s2.colorMap[ORE], 20, 'colored stock survives the round-trip');
+
+  const run = (d) => {
+    const e = new SimEngine(d); e.reset();
+    for (let i = 0; i < 10; i++) e.doStep();
+    return [...d.nodes.values()].find(n => n.label === 'Store').resources;
+  };
+  eq(run(back), run(build()), 'the round-tripped diagram simulates identically');
+});
+
+test('.econ round-trip leaves an unlimited source unstocked', () => {
+  // The guard that caused the bug above was load-bearing: `limited` can appear
+  // later on the line, and an unlimited source has its stock zeroed afterwards.
+  // Restoring the colorMap must not give an unlimited source a phantom stock.
+  const d = new Diagram();
+  const u = new MNode(NodeType.SOURCE, 0, 0); u.label = 'Inf'; u.resourceColor = '#8d6e63';
+  d.addNode(u);
+  const back = new Diagram();
+  back.loadJSON(dslParse(dslSerialize(d.toJSON())));
+  const u2 = [...back.nodes.values()][0];
+  eq(u2.limited, false, 'still unlimited');
+  eq(Object.keys(u2.colorMap).length, 0, 'no stale colorMap');
+
+  // Same for hand-written .econ that gives an unlimited source an amount.
+  const hand = new Diagram();
+  hand.loadJSON(dslParse('source X @ 0,0 = 20 of "#8d6e63"\n'));
+  const h = [...hand.nodes.values()][0];
+  eq(Object.keys(h.colorMap).length, 0, 'hand-written unlimited source keeps no stock');
+});
+
 test('an unlimited source is unaffected (regression)', () => {
   const { d, e } = setup();
   const s = node(d, NodeType.SOURCE);

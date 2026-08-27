@@ -771,6 +771,17 @@ class App {
       this.renderer.fitView();
       this._resetHistory();
       this._renderProps();
+      // A share link is a one-time import, not a permanent binding for the tab.
+      // Adopt it into autosave (_resetHistory only sets the in-memory baseline,
+      // it does not persist) and then drop the hash, so the next reload restores
+      // what is actually on screen instead of replaying the sender's snapshot
+      // over the top of the reader's own work. Embed mode keeps its hash: there
+      // the URL is the document, and an embed must not write over the host
+      // page's autosave.
+      if (!document.body.classList.contains('embed')) {
+        try { localStorage.setItem('sim_autosave', this._lastState); } catch { /* blocked storage */ }
+        try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
+      }
       return;
     }
 
