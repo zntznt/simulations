@@ -215,7 +215,12 @@ class AppExport {
     } else {
       prompt('Copy this share link:', url);
     }
-    try { history.replaceState(null, '', '#d=' + enc); } catch { /* ignore */ }
+    // Deliberately NOT written into the address bar. The link goes to the
+    // clipboard (or the prompt fallback above), which is how it reaches anyone.
+    // Putting it in the location hash pinned this tab to that snapshot instead:
+    // _initDiagram reads #d= ahead of autosave, so every later reload silently
+    // reverted to the moment of sharing and the first commit afterwards
+    // overwrote the autosave that still held the newer work.
   }
 }
 

@@ -165,8 +165,30 @@ class Editor {
     this.svg.addEventListener('touchmove', e => this._onTouchMove(e), { passive: false });
     this.svg.addEventListener('touchend', e => this._onTouchEnd(e), { passive: false });
 
+    // A gesture that starts on the canvas has to keep receiving events after the
+    // pointer leaves it. Release the button over the properties panel or the
+    // palette and the canvas never sees the mouseup, so _onUp never runs: the
+    // gesture stays live, the next move drags or pans with no button held, and
+    // since _onUp is also what calls _changed(), the move never reaches undo or
+    // autosave. The minimap already binds this way (renderer.js
+    // _bindInteraction). Guarded on a live gesture so ordinary page movement
+    // costs nothing, and on the target sitting outside the canvas so the svg
+    // listeners above never run twice for one event.
+    window.addEventListener('mousemove', e => {
+      if (this._gestureActive() && !this.svg.contains(e.target)) this._onMove(e);
+    });
+    window.addEventListener('mouseup', e => {
+      if (this._gestureActive() && !this.svg.contains(e.target)) this._onUp(e);
+    });
+
     window.addEventListener('keydown', e => this._onKey(e));
     window.addEventListener('keyup', e => this._onKeyUp(e));
+  }
+
+  // Any pointer gesture that began on the canvas and has not been ended yet.
+  _gestureActive() {
+    return !!(this._drag || this._panDrag || this._specialDrag || this._resizeDrag
+      || this._labelDrag || this._connHandleDrag || this._marquee || this._groupPlaceDrag);
   }
 
   _onDown(e) {
@@ -954,11 +976,30 @@ class Editor {
       }
     }
     if (e.key === 'Escape') {
+      // Escape releases every gesture, not just the three that used to be listed
+      // here. A drag, pan or resize left in flight otherwise stays glued to the
+      // cursor with no way out. Where the gesture actually moved something,
+      // commit it on the way out so undo and autosave match what is on screen.
+      const moved = this._dragMoved
+        || !!(this._resizeDrag && this._resizeDrag.moved)
+        || !!(this._specialDrag && this._specialDrag.moved)
+        || !!this._labelDrag || !!this._connHandleDrag;
+      const hadGesture = this._gestureActive();
+      this._drag = null;
+      this._dragMoved = false;
+      this._dragSourceNodeId = null;
+      this._panDrag = null;
+      this._specialDrag = null;
+      this._resizeDrag = null;
+      this._labelDrag = null;
+      this._connHandleDrag = null;
       this._connecting = null;
       this._marquee = null;
       this._groupPlaceDrag = null;
       this.renderer.clearTemp();
       this.renderer.clearMarquee();
+      if (hadGesture) this._restoreCursor();
+      if (moved) this._changed();
       this._select(null, null);
     }
     // Arrow keys nudge the selection (grid step when snap is on, else 4px;

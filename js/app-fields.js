@@ -371,7 +371,13 @@ class AppFields {
       b.setAttribute('role', 'radio');
       b.setAttribute('aria-checked', String(v === value));
       b.textContent = t;
-      b.addEventListener('click', () => { if (v !== value) onChange(v); });
+      // Commit here. A chip is the whole edit: unlike an input it fires no
+      // `change` event, so nothing else in the panel picks it up, and the switch
+      // never reached the undo stack or autosave. Undo afterwards then reverted
+      // the previous genuine edit while silently dropping the mode switch.
+      // _commit() is a no-op when the snapshot is unchanged, so this stays safe
+      // if a callback ever commits on its own.
+      b.addEventListener('click', () => { if (v !== value) { onChange(v); this._commit(); } });
       row.appendChild(b);
     }
     panel.appendChild(row);
@@ -402,7 +408,13 @@ class AppFields {
   // ── Live update helpers ───────────────────────────────────────────────────
 
   _refreshResourceCount() {
-    if (this._selectedType !== 'node') return;
+    // A diagram-rail feature (Parameters, Custom variables, Artificial player,
+    // Design tests) borrows the properties panel without clearing the node
+    // selection, so this used to keep running and write the node's live count
+    // into whatever the panel's first number input happened to be. That is the
+    // parameter's own value box, which then counted up with the node while the
+    // model kept the authored number, and one edit committed the wrong value.
+    if (this._activeFeature || this._selectedType !== 'node') return;
     const node = this.diagram.nodes.get(this._selectedId);
     if (!node || node.type === NodeType.SOURCE) return;
 
@@ -415,7 +427,7 @@ class AppFields {
     if (node.type === NodeType.REGISTER || node.type === NodeType.DRAIN
       || node.type === NodeType.TRADER) return;
 
-    // First number input is always the Resources field.
+    // With a node owning the panel, the first number input is the Resources field.
     const inp = document.querySelector('#props-content input[type="number"]');
     if (inp && document.activeElement !== inp) inp.value = node.resources;
 
