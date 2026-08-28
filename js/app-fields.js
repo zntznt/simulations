@@ -103,6 +103,13 @@ class AppFields {
     panel.appendChild(card);
 
     const sl = new Sparkline(card, node.id, this.engine);
+    // Inherit the scrub immediately. _updateSparklines pushes _scrubIndex into
+    // the sparklines it already knows about, but a card built DURING a scrub
+    // (selecting another node to see what it was doing at that step) created
+    // one at scrubIndex null, so the hero read the replayed value while the
+    // trace right below it plotted the whole run and labelled the end of it.
+    // The same card contradicting itself, which is what this was meant to end.
+    sl.scrubIndex = this._scrubIndex;
     this._sparklines.set(node.id, sl);
     sl.update();
     return card;
@@ -406,6 +413,25 @@ class AppFields {
   }
 
   // ── Live update helpers ───────────────────────────────────────────────────
+
+  // Rebuild the properties panel, then put focus somewhere deliberate.
+  // _renderProps() tears down #props-content, so a handler triggered from a
+  // button inside the panel destroys the very element that had focus and it
+  // falls back to <body>: no focus ring, nothing announced, and getting back to
+  // the row costs a Tab press for every control that survived. pick() runs
+  // after the rebuild and returns the element to land on.
+  _renderPropsFocused(pick) {
+    this._renderProps();
+    let el = null;
+    try { el = pick ? pick() : null; } catch { el = null; }
+    if (el && typeof el.focus === 'function') el.focus();
+  }
+
+  // The panel's own "+ Add" button, the sensible landing spot after a row is
+  // removed: it is where the user was working and it always exists.
+  _panelAddButton() {
+    return document.querySelector('#props-content .var-add-btn');
+  }
 
   // What the properties panel should display for a node right now. While the
   // timeline is scrubbed that is the recorded value at the previewed step, not

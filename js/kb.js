@@ -53,16 +53,22 @@ const KB_ARTICLES = [
   {
     id: 'node-gate', category: 'Nodes', title: 'Gate',
     keywords: 'split route distribute weight deterministic probabilistic random branch',
-    body: 'A gate routes incoming resources to its outputs without storing '
-      + 'anything itself. Each outgoing connection carries a weight, and the gate '
-      + 'splits the flow by those weights normalized against their sum, so weights '
-      + 'of three and one send three-quarters of the flow one way and one-quarter '
-      + 'the other, and weights of 70, 22, 7 and 1 split it into 70%, 22%, 7% and '
-      + '1%. In deterministic mode that proportional split happens every step. In '
-      + 'probabilistic mode the gate instead sends each whole unit to a single '
-      + 'output chosen at random, higher weights more likely to win and a weight of '
-      + 'zero never chosen; over many units the shares converge on the same '
-      + 'percentages. A weight can be a fixed number or a formula over diagram '
+    body: 'A gate passes incoming resources straight out to its outputs rather '
+      + 'than accumulating them, holding at most one step of inflow in transit. '
+      + 'Each outgoing connection carries a weight, and what the gate does with '
+      + 'those weights depends on its routing mode. There are three. In split '
+      + 'mode the weights are normalized against their sum, so weights of three '
+      + 'and one send three-quarters of the flow one way and one-quarter the '
+      + 'other, and weights of 70, 22, 7 and 1 split it into 70%, 22%, 7% and 1%. '
+      + 'In random mode the gate sends each whole unit to a single output chosen '
+      + 'at random, higher weights more likely to win and a weight of zero never '
+      + 'chosen; over many units the shares converge on the same percentages. In '
+      + 'all mode the weights are not shares at all: every output takes its own '
+      + 'weight in units each step, so weights of three and one send three units '
+      + 'down one branch and one down the other, independently. If the gate does '
+      + 'not hold enough to satisfy every output, the ones it reaches first are '
+      + 'served and the remainder stays put until the next step. A weight can be '
+      + 'a fixed number or a formula over diagram '
       + 'variables, just like a connection rate. A formula weight is re-evaluated '
       + 'each step, so the split can shift as the run unfolds. Route more flow down '
       + 'the hard branch as difficulty climbs, for example. Switch a gate output '
@@ -679,7 +685,8 @@ const KB_ARTICLES = [
       + 'way to learn how a loop is wired before building your own. Your saved '
       + 'diagrams are entries you manage yourself: give the current canvas a name '
       + 'and click Save diagram to keep it, then Load to restore it later. The '
-      + 'Library is reachable from the toolbar or the File menu.',
+      + 'Library is reachable from the Library button in the toolbar, or from '
+      + 'the menu button when the screen is narrow.',
   },
   {
     id: 'saving', category: 'Saving and sharing', title: 'Saving and loading',

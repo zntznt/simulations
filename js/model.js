@@ -490,8 +490,15 @@ class MNode {
     // ticking over — silently became the model's new starting amount.
     // Infinite sources are excluded: JSON cannot carry Infinity, and loadJSON
     // already restores their baseline from the node type.
-    if (isFinite(this._initialResources) && this._initialResources !== d.resources) {
-      d.initialResources = this._initialResources;
+    // The amount and the colour mix drift independently, so they are tested
+    // independently. Gating the map on the amount meant a balanced loop, income
+    // and spend at matching rates, never recorded either: the total still read
+    // 20 at the moment of the write, the guard was false, and the reload rebased
+    // the authored mix to whatever was in transit ({orange:20} coming back as
+    // {orange:14, green:6}). Any colour filter or converter recipe keyed on the
+    // authored colour then drew from a smaller pool than the model says it has.
+    if (isFinite(this._initialResources)) {
+      if (this._initialResources !== d.resources) d.initialResources = this._initialResources;
       const base = this._initialColorMap || {};
       const bk = Object.keys(base);
       const sameMap = bk.length === Object.keys(this.colorMap).length

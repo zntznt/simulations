@@ -1477,8 +1477,33 @@ input[type="range"] {
   #props-panel .prop-row input, #props-panel .prop-row select,
   #props-panel .wide-input, #props-panel .var-wide-input { min-height: 42px; }
 
-  /* The timeline gives the canvas room back on small screens. */
-  #timeline { height: 150px; }
+  /* The timeline gives the canvas room back on small screens, but not so much
+     that its own controls fall off the bottom. At 150px the chart, the legend
+     and the scrub row wanted 173px with a single-row legend and 195px with two,
+     so the whole footer (Replay, the slider, the step label, Back to live) sat
+     below the fold with between zero and three usable pixels. html and body do
+     not scroll and #tl-resize is mousedown-only, so there was no way to reach
+     it. Fit the content instead of cropping it, and let the drawer scroll if a
+     long legend still overflows. */
+  #timeline { height: auto; min-height: 150px; max-height: 46vh; overflow-y: auto; }
+  /* The scrub row is the reason the drawer exists on a phone; never let it
+     shrink away under a tall legend. */
+  #tl-scrub { flex-shrink: 0; }
+  .tl-legend { max-height: 34px; }
+}
+
+/* The concept guide is the whole in-app documentation, and on a phone it had no
+   responsive rule at all: .kb-body is a flex row and .kb-nav is a hard 230px
+   that will not shrink, so inside a 94vw modal the article column collapsed to
+   109px on a 390px screen and 21px on a 320px one, roughly one word per line
+   with the longer words running past the modal edge. Stack the two instead, and
+   cap the nav so the article always gets the bulk of the height. */
+@media (max-width: 768px) {
+  .kb-body { flex-direction: column; }
+  .kb-nav {
+    width: auto; max-height: 30vh;
+    border-right: none; border-bottom: 1px solid var(--border);
+  }
 }
 
 /* Small phones (iPhone SE class). The touch topbar does not wrap, so at 320px

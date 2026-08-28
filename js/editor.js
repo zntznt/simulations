@@ -944,7 +944,13 @@ class Editor {
       const order = this._nodesInReadingOrder();
       const at = order.findIndex(n => n.id === this.renderer.selectedId);
       if (at === -1 && e.shiftKey) return;      // nothing selected: Shift+Tab leaves
+      // Both ends release. Forward past the last node was handled; backward from
+      // the first was not, so `next` went to -1, clamped back to 0 and reselected
+      // the same node forever after preventDefault had already eaten the key.
+      // Backward focus order through the page was simply a dead end, and a user
+      // who merely still had a node selected got pulled into it.
       if (at === order.length - 1 && !e.shiftKey) { this._select(null, null); this.renderer.render(); return; }
+      if (at === 0 && e.shiftKey) { this._select(null, null); this.renderer.render(); return; }
       e.preventDefault();
       const next = at === -1 ? 0 : at + (e.shiftKey ? -1 : 1);
       this._keyboardGoTo(order[Math.max(0, Math.min(order.length - 1, next))]);
