@@ -145,7 +145,7 @@ class AppExport {
       // A canvas the browser refused to rasterize returns a stub or nothing at
       // all. Better to say so than to hand over an empty file.
       if (!href || href.length < 128) {
-        this._toast('This diagram is too large to export as PNG. Export SVG instead, it has no size limit.');
+        this._toast('This diagram is too large to export as PNG. Export SVG instead, which has no size limit.');
         return;
       }
       const a = Object.assign(document.createElement('a'), {
