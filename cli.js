@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Headless CLI runner — simulate a diagram without a browser.
+// Headless CLI runner. Simulate a diagram without a browser.
 //
 //   node cli.js <diagram.json | economy.econ> [options]
 //
@@ -7,7 +7,7 @@
 //   --steps N          steps to simulate (default 200)
 //   --runs N           Monte Carlo: run N isolated trials and print summary
 //                      stats instead of a single-run trace (default 1)
-//   --seed S           seed the RNG — same seed, same results
+//   --seed S           seed the RNG (same seed, same results)
 //   --param name=val   override a diagram parameter (repeatable)
 //   --csv              with --runs>1: print raw per-run final values as CSV
 //                      (one row per run) instead of the stats table
@@ -78,6 +78,18 @@ function fail(msg) {
   process.exit(1);
 }
 
+// Strict numeric option parse. parseFloat/parseInt stop at the first character
+// they cannot use, so `--param carrying=1,000` quietly ran with a carrying
+// capacity of 1 and `--steps 30x` with 30, both exiting 0 on a different
+// simulation than the one asked for. A malformed value is a usage error.
+function num(raw, what) {
+  const v = String(raw ?? '').trim();
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(v)) {
+    fail(`${what} expects a number, got "${raw ?? ''}"`);
+  }
+  return parseFloat(v);
+}
+
 function parseArgs(argv) {
   const opts = {
     steps: 200, runs: 1, seed: null, params: {}, csv: false, file: null,
@@ -86,8 +98,8 @@ function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--steps') opts.steps = parseInt(argv[++i], 10);
-    else if (a === '--runs') opts.runs = parseInt(argv[++i], 10);
+    if (a === '--steps') opts.steps = num(argv[++i], '--steps');
+    else if (a === '--runs') opts.runs = num(argv[++i], '--runs');
     else if (a === '--seed') opts.seed = argv[++i];
     else if (a === '--csv') opts.csv = true;
     else if (a === '--assert') opts.asserts.push(argv[++i]);
@@ -102,7 +114,7 @@ function parseArgs(argv) {
       }
     }
     else if (a === '--check') opts.check = true;
-    else if (a === '--pass-rate') opts.passRate = parseFloat(argv[++i]);
+    else if (a === '--pass-rate') opts.passRate = num(argv[++i], '--pass-rate');
     else if (a === '--emit') opts.emit = argv[++i];
     else if (a === '--to-dsl') opts.toDsl = true;
     else if (a === '--to-json') opts.toJson = true;
@@ -111,10 +123,17 @@ function parseArgs(argv) {
     else if (a === '--param') {
       const m = String(argv[++i] || '').match(/^([^=]+)=(.+)$/);
       if (!m) fail(`--param expects name=value, got "${argv[i]}"`);
-      opts.params[m[1]] = parseFloat(m[2]);
+      opts.params[m[1]] = num(m[2], `--param ${m[1]}`);
     } else if (a === '--help' || a === '-h') {
-      process.stdout.write(fs.readFileSync(__filename, 'utf8').split('\n')
-        .filter(l => l.startsWith('//')).map(l => l.slice(3)).join('\n') + '\n');
+      // The header block only. Filtering the whole file for `//` lines swept up
+      // implementation notes from the middle of the source and printed them as
+      // help ("Same loading trick as test/run.js", section rules, and so on).
+      const help = [];
+      for (const l of fs.readFileSync(__filename, 'utf8').split('\n').slice(1)) {
+        if (!l.startsWith('//')) break;
+        help.push(l.slice(3));
+      }
+      process.stdout.write(help.join('\n') + '\n');
       process.exit(0);
     } else if (!a.startsWith('-') && !opts.file) opts.file = a;
     else fail(`Unknown option: ${a}`);

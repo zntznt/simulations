@@ -3837,6 +3837,54 @@ test('cli --why prints an attribution table', () => {
 // ── Economy as code: CLI end-to-end ─────────────────────────────────────────
 console.log('\nEconomy as code: CLI');
 
+test('cli rejects a malformed numeric option instead of running a different economy', () => {
+  // parseFloat/parseInt stop at the first character they cannot use, so
+  // `--param carrying=1,000` ran with a carrying capacity of 1 and exited 0:
+  // a different simulation than the one asked for, with nothing to say so.
+  const { execFileSync } = require('child_process');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'econ-cli-num-'));
+  const econPath = path.join(dir, 'mine.econ');
+  fs.writeFileSync(econPath, [
+    'param rate = 2',
+    'source Mine @ 0,0', 'pool Gold @ 100,0',
+    'Mine -> Gold : (rate)',
+  ].join('\n'));
+  const cli = path.join(__dirname, '..', 'cli.js');
+  const run = (args) => {
+    try { return { out: execFileSync(process.execPath, [cli, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), err: '', code: 0 }; }
+    catch (e) { return { out: String(e.stdout || ''), err: String(e.stderr || ''), code: e.status }; }
+  };
+
+  for (const bad of ['rate=1,000', 'rate=abc', 'rate=3x', 'rate=']) {
+    const r = run([econPath, '--steps', '5', '--param', bad]);
+    eq(r.code, 1, `--param ${bad} is a usage error`);
+    assert(/expects a number|expects name=value/.test(r.err), `--param ${bad} says why`);
+  }
+  for (const good of ['rate=3', 'rate=2.5', 'rate=1e2', 'rate=-4', 'rate=.5']) {
+    eq(run([econPath, '--steps', '5', '--param', good]).code, 0, `--param ${good} still runs`);
+  }
+  eq(run([econPath, '--steps', '30x']).code, 1, '--steps 30x is a usage error');
+  eq(run([econPath, '--steps', '5', '--runs', '2y']).code, 1, '--runs 2y is a usage error');
+  eq(run([econPath, '--steps', '5', '--pass-rate', 'high']).code, 1, '--pass-rate high is a usage error');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('cli --help prints the header block, not the whole source comment set', () => {
+  // The help text was every `//` line in the file, so it trailed off into
+  // implementation notes from the middle of cli.js.
+  const { execFileSync } = require('child_process');
+  const cli = path.join(__dirname, '..', 'cli.js');
+  const out = execFileSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
+  assert(/Options:/.test(out), 'options section is present');
+  assert(/--param name=val/.test(out), 'options are documented');
+  assert(/Examples:/.test(out), 'examples section is present');
+  assert(!/loading trick|Exit quietly when the consumer/.test(out),
+    'implementation notes stay out of the help text');
+  assert(!/Load the diagram: JSON/.test(out), 'section rules stay out of the help text');
+  assert(!out.includes('\u2014'), 'no em dashes in user-facing help copy');
+});
+
 test('cli runs .econ input, checks assertions and converts formats', () => {
   const { execFileSync } = require('child_process');
   const os = require('os');
