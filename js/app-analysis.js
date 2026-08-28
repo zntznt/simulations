@@ -647,7 +647,12 @@ class AppAnalysis {
     if (!loops.length) {
       const p = document.createElement('p');
       p.className = 'props-empty';
-      p.textContent = 'No feedback loops found. Loops appear when influence returns to where it started, for example a pool feeding a converter whose output flows back, or a register that modifies the pool it reads.';
+      // A truncated search that found nothing has not shown there is nothing:
+      // saying so flatly told users of one long ring that their diagram had no
+      // loops at all.
+      p.textContent = truncated
+        ? 'No feedback loops found within the search limit. This graph is large enough that the search stopped early, so a longer or more tangled loop could still exist. Try splitting the diagram into smaller pieces to check.'
+        : 'No feedback loops found. Loops appear when influence returns to where it started, for example a pool feeding a converter whose output flows back, or a register that modifies the pool it reads.';
       panel.appendChild(p);
       return;
     }

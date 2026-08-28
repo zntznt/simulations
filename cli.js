@@ -167,7 +167,12 @@ if (opts.toJson) {
 }
 if (opts.loops) {
   const { loops, truncated } = detectLoops(diagram);
-  if (!loops.length) process.stdout.write('No feedback loops found.\n');
+  // A truncated search that found nothing has not shown there is nothing.
+  if (!loops.length) {
+    process.stdout.write(truncated
+      ? 'No feedback loops found within the search limit (the graph is large, so a longer loop could still exist).\n'
+      : 'No feedback loops found.\n');
+  }
   for (const l of loops) {
     const chain = [...l.labels, l.labels[0]].join(' -> ');
     const linkStr = l.links.map(x => `${x.sign > 0 ? '+' : (x.sign < 0 ? '-' : '?')}${[...x.kinds].join('/')}`).join(', ');

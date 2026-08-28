@@ -77,7 +77,13 @@ function _loopOpSign(op) {
 
 function detectLoops(diagram, opts = {}) {
   const maxLoops = opts.maxLoops ?? 100;
-  const maxLen = opts.maxLen ?? 10;
+  // Longest cycle the DFS will chase. A ring economy (Stage1 -> ... -> StageN
+  // -> Stage1) is a perfectly ordinary diagram and was silently invisible at
+  // the old limit of 10, so the panel reported "no feedback loops" for a
+  // diagram that is nothing but one. The `budget` below is what actually bounds
+  // the runtime (~12ms worst case measured on a dense 120-node graph), so the
+  // depth limit can afford to be generous.
+  const maxLen = opts.maxLen ?? 32;
   const d = diagram;
 
   // Publishers: variable name → node id whose value the engine writes there.

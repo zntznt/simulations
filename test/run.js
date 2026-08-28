@@ -804,6 +804,92 @@ test('a trader cannot pay out of a delay or a queue', () => {
   }
 });
 
+test('detectLoops finds a ring economy longer than ten nodes', () => {
+  // The depth limit was 10, so a 12-stage production ring - one loop and
+  // nothing else - enumerated no cycles at all and the Loops panel reported
+  // "No feedback loops found" for a diagram that is entirely one loop.
+  const ring = (n) => {
+    const d = new Diagram();
+    const ns = [];
+    for (let i = 0; i < n; i++) {
+      const p = new MNode(NodeType.POOL, i * 60, 0); p.label = 'Stage' + (i + 1);
+      p.setCount(5); d.addNode(p); ns.push(p);
+    }
+    for (let i = 0; i < n; i++) {
+      d.addConnection(new MConnection(ns[i].id, ns[(i + 1) % n].id, ConnectionType.RESOURCE));
+    }
+    return d;
+  };
+  for (const n of [12, 20, 30]) {
+    const { loops, truncated } = detectLoops(ring(n));
+    eq(loops.length, 1, `${n}-stage ring: exactly one cycle`);
+    eq(loops[0].nodes.length, n, `${n}-stage ring: the whole ring`);
+    eq(loops[0].type, 'F', `${n}-stage ring: a pure resource circulation`);
+    eq(truncated, false, `${n}-stage ring: search was not cut short`);
+  }
+  // Past the limit the caller is told the search stopped early rather than
+  // being handed a bare empty list.
+  const big = detectLoops(ring(40));
+  eq(big.loops.length, 0, 'a 40-stage ring is past the depth limit');
+  eq(big.truncated, true, 'and reports that the search was truncated');
+});
+
+test('a delay or queue releases its authored starting stock without a Reset first', () => {
+  // _queue/_fifo were only ever built in reset(), but the app's Run and Step
+  // buttons do not reset: they bootstrap at step 0 with saveInitial() alone. So
+  // a freshly authored delay held its stock forever, releasing nothing.
+  for (const kind of [NodeType.DELAY, NodeType.QUEUE]) {
+    const d = new Diagram();
+    const belt = new MNode(kind, 0, 0); belt.label = 'Belt';
+    belt.delay = 2; belt.processTime = 2; belt.servers = 4;
+    belt.setCount(10, '#8d6e63');
+    const out = new MNode(NodeType.POOL, 200, 0); out.label = 'Out';
+    d.addNode(belt); d.addNode(out);
+    const c = new MConnection(belt.id, out.id, ConnectionType.RESOURCE); c.rate = 99;
+    d.addConnection(c);
+
+    const e = new SimEngine(d); // deliberately NO reset(), like pressing Run
+    for (let i = 0; i < 30; i++) e.doStep();
+    eq(out.resources, 10, `${kind}: the starting stock reaches the output`);
+    eq(belt.resources, 0, `${kind}: nothing is stranded in the node`);
+  }
+});
+
+test('setLiveCount moves a delay or queue pipeline, not just the count', () => {
+  // The properties panel's Amount field and +/- steppers reach for the model
+  // primitives, which write `resources` and leave `_queue`/`_fifo` owing the old
+  // amount: the node then releases units it no longer has (created from
+  // nothing), or keeps ones nothing will ever release. Same hazard as the
+  // trader guard, at the panel's call site.
+  const pipeline = (n) => (n._queue || []).reduce((s, b) => s + b.amount, 0)
+    + (n._fifo || []).reduce((s, b) => s + b.amount, 0) + (n._procs || []).length;
+
+  for (const kind of [NodeType.DELAY, NodeType.QUEUE]) {
+    for (const [nudge, want] of [[-3, 7], [3, 13]]) {
+      const d = new Diagram();
+      const belt = new MNode(kind, 0, 0); belt.label = 'Belt';
+      belt.delay = 4; belt.processTime = 4; belt.servers = 4;
+      belt.setCount(10, '#8d6e63');
+      const out = new MNode(NodeType.POOL, 200, 0); out.label = 'Out';
+      d.addNode(belt); d.addNode(out);
+      const c = new MConnection(belt.id, out.id, ConnectionType.RESOURCE); c.rate = 99;
+      d.addConnection(c);
+
+      const e = new SimEngine(d); e.reset();
+      e.doStep(); e.doStep(); // everything is in transit inside the node
+      eq(pipeline(belt), belt.resources, `${kind}: pipeline agrees before the edit`);
+      for (let k = 0; k < Math.abs(nudge); k++) {
+        e.setLiveCount(belt, belt.resources + Math.sign(nudge), '#8d6e63');
+      }
+      eq(belt.resources, want, `${kind} ${nudge}: the count follows the edit`);
+      eq(pipeline(belt), belt.resources, `${kind} ${nudge}: pipeline follows too`);
+      for (let i = 0; i < 60; i++) e.doStep();
+      eq(belt.resources + out.resources, want,
+        `${kind} ${nudge}: nothing created or stranded over the whole run`);
+    }
+  }
+});
+
 test('.econ round-trip survives a node labelled with a DSL head keyword', () => {
   // dslParse dispatches on tokens[0] before scanning for an arrow, so a node
   // labelled `pool` that is the SOURCE of a connection emitted `pool -> Gold`
@@ -3368,6 +3454,31 @@ test('generated module simulates the embedded economy', () => {
   eco.reset();
   eq(eco.t, 0, 'reset rewinds');
   eq(eco.get('Gold'), 0, 'reset restores the baseline');
+});
+
+test('generated module set() keeps a pool\'s resource type', () => {
+  // set() wrote `resources` and let reconcile() backfill the difference, which
+  // types every added unit DEFAULT_COLOR grey. A colour-filtered connection or
+  // a converter recipe then refused the units the host game had just added.
+  const WOOD = '#8d6e63';
+  const { d } = setup();
+  const p = node(d, NodeType.POOL); p.label = 'Warehouse'; p.setCount(10, WOOD);
+  const mill = node(d, NodeType.POOL); mill.label = 'Mill';
+  const c = conn(d, p, mill); c.rate = 5; c.colorFilter = WOOD;
+
+  const Economy = buildTestModule(d.toJSON());
+  const eco = Economy.createEconomy();
+  eco.set('Warehouse', 50);
+  eq(eco.get('Warehouse'), 50, 'set() applies the amount');
+  eco.run(20);
+  eq(eco.get('Mill'), 50, 'the colour-filtered flow accepts every unit set() added');
+  eq(eco.get('Warehouse'), 0, 'and the warehouse empties');
+
+  // Setting downward must not invent a type either.
+  const eco2 = Economy.createEconomy();
+  eco2.set('Warehouse', 4);
+  eco2.run(20);
+  eq(eco2.get('Mill'), 4, 'trimming leaves only typed units behind');
 });
 
 test('generated module honors seed and param overrides deterministically', () => {
