@@ -28,10 +28,7 @@ class AppAnalysis {
       sel.disabled = false;
       document.getElementById('mc-sweep-run').disabled = false;
       for (const n of names) sel.appendChild(new Option(n, n));
-      // Seed the range around the parameter's current value.
-      const cur = this.diagram.params[names[0]];
-      document.getElementById('mc-sweep-from').value = Math.round(cur * 0.5 * 100) / 100;
-      document.getElementById('mc-sweep-to').value = Math.round(cur * 1.5 * 100) / 100;
+      this._seedSweepRange(names[0]);
     }
     // Sensitivity needs at least one parameter with a non-zero value (a percent
     // perturbation of 0 is a no-op).
@@ -42,6 +39,23 @@ class AppAnalysis {
       ? 'Perturb each parameter ±10% and heatmap which parameters move which nodes the most'
       : 'Define a non-zero parameter in the Params rail panel to run a sensitivity analysis';
     this._showModal('mc-overlay');
+  }
+
+  // Seed the sweep's from/to around a parameter's current value. This ran once,
+  // for the first parameter in the list, and nothing re-ran it when the user
+  // picked a different one: sweeping any other parameter silently used the
+  // first one's range, which for a rate of 3 against a capacity of 500 meant
+  // sweeping 1.5 to 4.5.
+  _seedSweepRange(name) {
+    const cur = this.diagram.params[name];
+    if (!isFinite(cur)) return;
+    const round = v => Math.round(v * 100) / 100;
+    // A parameter sitting at 0 has no scale to spread around, so offer a small
+    // absolute range rather than 0 to 0.
+    const from = cur === 0 ? 0 : round(cur * 0.5);
+    const to = cur === 0 ? 1 : round(cur * 1.5);
+    document.getElementById('mc-sweep-from').value = from;
+    document.getElementById('mc-sweep-to').value = to;
   }
 
   _mcSeed() {

@@ -2588,6 +2588,35 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Analysis: the sweep range follows the chosen parameter. It was seeded once,
+  // from the first parameter in the list, and nothing re-ran it on change, so
+  // sweeping any other parameter ran over the first one's range.
+  const sweepRange = await page.evaluate(async () => {
+    const app = window.app;
+    app._clearAll();
+    app.diagram.params = { mine_rate: 3, capacity: 500, upkeep: 0 };
+    app._openMonteCarlo();
+    const sel = document.getElementById('mc-sweep-param');
+    const read = () => ({
+      from: parseFloat(document.getElementById('mc-sweep-from').value),
+      to: parseFloat(document.getElementById('mc-sweep-to').value),
+    });
+    const onOpen = read();
+    sel.value = 'capacity';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    const onCapacity = read();
+    sel.value = 'upkeep';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    const onZero = read();
+    app._hideModal('mc-overlay');
+    return { onOpen, onCapacity, onZero, options: [...sel.options].map(o => o.value) };
+  });
+  if (sweepRange.onOpen.from === 1.5 && sweepRange.onOpen.to === 4.5
+    && sweepRange.onCapacity.from === 250 && sweepRange.onCapacity.to === 750
+    && sweepRange.onZero.from === 0 && sweepRange.onZero.to === 1)
+    ok('analysis: the sweep range re-seeds from the parameter you pick');
+  else fail('sweep range: ' + JSON.stringify(sweepRange));
+
   // Persistence: undo and redo have to reach autosave. They moved _lastState
   // and repainted the canvas but never wrote it, so an accidental Delete looked
   // repaired by Ctrl+Z and came back on the next reload with the deletion intact

@@ -804,6 +804,40 @@ test('a trader cannot pay out of a delay or a queue', () => {
   }
 });
 
+test('a Monte Carlo batch leaves a paused seeded run where it found it', () => {
+  // Batch Analysis stops the live run but does not reset it, so the run resumes
+  // on the shared RNG. Every trial reseeds that RNG and the batch used to clear
+  // it back to Math.random, so a paused seeded run silently finished its
+  // remaining steps unseeded and unreproducible.
+  const build = () => {
+    const d = new Diagram();
+    d.seed = 'live-42';
+    const src = new MNode(NodeType.SOURCE, 0, 0); src.label = 'Mine';
+    const pool = new MNode(NodeType.POOL, 200, 0); pool.label = 'Gold';
+    d.addNode(src); d.addNode(pool);
+    const c = new MConnection(src.id, pool.id, ConnectionType.RESOURCE);
+    c.rateMode = RateMode.DICE; c.dice = '2d6';
+    d.addConnection(c);
+    return { d, pool };
+  };
+
+  // Reference: a seeded run of 20 steps, uninterrupted.
+  const a = build();
+  const ea = new SimEngine(a.d); ea.reset();
+  for (let i = 0; i < 20; i++) ea.doStep();
+  const want = a.pool.resources;
+
+  for (const batchSeed of ['mc-seed', null]) {
+    const b = build();
+    const eb = new SimEngine(b.d); eb.reset();
+    for (let i = 0; i < 10; i++) eb.doStep();
+    eb.runMonteCarlo(5, 8, { seed: batchSeed });
+    for (let i = 0; i < 10; i++) eb.doStep();
+    eq(b.pool.resources, want,
+      `batch seed ${batchSeed}: the paused run resumes on its own seeded stream`);
+  }
+});
+
 test('detectLoops finds a ring economy longer than ten nodes', () => {
   // The depth limit was 10, so a 12-stage production ring - one loop and
   // nothing else - enumerated no cycles at all and the Loops panel reported

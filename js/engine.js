@@ -1535,6 +1535,12 @@ class SimEngine {
     const endSteps = [];
     let endedCount = 0;
     const seeded = opts.seed != null && opts.seed !== '';
+    // Every trial reseeds the shared RNG, so save the live run's stream position
+    // and put it back when the batch is done. Clearing it instead (the old
+    // `seed(null)`) dropped a paused seeded run onto Math.random: its remaining
+    // steps stopped being reproducible from its seed, with nothing on screen to
+    // say so.
+    const rngBefore = SimRandom.getState();
 
     try {
       for (let r = 0; r < runs; r++) {
@@ -1564,7 +1570,7 @@ class SimEngine {
         yield { done: r + 1, total: runs };
       }
     } finally {
-      if (seeded) SimRandom.seed(null); // never leak a seeded RNG into live runs
+      SimRandom.setState(rngBefore); // never leak a batch's RNG into live runs
     }
 
     return {

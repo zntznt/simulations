@@ -1570,6 +1570,9 @@ class App {
     this._modalize('mc-overlay');
     document.getElementById('mc-run').addEventListener('click', () => this._runMonteCarlo());
     document.getElementById('mc-sweep-run').addEventListener('click', () => this._runSweep());
+    // Re-seed the sweep range when the parameter changes, not just on open.
+    document.getElementById('mc-sweep-param')
+      .addEventListener('change', (e) => this._seedSweepRange(e.target.value));
     document.getElementById('mc-sens-run').addEventListener('click', () => this._runSensitivity());
 
     // Touch layout ☰ overflow: the controls the collapsed topbar hides
