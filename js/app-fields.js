@@ -86,7 +86,7 @@ class AppFields {
     const val = document.createElement('div');
     val.className = 'hero-card-value';
     val.id = 'props-hero-value';
-    val.textContent = String(node.displayCount);
+    val.textContent = String(this._panelValueOf(node));
     card.appendChild(val);
 
     let subText = '';
@@ -407,6 +407,21 @@ class AppFields {
 
   // ── Live update helpers ───────────────────────────────────────────────────
 
+  // What the properties panel should display for a node right now. While the
+  // timeline is scrubbed that is the recorded value at the previewed step, not
+  // the live model. The canvas and the timeline both had a scrub-aware read
+  // path (Renderer._scrubSnap, Timeline.setScrub); the panel never did, so its
+  // hero card went on reporting the end of the run while the node beside it
+  // showed the replayed step. Two different numbers for the same node.
+  _panelValueOf(node) {
+    if (this._scrubIndex != null) {
+      const entry = this.engine.history[this._scrubIndex];
+      const v = entry && entry.snap ? entry.snap[node.id] : undefined;
+      if (v !== undefined) return v;
+    }
+    return node.displayCount;
+  }
+
   _refreshResourceCount() {
     // A diagram-rail feature (Parameters, Custom variables, Artificial player,
     // Design tests) borrows the properties panel without clearing the node
@@ -420,7 +435,7 @@ class AppFields {
 
     // Big hero readout tracks the live value for every node kind.
     const hero = document.getElementById('props-hero-value');
-    if (hero) hero.textContent = String(node.displayCount);
+    if (hero) hero.textContent = String(this._panelValueOf(node));
     // Same exclusions the amount field is built under (app-props.js). A Trader
     // has no amount row, so its first number input is the End/goal value, and
     // the refresh below was overwriting that goal with the trader's count.
@@ -429,7 +444,9 @@ class AppFields {
 
     // With a node owning the panel, the first number input is the Resources field.
     const inp = document.querySelector('#props-content input[type="number"]');
-    if (inp && document.activeElement !== inp) inp.value = node.resources;
+    // Not while scrubbing: the field is editable, and writing a replayed value
+    // into it invites the user to commit a past step as the current amount.
+    if (inp && document.activeElement !== inp && this._scrubIndex == null) inp.value = node.resources;
 
     // That field means two different things either side of step 0, and the
     // panel is not rebuilt as the run advances, so its label has to be patched
@@ -441,7 +458,12 @@ class AppFields {
     }
   }
 
-  _updateSparklines() { for (const sl of this._sparklines.values()) sl.update(); }
+  _updateSparklines() {
+    for (const sl of this._sparklines.values()) {
+      sl.scrubIndex = this._scrubIndex;
+      sl.update();
+    }
+  }
 
   _clearSparklines() { for (const sl of this._sparklines.values()) sl.destroy(); this._sparklines.clear(); }
 }

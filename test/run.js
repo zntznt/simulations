@@ -734,6 +734,71 @@ test('a limited source emits its stock then runs dry', () => {
   eq(s.produced, 10, 'produced equals the emitted stock');
 });
 
+test('.econ round-trip survives a node labelled with a DSL head keyword', () => {
+  // dslParse dispatches on tokens[0] before scanning for an arrow, so a node
+  // labelled `pool` that is the SOURCE of a connection emitted `pool -> Gold`
+  // and was read back as a declaration. Most heads threw on reload; `economy`
+  // and `assert` matched their handlers and dropped the connection silently.
+  const HEADS = ['economy', 'meta', 'param', 'type', 'var', 'assert', 'player',
+    'group', 'note', 'chart', 'pool', 'source', 'drain', 'gate', 'converter',
+    'register', 'delay', 'queue', 'trader'];
+  for (const kw of HEADS) {
+    const d = new Diagram();
+    const a = new MNode(NodeType.POOL, 100, 100); a.label = kw;
+    const b = new MNode(NodeType.POOL, 400, 100); b.label = 'Gold';
+    d.addNode(a); d.addNode(b);
+    d.addConnection(new MConnection(a.id, b.id, ConnectionType.RESOURCE));
+    const back = new Diagram();
+    back.loadJSON(dslParse(dslSerialize(d.toJSON())));
+    eq(back.nodes.size, 2, `label "${kw}": both nodes survive`);
+    eq(back.connections.size, 1, `label "${kw}": the connection survives`);
+  }
+
+  // An ordinary label must still serialize bare, not newly quoted.
+  const d = new Diagram();
+  const a = new MNode(NodeType.POOL, 0, 0); a.label = 'Gold';
+  const b = new MNode(NodeType.POOL, 100, 0); b.label = 'Silver';
+  d.addNode(a); d.addNode(b);
+  d.addConnection(new MConnection(a.id, b.id, ConnectionType.RESOURCE));
+  assert(/(^|\n)Gold -> Silver/.test(dslSerialize(d.toJSON())), 'ordinary labels stay unquoted');
+});
+
+test('attribution reports trader swaps between the partners, not through the trader', () => {
+  // _fireTrader books what A pays under the INCOMING leg and what B pays under
+  // the OUTGOING one, so reading direction off sourceId/targetId called B's
+  // payment income, never credited either side with what it received, and gave
+  // the trader two rows for resources it never held. Asymmetric rates so the
+  // two legs cannot cancel and hide the error.
+  const d = new Diagram();
+  const A = new MNode(NodeType.POOL, 0, 0);   A.label = 'A'; A.setCount(50);
+  const B = new MNode(NodeType.POOL, 400, 0); B.label = 'B'; B.setCount(50);
+  const T = new MNode(NodeType.TRADER, 200, 0); T.label = 'Market';
+  d.addNode(A); d.addNode(B); d.addNode(T);
+  const cin = new MConnection(A.id, T.id, ConnectionType.RESOURCE);  cin.rate = 3;
+  const cout = new MConnection(T.id, B.id, ConnectionType.RESOURCE); cout.rate = 1;
+  d.addConnection(cin); d.addConnection(cout);
+
+  const e = new SimEngine(d); e.reset();
+  for (let i = 0; i < 3; i++) e.doStep();
+  const last = e.history.length - 1;
+
+  const ra = attributeChange(d, e.history, A.id, last);
+  eq(ra.residual, 0, 'A: every unit accounted for');
+  const aOut = ra.entries.find(x => x.kind === 'flow out');
+  const aIn = ra.entries.find(x => x.kind === 'flow in');
+  eq(aOut.amount, -3, 'A paid 3 out');
+  eq(aIn.amount, 1, 'A received 1 back');
+  assert(/B/.test(aOut.label) && /B/.test(aIn.label), 'A trades with B, not with the trader');
+
+  const rb = attributeChange(d, e.history, B.id, last);
+  eq(rb.residual, 0, 'B: every unit accounted for');
+  eq(rb.entries.find(x => x.kind === 'flow out').amount, -1, 'B paid 1 out, not received');
+  eq(rb.entries.find(x => x.kind === 'flow in').amount, 3, 'B received 3');
+
+  const rt = attributeChange(d, e.history, T.id, last);
+  eq(rt.entries.length, 0, 'the trader holds nothing, so it gets no flow rows');
+});
+
 test('.econ round-trip keeps a limited source colored stock', () => {
   // dslSerialize writes the stock as `= N of color`, but the parser skipped the
   // colorMap for sources, so reconcile() refilled it as untyped grey. Any

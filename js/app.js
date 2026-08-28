@@ -647,6 +647,8 @@ class App {
     this.renderer.setScrub(entry.snap);
     if (this._timelineVisible) this.timeline.setScrub(entry.step);
     document.getElementById('step-counter').textContent = `Step ${entry.step} (replay)`;
+    this._refreshResourceCount();
+    this._updateSparklines();
     this._refreshScrubber();
   }
 
@@ -661,6 +663,8 @@ class App {
     if (wasScrubbing) {
       document.getElementById('step-counter').textContent = `Step ${this.engine.step}`;
       this.renderer.render();
+      this._refreshResourceCount();
+      this._updateSparklines();
       if (this._activeFeature === 'monitor') this._renderProps();
     }
     this._refreshScrubber();
@@ -721,6 +725,12 @@ class App {
     this.diagram.timeMode = 'sync';
     this.diagram.seed = '';
     this.diagram.aiPlayer = { enabled: false, rules: [] };
+    // Assertions are a serialized Diagram field like the rest, and were the one
+    // this missed. They survived File > New, every template load and the
+    // restored-session Discard, then went straight into autosave, Save as JSON,
+    // the .econ export and the share link, so cli.js --check on that file ran a
+    // previous model's tests against nodes that no longer exist.
+    this.diagram.assertions = [];
     this.diagram.meta = Diagram.defaultMeta();
     this._applyMeta();
     this._dropScenarioState();
@@ -1241,6 +1251,11 @@ class App {
     document.getElementById('btn-step').addEventListener('click', () => {
       this._exitScrub();
       this.engine.doStep();
+      // Run/Pause and Reset both refresh the scrubber; Step did not, so its
+      // range stayed one entry behind the history. While Live the thumb already
+      // sits at max, so pressing End or dragging it right emitted no input
+      // event and the newest step could not be reached at all.
+      this._refreshScrubber();
     });
 
     const runBtn = document.getElementById('btn-run');

@@ -285,6 +285,216 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('gesture released outside the canvas ends and commits, nothing follows a buttonless cursor');
   else fail('outside release: ' + JSON.stringify(outsideRelease));
 
+  // Run/Pause and Reset refresh the scrubber; Step did not, so its range sat one
+  // entry behind. While Live the thumb is already at max, so End or a rightward
+  // drag emitted no input event and the newest step was unreachable.
+  const stepScrub = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._closeFeature();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 300));
+    const p = d.addNode(new MNode(NodeType.POOL, 500, 300));
+    d.addConnection(new MConnection(s.id, p.id, 'resource'));
+    window.app.renderer.render();
+    window.app._commit();
+    // Leave the drawer as it was found: a later test toggles it unconditionally.
+    const wasOpen = window.app._timelineVisible;
+    if (!wasOpen) document.getElementById('btn-timeline').click();
+    for (let i = 0; i < 4; i++) document.getElementById('btn-step').click();
+    const range = document.getElementById('tl-range');
+    const out = { max: +range.max, disabled: range.disabled, want: window.app.engine.history.length - 1 };
+    if (!wasOpen) document.getElementById('btn-timeline').click();
+    return out;
+  });
+  if (stepScrub.max === stepScrub.want && !stepScrub.disabled)
+    ok('Step keeps the scrub slider in range, so the newest step is reachable');
+  else fail('step scrubber: ' + JSON.stringify(stepScrub));
+
+  // assertions are a serialized Diagram field and were the one _clearAll missed,
+  // so design tests followed the user into File > New and every template load,
+  // then into autosave, Save as JSON, the .econ export and the share link.
+  const assertLeak = await page.evaluate(async () => {
+    window.app._confirmGuard = () => Promise.resolve(true);
+    const out = {};
+    const seed = () => { window.app.diagram.assertions = ['always Gold < 500']; };
+    seed();
+    document.getElementById('btn-new').click();
+    await new Promise(r => setTimeout(r, 60));
+    out.afterNew = window.app.diagram.assertions.length;
+    seed(); window.app._installTemplate(window.app._templates[0]);
+    out.afterTemplate = window.app.diagram.assertions.length;
+    seed(); window.app._loadDemo();
+    out.afterDemo = window.app.diagram.assertions.length;
+    return out;
+  });
+  if (assertLeak.afterNew === 0 && assertLeak.afterTemplate === 0 && assertLeak.afterDemo === 0)
+    ok('design tests do not leak through New or a template load');
+  else fail('assertion leak: ' + JSON.stringify(assertLeak));
+
+  // An ASCII-only sanitizer reduced a non-Latin name to nothing, returning a
+  // bare ".svg" that the browser renames to "svg.svg", so every export of a
+  // CJK or Cyrillic diagram collided on one filename and .econ lost its type.
+  const fnames = await page.evaluate(() => {
+    const out = {};
+    for (const [k, nm] of [['cjk', '经济'], ['cyrillic', 'Экономика'],
+                           ['accented', 'Économie'], ['ascii', 'Gold Rush'],
+                           ['symbols', '***'], ['empty', '']]) {
+      window.app.diagram.meta.name = nm;
+      out[k] = window.app._exportFilename('svg');
+    }
+    return out;
+  });
+  const namesOk = Object.values(fnames).every(n => n && !n.startsWith('.') && n !== 'svg.svg')
+    && fnames.cjk.startsWith('经济') && fnames.accented.startsWith('É')
+    && fnames.symbols === 'diagram.svg' && fnames.empty === 'diagram.svg';
+  if (namesOk) ok('export filenames keep non-ASCII names and never collapse to a dotfile');
+  else fail('export filenames: ' + JSON.stringify(fnames));
+
+  // Sparkline mapped v/max, so anything below zero landed at y > h, off the
+  // bottom of the canvas. A register holding a net or deficit drew nothing at
+  // all under a false "max: 1" caption. Measured by ink per row rather than by
+  // colour, which is too sensitive to anti-aliasing to compare reliably.
+  const sparkNeg = await page.evaluate(() => {
+    const inkRows = (vals) => {
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      const eng = { history: vals.map((v, i) => ({ step: i, snap: { n1: v } })) };
+      const sp = new Sparkline(host, 'n1', eng);
+      sp.update();
+      const ctx = sp.canvas.getContext('2d');
+      const w = sp.canvas.width, h = sp.canvas.height;
+      const img = ctx.getImageData(0, 0, w, h).data;
+      let rows = 0;
+      // Skip the label band at the top; count rows carrying trace ink.
+      for (let y = 14; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          if (img[i] > 40 || img[i + 1] > 60) { rows++; break; }
+        }
+      }
+      host.remove();
+      return rows;
+    };
+    return {
+      allNegative: inkRows([-20, -18, -15, -12, -10, -8]),
+      crossZero: inkRows([-6, -4, -2, 0, 2, 4, 6]),
+      allPositive: inkRows([0, 2, 4, 6, 8, 10]),
+    };
+  });
+  if (sparkNeg.allNegative > 5 && sparkNeg.crossZero > 5 && sparkNeg.allPositive > 5)
+    ok('sparkline draws negative and zero-crossing series instead of clipping them off the canvas');
+  else fail('sparkline negatives: ' + JSON.stringify(sparkNeg));
+
+  // The canvas and timeline both had a scrub-aware read path; the properties
+  // panel never did, so its hero card reported the end of the run while the
+  // node beside it showed the replayed step.
+  const scrubPanel = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._closeFeature();
+    const d = window.app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 200, 300));
+    const pool = d.addNode(new MNode(NodeType.POOL, 500, 300));
+    pool.label = 'Gold';
+    d.addConnection(new MConnection(s.id, pool.id, 'resource'));
+    window.app.renderer.render();
+    window.app._commit();
+    for (let i = 0; i < 12; i++) window.app.engine.doStep();
+    window.app._onSelect(pool.id, 'node');
+    const hero = () => document.getElementById('props-hero-value').textContent;
+    const wasOpen = window.app._timelineVisible;
+    if (!wasOpen) document.getElementById('btn-timeline').click();
+    window.app._scrubTo(4);
+    const at4 = { hero: hero(), canvas: window.app.renderer._scrubSnap[pool.id] };
+    window.app._exitScrub();
+    const live = { hero: hero(), model: pool.resources };
+    if (!wasOpen) document.getElementById('btn-timeline').click();
+    return { at4, live };
+  });
+  if (String(scrubPanel.at4.hero) === String(scrubPanel.at4.canvas)
+    && String(scrubPanel.live.hero) === String(scrubPanel.live.model))
+    ok('properties panel follows the scrub and returns to the live value');
+  else fail('scrub panel: ' + JSON.stringify(scrubPanel));
+
+  // A selected item's handles beat whatever they sit on in the hit test, which
+  // is deliberate. The defect was the paint order: group handles lived in
+  // groupLayer and connection handles in connLayer, both under nodeLayer, so a
+  // node on a corner hid the handle while the press still resized. What is
+  // visible and what is hot have to be the same element.
+  const handleTop = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._closeFeature();
+    const d = window.app.diagram;
+    const g = d.addGroup(new MGroup(200, 200, 300, 220));
+    g.label = 'Zone';
+    d.addNode(new MNode(NodeType.POOL, 200, 200));   // sits exactly on the NW corner
+    window.app.editor.setTool('select');
+    window.app.renderer.render();
+    window.app._commit();
+    window.app.editor._select(g.id, 'group');
+    window.app.renderer.render();
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect(), rn = window.app.renderer;
+    const top = document.elementFromPoint(
+      r.left + g.x * rn._scale + rn._panX,
+      r.top + g.y * rn._scale + rn._panY);
+    const rh = document.querySelector('.resize-handles');
+    return {
+      topClass: top ? (top.getAttribute('class') || top.tagName) : null,
+      inOverlay: !!rh && rh.parentNode === rn.handleLayer,
+    };
+  });
+  if (handleTop.inOverlay && /resize-handle/.test(handleTop.topClass || ''))
+    ok('selection handles paint above nodes, so the hot region is the visible one');
+  else fail('handle layer: ' + JSON.stringify(handleTop));
+
+  // Renaming a parameter onto an existing name overwrote the other and deleted
+  // this one, silently collapsing two rows into one. The shared variable store
+  // spans params, custom vars, register labels and named state connections, so
+  // the check has to as well.
+  const renameGuard = await page.evaluate(() => {
+    const openParams = () => {
+      window.app._clearAll();
+      window.app._closeFeature();
+      window.app.diagram.params = { gold: 5, rate: 2 };
+      window.app.renderer.render();
+      window.app._commit();
+      document.querySelector('#diagram-rail .rail-btn[data-feature="params"]').click();
+    };
+    const box = (v) => [...document.querySelectorAll('#props-content input[type="text"]')]
+      .find(i => i.value === v);
+    openParams();
+    const b1 = box('rate');
+    b1.value = 'gold';
+    b1.dispatchEvent(new Event('blur'));
+    const collision = { ...window.app.diagram.params };
+
+    openParams();
+    const b2 = box('rate');
+    b2.value = 'tempo';
+    b2.dispatchEvent(new Event('blur'));
+    const renamed = { ...window.app.diagram.params };
+
+    // Collide with a register label rather than another parameter.
+    window.app._clearAll();
+    window.app._closeFeature();
+    const reg = window.app.diagram.addNode(new MNode(NodeType.REGISTER, 300, 300));
+    reg.label = 'score';
+    window.app.diagram.params = { rate: 2 };
+    window.app.renderer.render();
+    window.app._commit();
+    document.querySelector('#diagram-rail .rail-btn[data-feature="params"]').click();
+    const b3 = box('rate');
+    b3.value = 'score';
+    b3.dispatchEvent(new Event('blur'));
+    const acrossNamespace = { ...window.app.diagram.params };
+    return { collision, renamed, acrossNamespace };
+  });
+  if (renameGuard.collision.gold === 5 && renameGuard.collision.rate === 2
+    && renameGuard.renamed.tempo === 2 && !('rate' in renameGuard.renamed)
+    && renameGuard.acrossNamespace.rate === 2)
+    ok('a colliding rename is rejected across the shared namespace, a real one still works');
+  else fail('rename guard: ' + JSON.stringify(renameGuard));
+
   // Navigation: zoom controls step the scale and update the readout; fit-to-content
   // re-frames without error.
   const nav = await page.evaluate(() => {

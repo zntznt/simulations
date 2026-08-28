@@ -306,7 +306,7 @@ class AppLibrary {
           add('Export as JSON', 'download', () => {
             const a = Object.assign(document.createElement('a'), {
               href: URL.createObjectURL(new Blob([entry.json], { type: 'application/json' })),
-              download: `${(entry.name || 'diagram').replace(/[^\w\-]+/g, '_')}.json`,
+              download: `${(entry.name || 'diagram').replace(/[^\p{L}\p{N}_-]+/gu, '_') || 'diagram'}.json`,
             });
             a.click();
           });
