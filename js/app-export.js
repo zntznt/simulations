@@ -10,9 +10,20 @@
 class AppExport {
   // ── Export ────────────────────────────────────────────────────────────────
 
+  // Backs every download in the app: SVG, PNG, CSV, .econ, the standalone
+  // module, File > Save, and the three analysis exports. The old ASCII-only
+  // class turned every character of a non-Latin name into an underscore and
+  // then stripped them, returning a bare ".svg" that the browser renames to
+  // "svg.svg", so a Chinese or Japanese diagram lost its name entirely and
+  // every export collided on one filename. Accented Latin fared little better
+  // ("Economie" losing its leading E). Unicode letters and digits are kept, and
+  // an empty stem falls back to "diagram" so the result can never start with a
+  // dot: a dotfile also cost .econ its extension, the browser rewriting it to
+  // "econ.txt" so it no longer matched the app's own file picker.
   _exportFilename(ext) {
     const raw = this.diagram.meta.name || 'diagram';
-    return raw.replace(/[^a-z0-9_\-]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') + '.' + ext;
+    const stem = raw.replace(/[^\p{L}\p{N}_-]+/gu, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+    return (stem || 'diagram') + '.' + ext;
   }
 
   // Build a standalone snapshot of the diagram, cloned from the live canvas so

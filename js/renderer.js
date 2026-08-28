@@ -570,11 +570,22 @@ class Renderer {
     this.nodeLayer = svgEl('g');
     this.chartLayer = svgEl('g');
     this.noteLayer = svgEl('g');
+    // Selection handles live here rather than inside the item they belong to.
+    // A group's element sits in groupLayer and a connection's in connLayer,
+    // both below nodeLayer, so a node parked near a corner covered the handle
+    // completely: the press still started a resize (the editor probes handles
+    // before the hit test, which is deliberate and correct), so the user
+    // pressed a node, the node did not move, and the group silently resized.
+    // A plain click was swallowed the same way, leaving the node unselectable
+    // there. Note and chart handles never had the problem because their layers
+    // already paint above nodeLayer. Drawing every handle above the content
+    // makes the hot region and the visible region the same thing again.
+    this.handleLayer = svgEl('g');
     this.ballLayer = svgEl('g');
     this.flowLayer = svgEl('g');
     this.tempLayer = svgEl('g');
     this.root.append(this.groupLayer, this.connLayer, this.nodeLayer,
-                     this.chartLayer, this.noteLayer, this.ballLayer, this.flowLayer, this.tempLayer);
+                     this.chartLayer, this.noteLayer, this.handleLayer, this.ballLayer, this.flowLayer, this.tempLayer);
     this.svg.appendChild(this.root);
 
     this._updateTransform();
@@ -722,6 +733,8 @@ class Renderer {
   }
 
   render() {
+    // Handles are re-emitted every frame by the item renderers below.
+    while (this.handleLayer.firstChild) this.handleLayer.removeChild(this.handleLayer.firstChild);
     this._renderGroups();
     this._renderConns();
     this._renderNodes();
@@ -1289,7 +1302,6 @@ class Renderer {
     // State-role badge (✷ trigger / ⊢ activator / Δ modifier), sitting on the
     // line just before the arrowhead.
     g.appendChild(svgEl('g', { class: 'conn-role', 'pointer-events': 'none' }));
-    g.appendChild(svgEl('g', { class: 'conn-handles' }));
     return g;
   }
 
@@ -1499,9 +1511,10 @@ class Renderer {
     el.setAttribute('class', `conn${isSel ? ' selected' : ''}${isFlowing ? ' flowing' : ''}`);
 
     // Reshape handles — shown only while selected (and never on a self-loop).
-    const hg = el.querySelector('.conn-handles');
-    while (hg.firstChild) hg.removeChild(hg.firstChild);
+    // Drawn into handleLayer for the same reason as the resize handles above.
     if (isSel && src.id !== tgt.id) {
+      const hg = svgEl('g', { class: 'conn-handles' });
+      this.handleLayer.appendChild(hg);
       for (const h of this.getConnHandles(conn.id)) {
         hg.appendChild(svgEl('circle', {
           class: 'conn-cp-handle', r: '6', cx: h.x, cy: h.y,
@@ -1557,10 +1570,9 @@ class Renderer {
   // Draw (or remove) the corner resize handles inside a selected item's group.
   // Kept as the last children so they paint above the item's own content.
   _updateResizeHandles(el, item, isSel) {
-    let hg = el.querySelector('.resize-handles');
-    if (!isSel) { if (hg) hg.remove(); return; }
-    if (!hg) { hg = svgEl('g', { class: 'resize-handles' }); el.appendChild(hg); }
-    else { while (hg.firstChild) hg.removeChild(hg.firstChild); el.appendChild(hg); }
+    if (!isSel) return;   // handleLayer was cleared at the top of render()
+    const hg = svgEl('g', { class: 'resize-handles' });
+    this.handleLayer.appendChild(hg);
     const corners = [
       { x: item.x, y: item.y, corner: 'nw' },
       { x: item.x + item.w, y: item.y, corner: 'ne' },

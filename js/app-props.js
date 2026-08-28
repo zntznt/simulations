@@ -624,6 +624,28 @@ class AppProps {
   }
 
   // Named constants available to all formulas.
+  // Every name that already resolves in the shared variable store, which the
+  // engine builds from parameters, custom variables, named state connections
+  // and register labels (SimEngine._updateVariables). Renaming has to consult
+  // all four, not just the editor being typed in: two rows agreeing on a name
+  // collapse to one value at simulation time whichever editor they came from.
+  // `except` is the name being edited, so a no-op rename is not a collision.
+  _nameTaken(name, except) {
+    const d = this.diagram;
+    if (name === except) return false;
+    for (const k of Object.keys(d.params || {})) if (k !== except && k === name) return true;
+    for (const rv of d.customVars || []) if (rv.name !== except && rv.name === name) return true;
+    for (const n of d.nodes.values()) {
+      if (n.type === NodeType.REGISTER && n.label !== except && n.label === name) return true;
+    }
+    for (const c of d.connections.values()) {
+      if (c.type !== ConnectionType.STATE) continue;
+      const vn = c.variableName || c.label;
+      if (vn && vn !== except && vn === name) return true;
+    }
+    return false;
+  }
+
   _paramsEditor(panel) {
     this._info(panel, 'Named constants available to all formulas (e.g. growth_rate * pool).');
     const params = this.diagram.params;
@@ -637,6 +659,17 @@ class AppProps {
         const nk = ki.value.trim();
         if (!nk || nk === key) { ki.value = key; return; }
         if (!VALID_IDENT.test(nk)) { ki.value = key; return; }
+        // Without this the assignment below overwrote the other parameter and
+        // deleted this one, so two rows silently became one: `gold` took this
+        // row's value, the original gold was gone, and every formula reading
+        // gold changed meaning with only undo to recover. The two checks above
+        // already reject a bad name by reverting the field, so a colliding name
+        // reverts the same way rather than destroying data.
+        if (this._nameTaken(nk, key)) {
+          ki.value = key;
+          this._toast(`"${nk}" is already used by another parameter or variable.`);
+          return;
+        }
         params[nk] = params[key];
         delete params[key];
         this._renderProps();
@@ -876,6 +909,13 @@ class AppProps {
       name.addEventListener('blur', () => {
         const nk = name.value.trim();
         if (!nk || !VALID_IDENT.test(nk)) { name.value = rv.name; return; }
+        // Both rows survive here, but the shared store keeps one value for the
+        // name, so the duplicate silently shadows the other at run time.
+        if (this._nameTaken(nk, rv.name)) {
+          name.value = rv.name;
+          this._toast(`"${nk}" is already used by another parameter or variable.`);
+          return;
+        }
         if (nk !== rv.name) { rv.name = nk; this._commit(); }
       });
 

@@ -7,11 +7,17 @@ class Sparkline {
     this.canvas.width = 260;
     this.canvas.height = 60;
     this.canvas.className = 'sparkline';
+    this.scrubIndex = null;   // history index being previewed, or null when live
     container.appendChild(this.canvas);
   }
 
   update() {
-    const history = this.engine.history;
+    // While the timeline is scrubbed the panel must show the replayed step, not
+    // the end of the run. scrubIndex is set by the app before each update and
+    // cleared on exit; null means live.
+    const history = this.scrubIndex == null
+      ? this.engine.history
+      : this.engine.history.slice(0, this.scrubIndex + 1);
     // One point draws nothing but an empty box and a stray midline, which read
     // as a broken chart at the top of the properties panel. Stay collapsed
     // until there are two points to join, then reveal.
@@ -23,14 +29,30 @@ class Sparkline {
     const w = this.canvas.width, h = this.canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    const max = Math.max(...values, 1);
+    // The scale has to span zero. Mapping v/max put anything below zero at
+    // y > h, off the bottom of the canvas: a register holding a net or deficit,
+    // which is most of what a register computes, drew nothing at all and was
+    // captioned "max: 1" because the old max floored at 1. A series crossing
+    // zero was worse, drawing only its positive half so the trace appeared to
+    // start mid-chart out of nowhere, looking like real data. Extending the
+    // range to include zero leaves a positive-only series scaled exactly as
+    // before (min lands on 0) and brings the rest onto the canvas.
+    const rawMax = Math.max(...values);
+    const rawMin = Math.min(...values);
+    const max = Math.max(rawMax, 0);
+    const min = Math.min(rawMin, 0);
+    const range = (max - min) || 1;
+    const yOf = (v) => h - ((v - min) / range) * (h - 4) - 2;
+
     ctx.fillStyle = '#0d0e11';
     ctx.fillRect(0, 0, w, h);
 
-    // Grid line at midpoint
+    // Reference line: the zero crossing once the series goes negative, where it
+    // actually means something, otherwise the midpoint as before.
+    const yRef = rawMin < 0 ? yOf(0) : h / 2;
     ctx.strokeStyle = '#22252e';
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, yRef); ctx.lineTo(w, yRef); ctx.stroke();
 
     const step = w / (values.length - 1);
 
@@ -39,25 +61,29 @@ class Sparkline {
     ctx.lineWidth = 1.5;
     values.forEach((v, i) => {
       const x = i * step;
-      const y = h - (v / max) * (h - 4) - 2;
+      const y = yOf(v);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     });
     ctx.stroke();
 
-    // Fill under line
-    ctx.lineTo((values.length - 1) * step, h);
-    ctx.lineTo(0, h);
+    // Fill between the line and zero, so a dip below zero fills upward to the
+    // baseline rather than flooding the whole panel.
+    const yBase = yOf(0);
+    ctx.lineTo((values.length - 1) * step, yBase);
+    ctx.lineTo(0, yBase);
     ctx.closePath();
     ctx.fillStyle = 'rgba(182,233,77,0.10)';
     ctx.fill();
 
-    // Current value label
+    // Labels use the real extremes, not the zero-extended ones: an all-negative
+    // series reading "max: 0" would be as wrong as the old "max: 1".
+    const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
     ctx.fillStyle = '#b6e94d';
     ctx.font = "11px 'JetBrains Mono', monospace";
     const last = values[values.length - 1];
-    ctx.fillText(`${last}`, w - 30, 12);
+    ctx.fillText(`${fmt(last)}`, w - 30, 12);
     ctx.fillStyle = '#8a90a0';
-    ctx.fillText(`max: ${max}`, 4, 12);
+    ctx.fillText(rawMin < 0 ? `${fmt(rawMin)} to ${fmt(rawMax)}` : `max: ${fmt(rawMax)}`, 4, 12);
   }
 
   destroy() { this.canvas.remove(); }

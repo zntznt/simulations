@@ -150,6 +150,23 @@ function _econParseValue(raw, lineNo) {
 
 // Assign every node a unique, human-readable reference name derived from its
 // label, disambiguating duplicates with #2, #3, … in declaration order.
+// Every word that starts a statement. dslParse dispatches on tokens[0] before it
+// scans the line for an arrow, so a node whose label is one of these and which
+// is the SOURCE of a connection would emit `pool -> Gold : 2` and be read back
+// as a declaration. Seventeen of them throw on reload, which surfaces as a
+// failed File > Open; `economy` and `assert` are worse, matching the version
+// header and the assert handler so the connection silently disappears. Quoting
+// the reference keeps such a label round-tripping, since _econReadRef already
+// understands a quoted name. Case-sensitive on purpose: default labels are
+// capitalized (MNode sets `Pool`, `Queue`), so only a hand-typed lowercase
+// label is at risk. `name`, `desc`, `seed` and `timeMode` are absent because
+// their handler requires a literal colon, which a connection line never has.
+const ECON_RESERVED_HEADS = new Set([
+  'economy', 'meta', 'param', 'type', 'var', 'assert', 'player',
+  'group', 'note', 'chart',
+  ...ECON_NODE_KINDS,
+]);
+
 function _econRefNames(nodes) {
   const used = new Map(); // base label → count
   const refs = new Map(); // node id → ref string
@@ -157,7 +174,8 @@ function _econRefNames(nodes) {
     const base = n.label != null ? String(n.label) : '';
     const count = (used.get(base) || 0) + 1;
     used.set(base, count);
-    refs.set(n.id, _econName(base) + (count > 1 ? '#' + count : ''));
+    const name = ECON_RESERVED_HEADS.has(base) ? _econQuote(base) : _econName(base);
+    refs.set(n.id, name + (count > 1 ? '#' + count : ''));
   }
   return refs;
 }

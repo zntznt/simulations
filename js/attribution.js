@@ -42,12 +42,45 @@ function attributeChange(diagram, history, nodeId, index) {
   const entries = [];
   const nameOf = id => { const n = diagram.nodes.get(id); return (n && n.label) || id || '?'; };
 
+  // A trader holds nothing: it swaps between the two partners of a paired
+  // incoming/outgoing connection (SimEngine._fireTrader pairs ins[i] with
+  // outs[i], so the pairing is reconstructible here). Crucially the flow booked
+  // on the OUTGOING leg is what that partner PAID, not what it received, so
+  // reading direction off sourceId/targetId reported a payment as income, never
+  // credited either partner with what it got, and gave the trader itself two
+  // rows for resources that never touched it. Map each leg to its real payer
+  // and payee instead.
+  const traderLegs = new Map();   // connId -> { payer, payee, trader }
+  for (const t of diagram.nodes.values()) {
+    if (t.type !== NodeType.TRADER) continue;
+    const ins = diagram.incoming(t.id).filter(c => c.type === ConnectionType.RESOURCE);
+    const outs = diagram.outgoing(t.id).filter(c => c.type === ConnectionType.RESOURCE);
+    for (let i = 0; i < Math.min(ins.length, outs.length); i++) {
+      const cin = ins[i], cout = outs[i];
+      traderLegs.set(cin.id, { payer: cin.sourceId, payee: cout.targetId, trader: t.id });
+      traderLegs.set(cout.id, { payer: cout.targetId, payee: cin.sourceId, trader: t.id });
+    }
+  }
+
   const isRegister = node.type === NodeType.REGISTER;
   if (!isRegister) {
     for (const [connId, amt] of Object.entries(flows.conns)) {
       if (!amt) continue;
       const c = diagram.connections.get(connId);
       if (!c) continue;
+      const leg = traderLegs.get(connId);
+      if (leg) {
+        // The trader's own charted value is its trade count, not a balance, so
+        // these resources are none of its business.
+        if (nodeId === leg.trader) continue;
+        if (nodeId === leg.payer && node.type !== NodeType.DRAIN) {
+          entries.push({ kind: 'flow out', connId, amount: -amt, label: `to ${nameOf(leg.payee)}` });
+        }
+        if (nodeId === leg.payee && node.type !== NodeType.SOURCE) {
+          entries.push({ kind: 'flow in', connId, amount: amt, label: `from ${nameOf(leg.payer)}` });
+        }
+        continue;
+      }
       // A drain's charted value only ever grows with intake; a limited
       // source's stock only ever falls with output. Everything else counts
       // both directions. (A self-loop connection nets to zero via two rows.)
