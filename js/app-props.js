@@ -692,7 +692,11 @@ class AppProps {
       delBtn.setAttribute('aria-label', 'Delete parameter');
       delBtn.className = 'btn';
       delBtn.style.cssText = 'padding:2px 8px;flex-shrink:0';
-      delBtn.addEventListener('click', () => { delete params[key]; this._renderProps(); this._commit(); });
+      delBtn.addEventListener('click', () => {
+        delete params[key];
+        this._renderPropsFocused(() => this._panelAddButton());
+        this._commit();
+      });
       row.appendChild(ki); row.appendChild(vi); row.appendChild(delBtn);
       panel.appendChild(row);
     }
@@ -704,7 +708,10 @@ class AppProps {
       let k = 'param' + (Object.keys(params).length + 1);
       while (params[k] !== undefined) k += '_';
       params[k] = 0;
-      this._renderProps();
+      // Land on the name box of the row that was just created, which is what
+      // the user is about to type into.
+      this._renderPropsFocused(() =>
+        document.querySelector(`#props-content input[aria-label="Name of parameter ${k}"]`));
       this._commit();
     });
     panel.appendChild(addBtn);
@@ -1737,7 +1744,12 @@ class AppProps {
           name.textContent = `→ ${tgtNode ? (tgtNode.label || tgtNode.type) : '?'}`;
           const pct = document.createElement('span');
           pct.className = 'gate-out-pct';
-          pct.textContent = totalW > 0 ? `${Math.round(getW(c) / totalW * 100)}%` : '0%';
+          // All mode is not a split: every output takes its full weight in units
+          // each step (engine _fireGate), so a share of the total is simply the
+          // wrong number and read as a promise the gate never made.
+          pct.textContent = node.gateMode === 'all'
+            ? `${Math.round(getW(c))}/step`
+            : (totalW > 0 ? `${Math.round(getW(c) / totalW * 100)}%` : '0%');
           head.appendChild(name); head.appendChild(pct);
           card.appendChild(head);
 
@@ -1939,7 +1951,11 @@ class AppProps {
             const n = parseFloat(v); conn.weight = isFinite(n) ? Math.max(0, n) : 0; this.renderer.render();
           }, 'output share (0 = off)');
         }
-        this._info(panel, 'Share of the gate\'s resources routed down this output (deterministic split or weighted chance). A formula is re-evaluated each step, so the split can track variables (e.g. difficulty, gold).');
+        // The same overclaim the guide carried: in All mode the weight is not a
+        // share of anything, it is the number of units this output takes.
+        this._info(panel, src.gateMode === 'all'
+          ? 'Units routed down this output each step. In All mode every output takes its own weight independently, so these do not add up to a share. A formula is re-evaluated each step, so it can track variables (e.g. difficulty, gold).'
+          : 'Share of the gate\'s resources routed down this output (Split proportion or Random weighted chance). A formula is re-evaluated each step, so the split can track variables (e.g. difficulty, gold).');
       } else if (fromDelay) {
         // Delays release matured resources, split across outputs by rate.
         rateField();

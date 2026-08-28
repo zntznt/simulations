@@ -77,13 +77,22 @@ class AppExport {
     const font = tok('--font');
     for (const el of out.querySelectorAll('[font-family]'))
       if (el.getAttribute('font-family').startsWith('var(')) el.setAttribute('font-family', font);
+    const mono = tok('--mono');
     const style = svgEl('style');
     style.textContent = [
       '.n-count { fill: #fff; font-size: 13px; font-weight: 700; font-family: monospace; }',
       `.n-label, .n-badge, .grp-label { paint-order: stroke; stroke: ${tok('--bg')}; stroke-width: 3px; stroke-linejoin: round; }`,
-      `.n-label { fill: ${tok('--text')}; font-size: 11px; }`,
-      `.n-badge { fill: ${tok('--text-dim')}; font-size: 11px; }`,
-      `.conn-label { fill: ${tok('--text')}; }`,
+      // font-family belongs here, not only in the var() rewrite above: that loop
+      // only reaches elements that already carry the attribute, so node labels,
+      // badges and connection pills fell back to the browser serif in the file.
+      `.n-label { fill: ${tok('--text')}; font-size: 11px; font-family: ${font}; }`,
+      `.n-badge { fill: ${tok('--text-dim')}; font-size: 11px; font-family: ${font}; }`,
+      `.conn-label { fill: ${tok('--text')}; font-family: ${font}; }`,
+      // A converter's recipe caption carries no inline fill or size, so without
+      // a rule it took the SVG defaults: black at 16px on the exported #0d0e11
+      // background, a contrast ratio of about 1.09 to 1, and overrunning the
+      // node's label zone at nearly twice the intended size.
+      `.n-caption { fill: ${tok('--text-dim')}; font-size: 9px; font-family: ${mono}; }`,
     ].join('\n');
     out.insertBefore(style, defs);
     return { svg: out, w, h, bg };

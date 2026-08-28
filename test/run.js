@@ -734,6 +734,76 @@ test('a limited source emits its stock then runs dry', () => {
   eq(s.produced, 10, 'produced equals the emitted stock');
 });
 
+test('a mid-run save keeps the authored colour mix when the total is unchanged', () => {
+  // The amount and the colour mix drift independently. Gating the map write on
+  // the amount meant a balanced loop (income and spend at matching rates) never
+  // recorded either, so the reload rebased the authored mix to whatever was in
+  // transit and any colour filter keyed on the authored colour drew from less
+  // than the model says it holds.
+  const ORANGE = '#ffa726', GREEN = '#4caf50';
+  const d = new Diagram();
+  const gold = new MNode(NodeType.POOL, 200, 100); gold.label = 'Gold'; gold.setCount(20, ORANGE);
+  const mine = new MNode(NodeType.SOURCE, 0, 100); mine.label = 'Mine'; mine.resourceColor = GREEN;
+  const spend = new MNode(NodeType.DRAIN, 400, 100); spend.label = 'Spend';
+  d.addNode(gold); d.addNode(mine); d.addNode(spend);
+  d.addConnection(new MConnection(mine.id, gold.id, ConnectionType.RESOURCE));
+  d.addConnection(new MConnection(gold.id, spend.id, ConnectionType.RESOURCE));
+
+  const e = new SimEngine(d); e.reset();
+  for (let i = 0; i < 6; i++) e.doStep();
+  eq(gold.resources, 20, 'the balanced loop leaves the total untouched');
+  assert(gold.colorMap[GREEN] > 0, 'but the mix has drifted');
+
+  const back = new Diagram(); back.loadJSON(d.toJSON());
+  const g2 = [...back.nodes.values()].find(n => n.label === 'Gold');
+  const e2 = new SimEngine(back); e2.reset();
+  eq(g2.colorMap[ORANGE], 20, 'reset after reload restores the authored colour');
+  eq(g2.colorMap[GREEN], undefined, 'and holds none of what was in transit');
+});
+
+test('an at-rest diagram still writes no baseline fields', () => {
+  // The point of the guard: files that never ran stay byte-identical.
+  const d = new Diagram();
+  const p = new MNode(NodeType.POOL, 0, 0); p.label = 'Gold'; p.setCount(20, '#ffa726');
+  const s = new MNode(NodeType.SOURCE, 100, 0); s.label = 'Mine';
+  d.addNode(p); d.addNode(s);
+  d.addConnection(new MConnection(s.id, p.id, ConnectionType.RESOURCE));
+  const before = JSON.stringify(d.toJSON());
+  assert(!/initial(Resources|ColorMap)/.test(before), 'no baseline fields at rest');
+  const e = new SimEngine(d); e.reset();
+  eq(JSON.stringify(d.toJSON()), before, 'reset() alone changes nothing on disk');
+});
+
+test('a trader cannot pay out of a delay or a queue', () => {
+  // Their contents are mirrored by an internal queue that releases on its own
+  // schedule. takeResources would draw the count down and leave that queue
+  // intact, handing the same units to the partner and releasing them again:
+  // resources created from nothing, every step.
+  const qlen = (n) => (n._queue ? n._queue.reduce((s, b) => s + b.amount, 0) : 0)
+    + (n._fifo ? n._fifo.reduce((s, b) => s + b.amount, 0) : 0);
+
+  for (const partnerType of [NodeType.DELAY, NodeType.QUEUE, NodeType.POOL]) {
+    const d = new Diagram();
+    const gold = new MNode(NodeType.POOL, 0, 0); gold.label = 'Gold'; gold.setCount(20);
+    const mkt = new MNode(NodeType.TRADER, 200, 0); mkt.label = 'Market';
+    const ship = new MNode(partnerType, 400, 0); ship.label = 'Shipping'; ship.setCount(5);
+    const spent = new MNode(NodeType.DRAIN, 600, 0); spent.label = 'Spent';
+    d.addNode(gold); d.addNode(mkt); d.addNode(ship); d.addNode(spent);
+    d.addConnection(new MConnection(gold.id, mkt.id, ConnectionType.RESOURCE));
+    d.addConnection(new MConnection(mkt.id, ship.id, ConnectionType.RESOURCE));
+    d.addConnection(new MConnection(ship.id, spent.id, ConnectionType.RESOURCE));
+
+    const e = new SimEngine(d); e.reset();
+    const conserved = () => gold.resources + ship.resources + (spent.drained || 0);
+    const start = conserved();
+    for (let i = 0; i < 12; i++) e.doStep();
+    eq(conserved(), start, `${partnerType} partner: nothing is created or destroyed`);
+    if (partnerType !== NodeType.POOL) {
+      eq(qlen(ship), ship.resources, `${partnerType} partner: queue agrees with the count`);
+    }
+  }
+});
+
 test('.econ round-trip survives a node labelled with a DSL head keyword', () => {
   // dslParse dispatches on tokens[0] before scanning for an arrow, so a node
   // labelled `pool` that is the SOURCE of a connection emitted `pool -> Gold`

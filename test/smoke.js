@@ -495,6 +495,110 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('a colliding rename is rejected across the shared namespace, a real one still works');
   else fail('rename guard: ' + JSON.stringify(renameGuard));
 
+  // Round 2 findings.
+
+  // Backward Tab had no counterpart to the forward release: at the first node it
+  // computed -1, clamped back to 0 and reselected forever after preventDefault.
+  const backTab = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._closeFeature();
+    const d = window.app.diagram;
+    d.addNode(new MNode(NodeType.POOL, 200, 200));
+    d.addNode(new MNode(NodeType.POOL, 400, 300));
+    window.app.editor.setTool('select');
+    window.app.renderer.render();
+    const canvas = document.getElementById('canvas');
+    canvas.focus();
+    const tab = (shift) => window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: shift, bubbles: true }));
+    tab(false);                       // select the first node
+    const selected = window.app.renderer.selectedId;
+    tab(true);                        // must release, not reselect
+    return { selected: !!selected, afterBack: window.app.renderer.selectedId };
+  });
+  if (backTab.selected && backTab.afterBack === null)
+    ok('Shift+Tab releases backward off the first node instead of reselecting it');
+  else fail('backward tab: ' + JSON.stringify(backTab));
+
+  // Adding or deleting a rail row rebuilds #props-content, destroying the button
+  // that had focus and dropping it out of the panel entirely.
+  const rowFocus = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._closeFeature();
+    window.app.diagram.params = { alpha: 1, beta: 2 };
+    window.app.renderer.render();
+    window.app._commit();
+    document.querySelector('#diagram-rail .rail-btn[data-feature="params"]').click();
+    const label = () => {
+      const a = document.activeElement;
+      return a.tagName + (a.getAttribute && a.getAttribute('aria-label') ? `[${a.getAttribute('aria-label')}]` : '');
+    };
+    document.querySelector('#props-content .var-add-btn').click();
+    const afterAdd = label();
+    document.querySelector('#props-content button[aria-label="Delete parameter"]').click();
+    const afterDelete = label();
+    return { afterAdd, afterDelete };
+  });
+  if (/Name of parameter/.test(rowFocus.afterAdd) && rowFocus.afterDelete.startsWith('BUTTON'))
+    ok('adding or deleting a rail row keeps focus inside the panel');
+  else fail('row focus: ' + JSON.stringify(rowFocus));
+
+  // Note text wrapped only on spaces and was never clipped, so a pasted URL ran
+  // far outside the note in near-black, over whatever sat to the right.
+  const noteFit = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._closeFeature();
+    const n = window.app.diagram.addNote(new MNote(200, 200));
+    n.w = 160; n.h = 80;
+    n.text = 'Rebalance per https://example.com/economy/balance-notes/2026-08-28-draft';
+    window.app.renderer.render();
+    const el = document.querySelector('.sticky-note .note-text');
+    const bb = el.getBBox();
+    return {
+      spill: Math.round((bb.x + bb.width) - (n.x + n.w)),
+      clipped: !!el.getAttribute('clip-path'),
+      lines: el.querySelectorAll('tspan').length,
+    };
+  });
+  if (noteFit.spill <= 0 && noteFit.clipped && noteFit.lines > 1)
+    ok('a long unbroken word in a note wraps and stays inside its bounds');
+  else fail('note fit: ' + JSON.stringify(noteFit));
+
+  // The export style block omitted .n-caption entirely (black on the exported
+  // dark background) and only set font-family on elements already carrying it.
+  const expStyles = await page.evaluate(() => {
+    window.app._clearAll();
+    window.app._closeFeature();
+    const c = window.app.diagram.addNode(new MNode(NodeType.CONVERTER, 300, 300));
+    c.inputAmount = 2;
+    window.app.renderer.render();
+    const txt = new XMLSerializer().serializeToString(window.app._buildExportSVG().svg);
+    return {
+      caption: /\.n-caption\s*\{/.test(txt),
+      captionBlack: /\.n-caption[^}]*fill:\s*(#000|black)/i.test(txt),
+      labelFont: /\.n-label[^}]*font-family/.test(txt),
+    };
+  });
+  if (expStyles.caption && !expStyles.captionBlack && expStyles.labelFont)
+    ok('exported SVG carries the caption rule and a real font for every label');
+  else fail('export styles: ' + JSON.stringify(expStyles));
+
+  // The gate guide described only two of the three routing modes and claimed a
+  // gate stores nothing, both false once All mode exists.
+  const gateDocs = await page.evaluate(() => {
+    const gate = KB_ARTICLES.find(a => a.id === 'node-gate');
+    const lib = KB_ARTICLES.find(a => /library/i.test(a.id) || /Library/i.test(a.title));
+    return {
+      mentionsAll: /all mode/i.test(gate.body),
+      claimsNoStore: /without storing/i.test(gate.body),
+      libFileMenu: lib ? /File menu/i.test(lib.body) : true,
+      emDash: KB_ARTICLES.some(a => a.body.includes('\u2014')),
+    };
+  });
+  if (gateDocs.mentionsAll && !gateDocs.claimsNoStore && !gateDocs.libFileMenu && !gateDocs.emDash)
+    ok('guide describes all three gate modes and points at controls that exist');
+  else fail('kb copy: ' + JSON.stringify(gateDocs));
+
   // Navigation: zoom controls step the scale and update the readout; fit-to-content
   // re-frames without error.
   const nav = await page.evaluate(() => {

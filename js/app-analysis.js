@@ -494,7 +494,11 @@ class AppAnalysis {
       del.style.cssText = 'padding:2px 8px;flex-shrink:0';
       del.setAttribute('aria-label', 'Delete check');
       del.appendChild(this._faIcon('xmark'));
-      del.addEventListener('click', () => { list.splice(i, 1); this._renderProps(); this._commit(); });
+      del.addEventListener('click', () => {
+        list.splice(i, 1);
+        this._renderPropsFocused(() => this._panelAddButton());
+        this._commit();
+      });
       row.appendChild(inp); row.appendChild(del);
       panel.appendChild(row);
     });
@@ -509,7 +513,15 @@ class AppAnalysis {
     const addBtn = document.createElement('button');
     addBtn.textContent = '+ Add check';
     addBtn.className = 'btn var-add-btn';
-    addBtn.addEventListener('click', () => { list.push(''); this._renderProps(); this._commit(); });
+    addBtn.addEventListener('click', () => {
+      list.push('');
+      // The new check is the last row, and it is empty and waiting for input.
+      this._renderPropsFocused(() => {
+        const rows = document.querySelectorAll('#props-content .prop-row input[type="text"]');
+        return rows[rows.length - 1];
+      });
+      this._commit();
+    });
     panel.appendChild(addBtn);
 
     this._section(panel, 'Check against a run');

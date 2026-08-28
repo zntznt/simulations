@@ -840,7 +840,19 @@ class Renderer {
   _makeNoteEl(note) {
     const g = svgEl('g', { 'data-id': note.id, cursor: 'pointer' });
     g.appendChild(svgEl('rect', { class: 'note-bg', rx: '4', 'stroke-width': '1.5' }));
-    g.appendChild(svgEl('text', { class: 'note-text', 'font-size': '11', 'font-family': 'var(--font)', 'pointer-events': 'none' }));
+    // Clip the text to the note. Wrapping alone cannot guarantee a fit: it
+    // counts characters against a width, so wide glyphs and CJK overrun a line
+    // the wrapper believes fits. Unclipped, that text painted outside the note
+    // in near-black on the dark canvas, and noteLayer sits above nodeLayer so it
+    // covered whatever was to the right. Belt and braces with the hard break in
+    // _wrapNoteText.
+    const clip = svgEl('clipPath', { id: `noteclip-${note.id}` });
+    clip.appendChild(svgEl('rect', { class: 'note-clip-rect' }));
+    g.appendChild(clip);
+    g.appendChild(svgEl('text', {
+      class: 'note-text', 'font-size': '11', 'font-family': 'var(--font)',
+      'pointer-events': 'none', 'clip-path': `url(#noteclip-${note.id})`,
+    }));
     return g;
   }
 
@@ -872,6 +884,13 @@ class Renderer {
       textEl.appendChild(ts);
     });
     textEl.setAttribute('fill', '#1a1a1a');
+    const clipRect = el.querySelector('.note-clip-rect');
+    if (clipRect) {
+      clipRect.setAttribute('x', String(note.x));
+      clipRect.setAttribute('y', String(note.y));
+      clipRect.setAttribute('width', String(Math.max(0, note.w)));
+      clipRect.setAttribute('height', String(Math.max(0, note.h)));
+    }
     this._updateResizeHandles(el, note, isSel);
   }
 
@@ -884,6 +903,15 @@ class Renderer {
       let line = '';
       for (const word of words) {
         if (!word) continue;
+        // A word longer than the line can never fit by moving it down, so break
+        // it. Without this a pasted URL was one 57-character "word" emitted as a
+        // single line that ran far past the note's edge.
+        if (word.length > maxChars) {
+          if (line) { result.push(line); line = ''; }
+          for (let i = 0; i < word.length; i += maxChars) result.push(word.slice(i, i + maxChars));
+          line = result.pop();
+          continue;
+        }
         if (line && line.length + 1 + word.length > maxChars) {
           result.push(line); line = word;
         } else {

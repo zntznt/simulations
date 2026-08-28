@@ -966,6 +966,18 @@ class SimEngine {
         const color = n.resourceColor || DEFAULT_COLOR;
         return (conn.colorFilter && color !== conn.colorFilter) ? 0 : Infinity;
       }
+      // A delay and a queue do not hold their contents freely: what they show is
+      // mirrored by an internal queue (_queue / _fifo) that releases on its own
+      // schedule. pay() below reaches for takeResources, which would draw the
+      // count down while leaving that queue untouched, so the same units are
+      // handed to the partner AND released again when their time comes. That
+      // creates resources out of nothing every step, silently, and the count and
+      // the queue drift apart (measured: a delay partner grew the system total
+      // from 25 to 36 over twelve steps while its queue owed 2 against a count
+      // of 1). Nothing in transit is available to trade, so it cannot pay.
+      // Receiving is unaffected: _give routes an arrival through the queue
+      // properly, so a delay or queue on the trader's far end still works.
+      if (n.type === NodeType.DELAY || n.type === NodeType.QUEUE) return 0;
       n.reconcile();
       return conn.colorFilter ? (n.colorMap[conn.colorFilter] || 0) : n.resources;
     };
