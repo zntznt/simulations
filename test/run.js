@@ -804,6 +804,50 @@ test('a trader cannot pay out of a delay or a queue', () => {
   }
 });
 
+test('a Monte Carlo batch yields inside a trial, not only between trials', () => {
+  // runMonteCarloAsync is time-boxed at 14ms per chunk, but the generator only
+  // yielded once a whole trial had finished, so a single long trial ran
+  // uninterruptible: the UI froze in blocks as long as one trial and Cancel
+  // went unanswered until it ended.
+  const d = new Diagram();
+  const src = new MNode(NodeType.SOURCE, 0, 0); src.label = 'Mine';
+  const pool = new MNode(NodeType.POOL, 200, 0); pool.label = 'Gold';
+  d.addNode(src); d.addNode(pool);
+  d.addConnection(new MConnection(src.id, pool.id, ConnectionType.RESOURCE));
+
+  const e = new SimEngine(d);
+  const job = e._mcTrials(2, 25, {});
+  let yields = 0, progressYields = 0;
+  for (let r = job.next(); !r.done; r = job.next()) {
+    yields++;
+    if (!r.value.partial) progressYields++;
+  }
+  eq(progressYields, 2, 'one progress yield per completed trial');
+  assert(yields >= 2 * 25, `yields inside each trial too (got ${yields})`);
+});
+
+testAsync('a cancelled Monte Carlo batch still restores the RNG it borrowed', async () => {
+  // The driver dropped the generator on cancel instead of closing it, so the
+  // finally block never ran and the shared RNG stayed parked on the last
+  // trial's sub-seed.
+  const d = new Diagram();
+  d.seed = 'live';
+  const src = new MNode(NodeType.SOURCE, 0, 0); src.label = 'Mine';
+  const pool = new MNode(NodeType.POOL, 200, 0); pool.label = 'Gold';
+  const c = new MConnection(src.id, pool.id, ConnectionType.RESOURCE);
+  c.rateMode = RateMode.DICE; c.dice = '2d6';
+  d.addNode(src); d.addNode(pool); d.addConnection(c);
+
+  const e = new SimEngine(d); e.reset();
+  for (let i = 0; i < 5; i++) e.doStep();
+  const before = SimRandom.getState();
+  let ticks = 0;
+  const res = await e.runMonteCarloAsync(2000, 500, { seed: 'batch', shouldCancel: () => (++ticks > 1) });
+  eq(res, null, 'a cancelled batch resolves null');
+  assert(ticks >= 2, 'the batch ran a chunk of trials before being cancelled');
+  eq(SimRandom.getState(), before, 'the live run keeps its stream position');
+});
+
 test('a Monte Carlo batch leaves a paused seeded run where it found it', () => {
   // Batch Analysis stops the live run but does not reset it, so the run resumes
   // on the shared RNG. Every trial reseeds that RNG and the batch used to clear

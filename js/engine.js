@@ -1498,7 +1498,7 @@ class SimEngine {
   }
 
   // Same batch, but yields to the event loop between time-boxed chunks of
-  // trials so the UI stays responsive; reports progress via opts.onProgress.
+  // work so the UI stays responsive; reports progress via opts.onProgress.
   runMonteCarloAsync(runs = 100, maxSteps = 200, opts = {}) {
     return new Promise(resolve => {
       const job = this._mcTrials(runs, maxSteps, opts);
@@ -1506,21 +1506,30 @@ class SimEngine {
         // Cooperative cancellation: bail between chunks if the caller asks to
         // stop (e.g. a Cancel button on a long batch). Resolves to null so the
         // caller can distinguish a cancelled run from a completed one.
-        if (opts.shouldCancel && opts.shouldCancel()) { resolve(null); return; }
+        if (opts.shouldCancel && opts.shouldCancel()) {
+          // Close the generator so its finally block runs: abandoning it left
+          // the shared RNG parked on the last trial's sub-seed.
+          job.return();
+          resolve(null);
+          return;
+        }
         const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
         let r = job.next();
         while (!r.done && ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) < 14) {
           r = job.next();
         }
         if (r.done) { resolve(r.value); return; }
-        if (opts.onProgress) opts.onProgress(r.value.done, r.value.total);
+        // Mid-trial breaths carry no new progress; only completed trials do.
+        if (opts.onProgress && !r.value.partial) opts.onProgress(r.value.done, r.value.total);
         setTimeout(tick, 0);
       };
       tick();
     });
   }
 
-  // Generator running one trial per yield. Shared by the sync and async paths.
+  // Generator yielding after every step, and again at the end of each trial
+  // (the unmarked yields, which carry progress). Shared by the sync and async
+  // paths.
   *_mcTrials(runs, maxSteps, opts = {}) {
     runs = Math.max(1, Math.round(runs));
     maxSteps = Math.max(1, Math.round(maxSteps));
@@ -1560,6 +1569,12 @@ class SimEngine {
         while (s < maxSteps && !eng.ended) {
           eng.doStep(); s++;
           if (opts.perStep) opts.perStep(eng, r);
+          // Breathe inside the trial too. One trial of a large model can take
+          // most of a second by itself, and yielding only between whole trials
+          // put that entirely outside the async driver's 14 ms time box: the UI
+          // froze in second-long blocks and Cancel went unanswered until the
+          // trial finished. Marked partial so it does not report progress.
+          yield { done: r, total: runs, partial: true };
         }
         if (opts.onTrialEnd) opts.onTrialEnd(eng, r);
         for (const [id, arr] of samples) {
