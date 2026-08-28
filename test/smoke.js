@@ -2588,6 +2588,70 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Persistence: undo and redo have to reach autosave. They moved _lastState
+  // and repainted the canvas but never wrote it, so an accidental Delete looked
+  // repaired by Ctrl+Z and came back on the next reload with the deletion intact
+  // and the undo stack gone.
+  const undoSave = await page.evaluate(() => {
+    const app = window.app;
+    const saved = () => {
+      try { return (JSON.parse(localStorage.getItem('sim_autosave') || '{}').nodes || []).length; }
+      catch { return -1; }
+    };
+    app._clearAll(); app._commit();
+    app._loadDemo(); app._commit();
+    const built = app.diagram.nodes.size;
+    for (const id of [...app.diagram.nodes.keys()]) app.diagram.removeNode(id);
+    app.renderer.render(); app._commit();
+    const afterDelete = saved();
+    app.undo();
+    const onCanvas = app.diagram.nodes.size, inStorage = saved();
+    app.redo();
+    return { built, afterDelete, onCanvas, inStorage, afterRedo: saved() };
+  });
+  if (undoSave.built > 0 && undoSave.afterDelete === 0
+    && undoSave.onCanvas === undoSave.built && undoSave.inStorage === undoSave.built
+    && undoSave.afterRedo === 0)
+    ok(`persistence: undo and redo write autosave (${undoSave.built} nodes back on canvas and in storage)`);
+  else fail('undo autosave: ' + JSON.stringify(undoSave));
+
+  // Persistence: File > Open replaces everything on the canvas, so it must ask
+  // first and stay undoable, like New / Load template / Load from library. It
+  // did neither, and reset the history, so the replaced work was unrecoverable.
+  const openFile = await (async () => {
+    await page.evaluate(() => {
+      const app = window.app;
+      app._clearAll(); app._loadDemo(); app._commit();
+      // Record the guard instead of racing the overlay open: what matters is
+      // that Open goes through it at all, and with the file named.
+      window.__guard = null;
+      app.__realGuard = app._confirmGuard;
+      app._confirmGuard = (msg, title) => { window.__guard = { msg, title }; return Promise.resolve(true); };
+    });
+    const before = await page.evaluate(() => window.app.diagram.nodes.size);
+    const payload = JSON.stringify({ version: 1, nodes: [{ id: 'n1', type: 'pool', x: 100, y: 100, label: 'Imported' }], connections: [] });
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.evaluate(() => document.getElementById('btn-load').click()),
+    ]);
+    await chooser.setFiles({ name: 'imported.json', mimeType: 'application/json', buffer: Buffer.from(payload) });
+    await page.waitForFunction(() => window.app.diagram.nodes.size === 1, { timeout: 3000 }).catch(() => {});
+    const r = await page.evaluate(() => {
+      const app = window.app;
+      const afterOpen = app.diagram.nodes.size;
+      const undoable = !document.getElementById('btn-undo').disabled;
+      app.undo();
+      const afterUndo = app.diagram.nodes.size;
+      app._confirmGuard = app.__realGuard; delete app.__realGuard;
+      return { guard: window.__guard, afterOpen, undoable, afterUndo };
+    });
+    return { before, ...r };
+  })();
+  if (openFile.guard && /imported\.json/.test(openFile.guard.msg) && openFile.afterOpen === 1
+    && openFile.undoable && openFile.afterUndo === openFile.before)
+    ok('persistence: File > Open confirms first and stays undoable');
+  else fail('File > Open: ' + JSON.stringify(openFile));
+
   // UX pass: first-run welcome overlay shows for a brand-new user, dismisses,
   // and sets the seen flag (use a fresh context with no suppression).
   const welcome = await (async () => {
