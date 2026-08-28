@@ -513,7 +513,15 @@ class App {
     this._redoStack = [];
     this._lastState = snap;
     this._updateUndoButtons();
-    try { localStorage.setItem('sim_autosave', this._lastState); } catch {}
+    this._persistAutosave();
+  }
+
+  // Mirror the current state into the autosave slot. Every path that changes
+  // what is on the canvas has to call this: undo and redo moved _lastState
+  // without it, so an undo looked repaired on screen and was thrown away on the
+  // next reload, taking the mistake it had just undone with it.
+  _persistAutosave() {
+    try { localStorage.setItem('sim_autosave', this._lastState); } catch { /* blocked storage */ }
   }
 
   // Record that the diagram changed (push the previous state onto the stack).
@@ -534,7 +542,7 @@ class App {
     this._redoStack = [];
     this._lastState = snap;
     this._updateUndoButtons();
-    try { localStorage.setItem('sim_autosave', this._lastState); } catch {}
+    this._persistAutosave();
     // Mark any open MC results as potentially stale since the diagram changed.
     this._markMCStale();
     // A structural edit may satisfy the current tour step (placed a node / drew
@@ -556,6 +564,7 @@ class App {
     this._redoStack.push(this._lastState);
     this._lastState = this._undoStack.pop();
     this._restoreState(this._lastState);
+    this._persistAutosave();
     this._updateUndoButtons();
   }
 
@@ -564,6 +573,7 @@ class App {
     this._undoStack.push(this._lastState);
     this._lastState = this._redoStack.pop();
     this._restoreState(this._lastState);
+    this._persistAutosave();
     this._updateUndoButtons();
   }
 
@@ -789,7 +799,7 @@ class App {
       // the URL is the document, and an embed must not write over the host
       // page's autosave.
       if (!document.body.classList.contains('embed')) {
-        try { localStorage.setItem('sim_autosave', this._lastState); } catch { /* blocked storage */ }
+        this._persistAutosave();
         try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
       }
       return;
@@ -1391,7 +1401,7 @@ class App {
         const file = e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = ev => {
+        reader.onload = async ev => {
           // Parse + validate on a throwaway Diagram BEFORE touching the current
           // one: loadJSON clears everything first, so a corrupt file would
           // otherwise wreck the diagram (and the next autosave persists that).
@@ -1405,6 +1415,19 @@ class App {
             this._toast(`Invalid file: ${err.message}. Your current diagram is unchanged.`);
             return;
           }
+          // Opening a file replaces everything on the canvas, exactly like New,
+          // Load template and Load from library. It asked for none of their
+          // confirmation and, by resetting the history instead of committing
+          // the swap, left no way back: Ctrl+Z did nothing and the work was
+          // gone. Ask first, and keep the previous diagram one undo away.
+          // The guard only runs once the file has parsed, so a mistyped or
+          // cancelled pick never nags.
+          if (this.diagram.nodes.size || this.diagram.notes.size) {
+            if (!await this._confirmGuard(
+              `Open "${file.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`,
+              'Open file')) return;
+          }
+          const prev = this._snapshot();
           this.diagram.loadJSON(data);
           this._applyMeta();
           this.engine.reset();
@@ -1414,7 +1437,7 @@ class App {
           this.editor._select(null, null);
           this.renderer.render();
           this.renderer.fitView();
-          this._resetHistory();
+          this._commitReplace(prev);
         };
         reader.readAsText(file);
       };
@@ -1547,6 +1570,9 @@ class App {
     this._modalize('mc-overlay');
     document.getElementById('mc-run').addEventListener('click', () => this._runMonteCarlo());
     document.getElementById('mc-sweep-run').addEventListener('click', () => this._runSweep());
+    // Re-seed the sweep range when the parameter changes, not just on open.
+    document.getElementById('mc-sweep-param')
+      .addEventListener('change', (e) => this._seedSweepRange(e.target.value));
     document.getElementById('mc-sens-run').addEventListener('click', () => this._runSensitivity());
 
     // Touch layout ☰ overflow: the controls the collapsed topbar hides

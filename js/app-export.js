@@ -109,6 +109,18 @@ class AppExport {
     a.click();
   }
 
+  // Largest raster scale that still fits inside the browser's canvas limits.
+  // Browsers cap both a canvas's longest side and its total area; past either,
+  // drawImage silently does nothing and toDataURL hands back a blank image, so
+  // a big diagram used to download a 0-byte PNG with no error anywhere.
+  // 2x (crisp on high-DPI screens) whenever it fits, less when it does not.
+  _pngScale(w, h) {
+    const MAX_DIM = 16384;   // conservative across browsers
+    const MAX_AREA = 2.0e8;  // Chromium's ceiling is 268,435,456 px
+    if (!(w > 0) || !(h > 0)) return 1;
+    return Math.max(0.02, Math.min(2, MAX_DIM / w, MAX_DIM / h, Math.sqrt(MAX_AREA / (w * h))));
+  }
+
   _exportPNG() {
     const built = this._buildExportSVG();
     if (!built) return;
@@ -118,19 +130,31 @@ class AppExport {
     const url = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
-      // 2x the diagram's natural size, for crispness on high-DPI screens.
+      const scale = this._pngScale(w, h);
       const canvas = document.createElement('canvas');
-      canvas.width = w * 2; canvas.height = h * 2;
+      canvas.width = Math.max(1, Math.floor(w * scale));
+      canvas.height = Math.max(1, Math.floor(h * scale));
       const ctx = canvas.getContext('2d');
-      ctx.scale(2, 2);
+      ctx.scale(scale, scale);
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
       ctx.drawImage(img, 0, 0, w, h);
+      let href = '';
+      try { href = canvas.toDataURL('image/png'); } catch { /* tainted or oversized */ }
+      URL.revokeObjectURL(url);
+      // A canvas the browser refused to rasterize returns a stub or nothing at
+      // all. Better to say so than to hand over an empty file.
+      if (!href || href.length < 128) {
+        this._toast('This diagram is too large to export as PNG. Export SVG instead, which has no size limit.');
+        return;
+      }
       const a = Object.assign(document.createElement('a'), {
-        download: this._exportFilename('png'), href: canvas.toDataURL('image/png'),
+        download: this._exportFilename('png'), href,
       });
       a.click();
-      URL.revokeObjectURL(url);
+      if (scale < 2) {
+        this._toast(`This diagram is large, so the PNG was rendered at ${Math.round(scale * 100)}% to stay inside the browser's canvas limit. SVG exports at full size.`);
+      }
     };
     img.onerror = () => URL.revokeObjectURL(url);
     img.src = url;

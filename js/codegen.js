@@ -85,8 +85,18 @@ function createEconomy(opts = {}) {
       if (!n) throw new Error('set(): no node labeled ' + JSON.stringify(name));
       if (n.type === NodeType.REGISTER) { n.value = Number(v) || 0; return api; }
       if (n.type === NodeType.POOL || (n.type === NodeType.SOURCE && n.limited)) {
-        n.resources = Math.max(0, Number(v) || 0);
-        n.reconcile();
+        // Keep the node's own resource type. Writing \`resources\` and letting
+        // reconcile() backfill made every added unit untyped grey, so a
+        // colour-filtered connection or a converter recipe stopped accepting
+        // the contents of a pool the host game had just topped up.
+        const want = Math.max(0, Number(v) || 0);
+        const delta = want - n.resources;
+        if (delta > 0) {
+          n.addResources(delta, dominantColor(n.colorMap)
+            || dominantColor(n._initialColorMap || {}) || n.resourceColor || DEFAULT_COLOR);
+        } else if (delta < 0) {
+          n.takeResources(-delta);
+        }
         return api;
       }
       throw new Error('set() supports pools, limited sources and registers');

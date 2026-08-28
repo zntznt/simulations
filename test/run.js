@@ -804,6 +804,170 @@ test('a trader cannot pay out of a delay or a queue', () => {
   }
 });
 
+test('a Monte Carlo batch yields inside a trial, not only between trials', () => {
+  // runMonteCarloAsync is time-boxed at 14ms per chunk, but the generator only
+  // yielded once a whole trial had finished, so a single long trial ran
+  // uninterruptible: the UI froze in blocks as long as one trial and Cancel
+  // went unanswered until it ended.
+  const d = new Diagram();
+  const src = new MNode(NodeType.SOURCE, 0, 0); src.label = 'Mine';
+  const pool = new MNode(NodeType.POOL, 200, 0); pool.label = 'Gold';
+  d.addNode(src); d.addNode(pool);
+  d.addConnection(new MConnection(src.id, pool.id, ConnectionType.RESOURCE));
+
+  const e = new SimEngine(d);
+  const job = e._mcTrials(2, 25, {});
+  let yields = 0, progressYields = 0;
+  for (let r = job.next(); !r.done; r = job.next()) {
+    yields++;
+    if (!r.value.partial) progressYields++;
+  }
+  eq(progressYields, 2, 'one progress yield per completed trial');
+  assert(yields >= 2 * 25, `yields inside each trial too (got ${yields})`);
+});
+
+testAsync('a cancelled Monte Carlo batch still restores the RNG it borrowed', async () => {
+  // The driver dropped the generator on cancel instead of closing it, so the
+  // finally block never ran and the shared RNG stayed parked on the last
+  // trial's sub-seed.
+  const d = new Diagram();
+  d.seed = 'live';
+  const src = new MNode(NodeType.SOURCE, 0, 0); src.label = 'Mine';
+  const pool = new MNode(NodeType.POOL, 200, 0); pool.label = 'Gold';
+  const c = new MConnection(src.id, pool.id, ConnectionType.RESOURCE);
+  c.rateMode = RateMode.DICE; c.dice = '2d6';
+  d.addNode(src); d.addNode(pool); d.addConnection(c);
+
+  const e = new SimEngine(d); e.reset();
+  for (let i = 0; i < 5; i++) e.doStep();
+  const before = SimRandom.getState();
+  let ticks = 0;
+  const res = await e.runMonteCarloAsync(2000, 500, { seed: 'batch', shouldCancel: () => (++ticks > 1) });
+  eq(res, null, 'a cancelled batch resolves null');
+  assert(ticks >= 2, 'the batch ran a chunk of trials before being cancelled');
+  eq(SimRandom.getState(), before, 'the live run keeps its stream position');
+});
+
+test('a Monte Carlo batch leaves a paused seeded run where it found it', () => {
+  // Batch Analysis stops the live run but does not reset it, so the run resumes
+  // on the shared RNG. Every trial reseeds that RNG and the batch used to clear
+  // it back to Math.random, so a paused seeded run silently finished its
+  // remaining steps unseeded and unreproducible.
+  const build = () => {
+    const d = new Diagram();
+    d.seed = 'live-42';
+    const src = new MNode(NodeType.SOURCE, 0, 0); src.label = 'Mine';
+    const pool = new MNode(NodeType.POOL, 200, 0); pool.label = 'Gold';
+    d.addNode(src); d.addNode(pool);
+    const c = new MConnection(src.id, pool.id, ConnectionType.RESOURCE);
+    c.rateMode = RateMode.DICE; c.dice = '2d6';
+    d.addConnection(c);
+    return { d, pool };
+  };
+
+  // Reference: a seeded run of 20 steps, uninterrupted.
+  const a = build();
+  const ea = new SimEngine(a.d); ea.reset();
+  for (let i = 0; i < 20; i++) ea.doStep();
+  const want = a.pool.resources;
+
+  for (const batchSeed of ['mc-seed', null]) {
+    const b = build();
+    const eb = new SimEngine(b.d); eb.reset();
+    for (let i = 0; i < 10; i++) eb.doStep();
+    eb.runMonteCarlo(5, 8, { seed: batchSeed });
+    for (let i = 0; i < 10; i++) eb.doStep();
+    eq(b.pool.resources, want,
+      `batch seed ${batchSeed}: the paused run resumes on its own seeded stream`);
+  }
+});
+
+test('detectLoops finds a ring economy longer than ten nodes', () => {
+  // The depth limit was 10, so a 12-stage production ring - one loop and
+  // nothing else - enumerated no cycles at all and the Loops panel reported
+  // "No feedback loops found" for a diagram that is entirely one loop.
+  const ring = (n) => {
+    const d = new Diagram();
+    const ns = [];
+    for (let i = 0; i < n; i++) {
+      const p = new MNode(NodeType.POOL, i * 60, 0); p.label = 'Stage' + (i + 1);
+      p.setCount(5); d.addNode(p); ns.push(p);
+    }
+    for (let i = 0; i < n; i++) {
+      d.addConnection(new MConnection(ns[i].id, ns[(i + 1) % n].id, ConnectionType.RESOURCE));
+    }
+    return d;
+  };
+  for (const n of [12, 20, 30]) {
+    const { loops, truncated } = detectLoops(ring(n));
+    eq(loops.length, 1, `${n}-stage ring: exactly one cycle`);
+    eq(loops[0].nodes.length, n, `${n}-stage ring: the whole ring`);
+    eq(loops[0].type, 'F', `${n}-stage ring: a pure resource circulation`);
+    eq(truncated, false, `${n}-stage ring: search was not cut short`);
+  }
+  // Past the limit the caller is told the search stopped early rather than
+  // being handed a bare empty list.
+  const big = detectLoops(ring(40));
+  eq(big.loops.length, 0, 'a 40-stage ring is past the depth limit');
+  eq(big.truncated, true, 'and reports that the search was truncated');
+});
+
+test('a delay or queue releases its authored starting stock without a Reset first', () => {
+  // _queue/_fifo were only ever built in reset(), but the app's Run and Step
+  // buttons do not reset: they bootstrap at step 0 with saveInitial() alone. So
+  // a freshly authored delay held its stock forever, releasing nothing.
+  for (const kind of [NodeType.DELAY, NodeType.QUEUE]) {
+    const d = new Diagram();
+    const belt = new MNode(kind, 0, 0); belt.label = 'Belt';
+    belt.delay = 2; belt.processTime = 2; belt.servers = 4;
+    belt.setCount(10, '#8d6e63');
+    const out = new MNode(NodeType.POOL, 200, 0); out.label = 'Out';
+    d.addNode(belt); d.addNode(out);
+    const c = new MConnection(belt.id, out.id, ConnectionType.RESOURCE); c.rate = 99;
+    d.addConnection(c);
+
+    const e = new SimEngine(d); // deliberately NO reset(), like pressing Run
+    for (let i = 0; i < 30; i++) e.doStep();
+    eq(out.resources, 10, `${kind}: the starting stock reaches the output`);
+    eq(belt.resources, 0, `${kind}: nothing is stranded in the node`);
+  }
+});
+
+test('setLiveCount moves a delay or queue pipeline, not just the count', () => {
+  // The properties panel's Amount field and +/- steppers reach for the model
+  // primitives, which write `resources` and leave `_queue`/`_fifo` owing the old
+  // amount: the node then releases units it no longer has (created from
+  // nothing), or keeps ones nothing will ever release. Same hazard as the
+  // trader guard, at the panel's call site.
+  const pipeline = (n) => (n._queue || []).reduce((s, b) => s + b.amount, 0)
+    + (n._fifo || []).reduce((s, b) => s + b.amount, 0) + (n._procs || []).length;
+
+  for (const kind of [NodeType.DELAY, NodeType.QUEUE]) {
+    for (const [nudge, want] of [[-3, 7], [3, 13]]) {
+      const d = new Diagram();
+      const belt = new MNode(kind, 0, 0); belt.label = 'Belt';
+      belt.delay = 4; belt.processTime = 4; belt.servers = 4;
+      belt.setCount(10, '#8d6e63');
+      const out = new MNode(NodeType.POOL, 200, 0); out.label = 'Out';
+      d.addNode(belt); d.addNode(out);
+      const c = new MConnection(belt.id, out.id, ConnectionType.RESOURCE); c.rate = 99;
+      d.addConnection(c);
+
+      const e = new SimEngine(d); e.reset();
+      e.doStep(); e.doStep(); // everything is in transit inside the node
+      eq(pipeline(belt), belt.resources, `${kind}: pipeline agrees before the edit`);
+      for (let k = 0; k < Math.abs(nudge); k++) {
+        e.setLiveCount(belt, belt.resources + Math.sign(nudge), '#8d6e63');
+      }
+      eq(belt.resources, want, `${kind} ${nudge}: the count follows the edit`);
+      eq(pipeline(belt), belt.resources, `${kind} ${nudge}: pipeline follows too`);
+      for (let i = 0; i < 60; i++) e.doStep();
+      eq(belt.resources + out.resources, want,
+        `${kind} ${nudge}: nothing created or stranded over the whole run`);
+    }
+  }
+});
+
 test('.econ round-trip survives a node labelled with a DSL head keyword', () => {
   // dslParse dispatches on tokens[0] before scanning for an arrow, so a node
   // labelled `pool` that is the SOURCE of a connection emitted `pool -> Gold`
@@ -3370,6 +3534,31 @@ test('generated module simulates the embedded economy', () => {
   eq(eco.get('Gold'), 0, 'reset restores the baseline');
 });
 
+test('generated module set() keeps a pool\'s resource type', () => {
+  // set() wrote `resources` and let reconcile() backfill the difference, which
+  // types every added unit DEFAULT_COLOR grey. A colour-filtered connection or
+  // a converter recipe then refused the units the host game had just added.
+  const WOOD = '#8d6e63';
+  const { d } = setup();
+  const p = node(d, NodeType.POOL); p.label = 'Warehouse'; p.setCount(10, WOOD);
+  const mill = node(d, NodeType.POOL); mill.label = 'Mill';
+  const c = conn(d, p, mill); c.rate = 5; c.colorFilter = WOOD;
+
+  const Economy = buildTestModule(d.toJSON());
+  const eco = Economy.createEconomy();
+  eco.set('Warehouse', 50);
+  eq(eco.get('Warehouse'), 50, 'set() applies the amount');
+  eco.run(20);
+  eq(eco.get('Mill'), 50, 'the colour-filtered flow accepts every unit set() added');
+  eq(eco.get('Warehouse'), 0, 'and the warehouse empties');
+
+  // Setting downward must not invent a type either.
+  const eco2 = Economy.createEconomy();
+  eco2.set('Warehouse', 4);
+  eco2.run(20);
+  eq(eco2.get('Mill'), 4, 'trimming leaves only typed units behind');
+});
+
 test('generated module honors seed and param overrides deterministically', () => {
   const { d } = setup();
   const s = node(d, NodeType.SOURCE); s.label = 'Mine';
@@ -3691,6 +3880,54 @@ test('cli --why prints an attribution table', () => {
 
 // ── Economy as code: CLI end-to-end ─────────────────────────────────────────
 console.log('\nEconomy as code: CLI');
+
+test('cli rejects a malformed numeric option instead of running a different economy', () => {
+  // parseFloat/parseInt stop at the first character they cannot use, so
+  // `--param carrying=1,000` ran with a carrying capacity of 1 and exited 0:
+  // a different simulation than the one asked for, with nothing to say so.
+  const { execFileSync } = require('child_process');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'econ-cli-num-'));
+  const econPath = path.join(dir, 'mine.econ');
+  fs.writeFileSync(econPath, [
+    'param rate = 2',
+    'source Mine @ 0,0', 'pool Gold @ 100,0',
+    'Mine -> Gold : (rate)',
+  ].join('\n'));
+  const cli = path.join(__dirname, '..', 'cli.js');
+  const run = (args) => {
+    try { return { out: execFileSync(process.execPath, [cli, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), err: '', code: 0 }; }
+    catch (e) { return { out: String(e.stdout || ''), err: String(e.stderr || ''), code: e.status }; }
+  };
+
+  for (const bad of ['rate=1,000', 'rate=abc', 'rate=3x', 'rate=']) {
+    const r = run([econPath, '--steps', '5', '--param', bad]);
+    eq(r.code, 1, `--param ${bad} is a usage error`);
+    assert(/expects a number|expects name=value/.test(r.err), `--param ${bad} says why`);
+  }
+  for (const good of ['rate=3', 'rate=2.5', 'rate=1e2', 'rate=-4', 'rate=.5']) {
+    eq(run([econPath, '--steps', '5', '--param', good]).code, 0, `--param ${good} still runs`);
+  }
+  eq(run([econPath, '--steps', '30x']).code, 1, '--steps 30x is a usage error');
+  eq(run([econPath, '--steps', '5', '--runs', '2y']).code, 1, '--runs 2y is a usage error');
+  eq(run([econPath, '--steps', '5', '--pass-rate', 'high']).code, 1, '--pass-rate high is a usage error');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('cli --help prints the header block, not the whole source comment set', () => {
+  // The help text was every `//` line in the file, so it trailed off into
+  // implementation notes from the middle of cli.js.
+  const { execFileSync } = require('child_process');
+  const cli = path.join(__dirname, '..', 'cli.js');
+  const out = execFileSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
+  assert(/Options:/.test(out), 'options section is present');
+  assert(/--param name=val/.test(out), 'options are documented');
+  assert(/Examples:/.test(out), 'examples section is present');
+  assert(!/loading trick|Exit quietly when the consumer/.test(out),
+    'implementation notes stay out of the help text');
+  assert(!/Load the diagram: JSON/.test(out), 'section rules stay out of the help text');
+  assert(!out.includes('\u2014'), 'no em dashes in user-facing help copy');
+});
 
 test('cli runs .econ input, checks assertions and converts formats', () => {
   const { execFileSync } = require('child_process');

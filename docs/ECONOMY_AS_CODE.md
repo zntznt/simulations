@@ -223,5 +223,8 @@ Notes:
   seeded economy at a time per process for bit-exact reproducibility.
 - `createEconomy()` parses a fresh copy of the embedded diagram each call, so
   instances never share mutable state.
+- `set()` keeps the node's own resource type: topping a pool up adds units of
+  whatever it already holds (or of the type it was authored with, when empty),
+  so colour-filtered connections and converter recipes still accept them.
 - The module also exports `Diagram`, `SimEngine`, `SimRandom` and `NodeType`
   for power users who want to go under the hood.

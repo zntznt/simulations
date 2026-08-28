@@ -31,6 +31,72 @@ class SimEngine {
     }
   }
 
+  // Rebuild the in-flight pipelines from what each node currently holds. A
+  // Delay's `_queue` and a Queue's `_fifo` ARE its resources in transit: a count
+  // with no pipeline behind it never releases, and a pipeline with no count
+  // behind it releases resources the node does not have. Both reset() and the
+  // step-0 bootstrap seed them from colorMap, so a freshly authored delay
+  // releases its starting stock on Run instead of stranding it forever (the app
+  // does not reset() before Run). At step 0 the count is the baseline, so
+  // rebuilding from it is always correct and safe to repeat.
+  _seedPipelines() {
+    for (const n of this.diagram.nodes.values()) {
+      if (n.type === NodeType.DELAY) {
+        n._queue = Object.entries(n.colorMap).filter(([, a]) => a > 0)
+          .map(([color, amount]) => ({ amount, color, stepsLeft: n.delay }));
+      } else if (n.type === NodeType.QUEUE) {
+        // Units already in service are re-lined rather than kept mid-service:
+        // at a run start nothing has been served yet.
+        n._procs = [];
+        n._fifo = Object.entries(n.colorMap).filter(([, a]) => a > 0)
+          .map(([color, amount]) => ({ amount, color, enq: 0 }));
+      }
+    }
+  }
+
+  // Set a Delay's or Queue's live count while keeping its pipeline in step with
+  // it. Their count is not free-standing state, so writing `resources` alone
+  // (what setCount/addResources/takeResources do) desyncs the two: the pipeline
+  // still owes what it held, so the difference is released out of nothing, or
+  // stranded forever with nothing left to release it. Returns the applied delta.
+  setLiveCount(node, target, color = DEFAULT_COLOR) {
+    const want = Math.max(0, Math.round(target));
+    const delta = want - node.resources;
+    if (!isFinite(delta) || delta === 0) return 0;
+    if (delta > 0) {
+      node.addResources(delta, color);
+      if (node.type === NodeType.DELAY) {
+        (node._queue = node._queue || [])
+          .push({ amount: delta, color, stepsLeft: Math.max(1, Math.round(node.delay || 1)) });
+      } else {
+        (node._fifo = node._fifo || []).push({ amount: delta, color, enq: this.step });
+      }
+      return delta;
+    }
+    // Removing takes from the newest end first, so a "-" undoes the most recent
+    // arrival rather than something that was about to be released.
+    let rem = -delta;
+    const drop = (list) => {
+      for (let i = list.length - 1; i >= 0 && rem > 0; i--) {
+        const take = Math.min(list[i].amount, rem);
+        list[i].amount -= take; rem -= take;
+        node.takeResources(take, list[i].color);
+        if (list[i].amount <= 0) list.splice(i, 1);
+      }
+    };
+    if (node.type === NodeType.DELAY) drop(node._queue = node._queue || []);
+    else {
+      drop(node._fifo = node._fifo || []);
+      const procs = node._procs = node._procs || [];
+      while (rem > 0 && procs.length) {
+        const p = procs.pop();
+        node.takeResources(1, p.color);
+        rem--;
+      }
+    }
+    return delta + rem; // negative: what was actually removed
+  }
+
   reset() {
     this.stop();
     // Apply the diagram's run seed (or clear back to Math.random when unset) so
@@ -51,28 +117,16 @@ class SimEngine {
       const infiniteSource = n.type === NodeType.SOURCE && !n.limited;
       n.resources = n._initialResources ?? (infiniteSource ? Infinity : 0);
       n.colorMap = { ...(n._initialColorMap || {}) };
-      if (n.type === NodeType.DELAY) {
-        // Rebuild in-flight batches from any pre-loaded resources (e.g. a
-        // diagram saved mid-run keeps its counts but not its _queue): one
-        // batch per color holding the full amount, releasing after the node's
-        // delay — mirrors the QUEUE _fifo rebuild below. Without this the
-        // resources would sit in the node forever, never released.
-        n._queue = Object.entries(n.colorMap).filter(([, a]) => a > 0)
-          .map(([color, amount]) => ({ amount, color, stepsLeft: n.delay }));
-      }
       if (n.type === NodeType.QUEUE) {
-        n._procs = [];
         n.processed = 0; n.totalWait = 0; n.maxWait = 0; n.maxLen = 0;
         n.balked = 0; n.reneged = 0;
-        // Rebuild the FIFO from any pre-loaded starting resources (treated as
-        // enqueued at the run start, step 0).
-        n._fifo = Object.entries(n.colorMap).filter(([, a]) => a > 0).map(([color, amount]) => ({ amount, color, enq: 0 }));
       }
       if (n.type === NodeType.SOURCE) n.produced = 0;
       if (n.type === NodeType.DRAIN) n.drained = 0;
       if (n.type === NodeType.REGISTER) n.value = 0;
       if (n.type === NodeType.TRADER) n.trades = 0;
     }
+    this._seedPipelines();
     this.diagram.variables = {};
     // Per-connection trigger counters (for "every Nth firing" triggers).
     this._trigCounts = new Map();
@@ -148,6 +202,7 @@ class SimEngine {
   doStep() {
     if (this.step === 0) {
       this.saveInitial();
+      this._seedPipelines();
       this._updateVariables();
       this._evalRegisters();
     }
@@ -183,6 +238,7 @@ class SimEngine {
     this._sampleCustomVars('play');
     if (this.step === 0) {
       this.saveInitial();
+      this._seedPipelines();
       this._updateVariables();
       this._evalRegisters();
     }
@@ -1442,7 +1498,7 @@ class SimEngine {
   }
 
   // Same batch, but yields to the event loop between time-boxed chunks of
-  // trials so the UI stays responsive; reports progress via opts.onProgress.
+  // work so the UI stays responsive; reports progress via opts.onProgress.
   runMonteCarloAsync(runs = 100, maxSteps = 200, opts = {}) {
     return new Promise(resolve => {
       const job = this._mcTrials(runs, maxSteps, opts);
@@ -1450,21 +1506,30 @@ class SimEngine {
         // Cooperative cancellation: bail between chunks if the caller asks to
         // stop (e.g. a Cancel button on a long batch). Resolves to null so the
         // caller can distinguish a cancelled run from a completed one.
-        if (opts.shouldCancel && opts.shouldCancel()) { resolve(null); return; }
+        if (opts.shouldCancel && opts.shouldCancel()) {
+          // Close the generator so its finally block runs: abandoning it left
+          // the shared RNG parked on the last trial's sub-seed.
+          job.return();
+          resolve(null);
+          return;
+        }
         const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
         let r = job.next();
         while (!r.done && ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) < 14) {
           r = job.next();
         }
         if (r.done) { resolve(r.value); return; }
-        if (opts.onProgress) opts.onProgress(r.value.done, r.value.total);
+        // Mid-trial breaths carry no new progress; only completed trials do.
+        if (opts.onProgress && !r.value.partial) opts.onProgress(r.value.done, r.value.total);
         setTimeout(tick, 0);
       };
       tick();
     });
   }
 
-  // Generator running one trial per yield. Shared by the sync and async paths.
+  // Generator yielding after every step, and again at the end of each trial
+  // (the unmarked yields, which carry progress). Shared by the sync and async
+  // paths.
   *_mcTrials(runs, maxSteps, opts = {}) {
     runs = Math.max(1, Math.round(runs));
     maxSteps = Math.max(1, Math.round(maxSteps));
@@ -1479,6 +1544,12 @@ class SimEngine {
     const endSteps = [];
     let endedCount = 0;
     const seeded = opts.seed != null && opts.seed !== '';
+    // Every trial reseeds the shared RNG, so save the live run's stream position
+    // and put it back when the batch is done. Clearing it instead (the old
+    // `seed(null)`) dropped a paused seeded run onto Math.random: its remaining
+    // steps stopped being reproducible from its seed, with nothing on screen to
+    // say so.
+    const rngBefore = SimRandom.getState();
 
     try {
       for (let r = 0; r < runs; r++) {
@@ -1498,6 +1569,12 @@ class SimEngine {
         while (s < maxSteps && !eng.ended) {
           eng.doStep(); s++;
           if (opts.perStep) opts.perStep(eng, r);
+          // Breathe inside the trial too. One trial of a large model can take
+          // most of a second by itself, and yielding only between whole trials
+          // put that entirely outside the async driver's 14 ms time box: the UI
+          // froze in second-long blocks and Cancel went unanswered until the
+          // trial finished. Marked partial so it does not report progress.
+          yield { done: r, total: runs, partial: true };
         }
         if (opts.onTrialEnd) opts.onTrialEnd(eng, r);
         for (const [id, arr] of samples) {
@@ -1508,7 +1585,7 @@ class SimEngine {
         yield { done: r + 1, total: runs };
       }
     } finally {
-      if (seeded) SimRandom.seed(null); // never leak a seeded RNG into live runs
+      SimRandom.setState(rngBefore); // never leak a batch's RNG into live runs
     }
 
     return {

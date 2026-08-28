@@ -2588,6 +2588,167 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Export: a big diagram must not silently download a 0-byte PNG. Browsers cap
+  // both a canvas's longest side and its total area; past either, drawImage
+  // no-ops and toDataURL returns a stub.
+  const png = await page.evaluate(() => {
+    const app = window.app;
+    const scale = (w, h) => app._pngScale(w, h);
+    // 8260 x 8260 content: 2x would be 273 Mpx, past Chromium's 268 Mpx ceiling.
+    const big = scale(8260, 8260);
+    const bigCanvas = document.createElement('canvas');
+    bigCanvas.width = Math.floor(8260 * big); bigCanvas.height = Math.floor(8260 * big);
+    const ctx = bigCanvas.getContext('2d');
+    ctx.fillStyle = '#123456'; ctx.fillRect(0, 0, 40, 40);
+    let url = '';
+    try { url = bigCanvas.toDataURL('image/png'); } catch { url = ''; }
+    return {
+      small: scale(800, 600),
+      big,
+      bigArea: Math.round(8260 * big) * Math.round(8260 * big),
+      wide: scale(40000, 300),
+      degenerate: scale(0, 0),
+      rasterized: url.length > 1000,
+    };
+  });
+  if (png.small === 2 && png.big < 2 && png.bigArea <= 268435456 && png.wide <= 16384 / 40000 * 1.001
+    && png.degenerate === 1 && png.rasterized)
+    ok(`export: PNG scale clamps to the canvas limit (2x normally, ${png.big.toFixed(2)}x on an 8260px diagram) and still rasterizes`);
+  else fail('png scale: ' + JSON.stringify(png));
+
+  // Mobile: the timeline drawer must leave the canvas its room and still keep
+  // its own scrub row inside itself, at every small width.
+  const drawer = await (async () => {
+    const rows = [];
+    for (const vp of [{ width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+      const ctx = await browser.newContext({ viewport: vp });
+      const mp = await ctx.newPage();
+      await mp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+      await mp.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+      await mp.goto(URL, { waitUntil: 'networkidle' });
+      rows.push(await mp.evaluate(async () => {
+        const app = window.app;
+        app._clearAll();
+        // Enough tracked nodes to fill the legend's two-row cap: the worst case.
+        for (let i = 0; i < 14; i++) {
+          const n = new MNode(NodeType.POOL, 80 + i * 60, 100);
+          n.label = 'Resource ' + (i + 1); n.setCount(5 + i);
+          app.diagram.addNode(n);
+        }
+        app.renderer.render();
+        for (let i = 0; i < 12; i++) app.engine.doStep();
+        document.getElementById('btn-timeline').click();
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const tl = document.getElementById('timeline').getBoundingClientRect();
+        const scrub = document.getElementById('tl-scrub').getBoundingClientRect();
+        const cv = document.getElementById('timeline-canvas').getBoundingClientRect();
+        return {
+          w: window.innerWidth, h: Math.round(tl.height), chart: Math.round(cv.height),
+          scrubInside: scrub.bottom <= tl.bottom + 1,
+          share: Math.round((tl.height / window.innerHeight) * 100),
+        };
+      }));
+      await ctx.close();
+    }
+    return rows;
+  })();
+  if (drawer.every(r => r.h <= 200 && r.chart >= 90 && r.scrubInside))
+    ok(`mobile: timeline drawer holds at ${drawer.map(r => r.h + 'px/' + r.share + '%').join(', ')} with the scrub row inside`);
+  else fail('mobile drawer: ' + JSON.stringify(drawer));
+
+  // Analysis: the sweep range follows the chosen parameter. It was seeded once,
+  // from the first parameter in the list, and nothing re-ran it on change, so
+  // sweeping any other parameter ran over the first one's range.
+  const sweepRange = await page.evaluate(async () => {
+    const app = window.app;
+    app._clearAll();
+    app.diagram.params = { mine_rate: 3, capacity: 500, upkeep: 0 };
+    app._openMonteCarlo();
+    const sel = document.getElementById('mc-sweep-param');
+    const read = () => ({
+      from: parseFloat(document.getElementById('mc-sweep-from').value),
+      to: parseFloat(document.getElementById('mc-sweep-to').value),
+    });
+    const onOpen = read();
+    sel.value = 'capacity';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    const onCapacity = read();
+    sel.value = 'upkeep';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    const onZero = read();
+    app._hideModal('mc-overlay');
+    return { onOpen, onCapacity, onZero, options: [...sel.options].map(o => o.value) };
+  });
+  if (sweepRange.onOpen.from === 1.5 && sweepRange.onOpen.to === 4.5
+    && sweepRange.onCapacity.from === 250 && sweepRange.onCapacity.to === 750
+    && sweepRange.onZero.from === 0 && sweepRange.onZero.to === 1)
+    ok('analysis: the sweep range re-seeds from the parameter you pick');
+  else fail('sweep range: ' + JSON.stringify(sweepRange));
+
+  // Persistence: undo and redo have to reach autosave. They moved _lastState
+  // and repainted the canvas but never wrote it, so an accidental Delete looked
+  // repaired by Ctrl+Z and came back on the next reload with the deletion intact
+  // and the undo stack gone.
+  const undoSave = await page.evaluate(() => {
+    const app = window.app;
+    const saved = () => {
+      try { return (JSON.parse(localStorage.getItem('sim_autosave') || '{}').nodes || []).length; }
+      catch { return -1; }
+    };
+    app._clearAll(); app._commit();
+    app._loadDemo(); app._commit();
+    const built = app.diagram.nodes.size;
+    for (const id of [...app.diagram.nodes.keys()]) app.diagram.removeNode(id);
+    app.renderer.render(); app._commit();
+    const afterDelete = saved();
+    app.undo();
+    const onCanvas = app.diagram.nodes.size, inStorage = saved();
+    app.redo();
+    return { built, afterDelete, onCanvas, inStorage, afterRedo: saved() };
+  });
+  if (undoSave.built > 0 && undoSave.afterDelete === 0
+    && undoSave.onCanvas === undoSave.built && undoSave.inStorage === undoSave.built
+    && undoSave.afterRedo === 0)
+    ok(`persistence: undo and redo write autosave (${undoSave.built} nodes back on canvas and in storage)`);
+  else fail('undo autosave: ' + JSON.stringify(undoSave));
+
+  // Persistence: File > Open replaces everything on the canvas, so it must ask
+  // first and stay undoable, like New / Load template / Load from library. It
+  // did neither, and reset the history, so the replaced work was unrecoverable.
+  const openFile = await (async () => {
+    await page.evaluate(() => {
+      const app = window.app;
+      app._clearAll(); app._loadDemo(); app._commit();
+      // Record the guard instead of racing the overlay open: what matters is
+      // that Open goes through it at all, and with the file named.
+      window.__guard = null;
+      app.__realGuard = app._confirmGuard;
+      app._confirmGuard = (msg, title) => { window.__guard = { msg, title }; return Promise.resolve(true); };
+    });
+    const before = await page.evaluate(() => window.app.diagram.nodes.size);
+    const payload = JSON.stringify({ version: 1, nodes: [{ id: 'n1', type: 'pool', x: 100, y: 100, label: 'Imported' }], connections: [] });
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.evaluate(() => document.getElementById('btn-load').click()),
+    ]);
+    await chooser.setFiles({ name: 'imported.json', mimeType: 'application/json', buffer: Buffer.from(payload) });
+    await page.waitForFunction(() => window.app.diagram.nodes.size === 1, { timeout: 3000 }).catch(() => {});
+    const r = await page.evaluate(() => {
+      const app = window.app;
+      const afterOpen = app.diagram.nodes.size;
+      const undoable = !document.getElementById('btn-undo').disabled;
+      app.undo();
+      const afterUndo = app.diagram.nodes.size;
+      app._confirmGuard = app.__realGuard; delete app.__realGuard;
+      return { guard: window.__guard, afterOpen, undoable, afterUndo };
+    });
+    return { before, ...r };
+  })();
+  if (openFile.guard && /imported\.json/.test(openFile.guard.msg) && openFile.afterOpen === 1
+    && openFile.undoable && openFile.afterUndo === openFile.before)
+    ok('persistence: File > Open confirms first and stays undoable');
+  else fail('File > Open: ' + JSON.stringify(openFile));
+
   // UX pass: first-run welcome overlay shows for a brand-new user, dismisses,
   // and sets the seen flag (use a fresh context with no suppression).
   const welcome = await (async () => {

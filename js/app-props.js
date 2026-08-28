@@ -1407,6 +1407,27 @@ class AppProps {
     panel.appendChild(delRow);
   }
 
+  // Apply an amount edit from the properties panel. Mid-run a Delay's or a
+  // Queue's count is not free-standing state: it is the total of the in-flight
+  // pipeline (`_queue`, or `_fifo` plus the units in service), which the model
+  // primitives know nothing about. Editing the count alone leaves the pipeline
+  // owing the old amount, so it releases resources the node no longer has, or
+  // strands ones nothing will ever release. At rest the count is the starting
+  // baseline and the engine seeds the pipeline from it when the run begins, so
+  // the plain primitives are right there.
+  // `nudge` keeps a mixed holding's colours intact for the +/- steppers; the
+  // typed field deliberately retypes the whole amount to a single colour.
+  _setLiveAmount(node, target, color, nudge = false) {
+    if (this.engine.step > 0 && (node.type === NodeType.DELAY || node.type === NodeType.QUEUE)) {
+      this.engine.setLiveCount(node, target, color);
+      return;
+    }
+    if (!nudge) { node.setCount(Math.max(0, target), color); return; }
+    const delta = Math.max(0, target) - node.resources;
+    if (delta > 0) node.addResources(delta, color);
+    else if (delta < 0) node.takeResources(-delta);
+  }
+
   _nodeProps(panel, node) {
     const typeColor = (typeof NODE_STROKE !== 'undefined' && NODE_STROKE[node.type]) || 'var(--accent)';
     this._titleTyped(panel, `${node.type} node`, node.label || '(unnamed)', typeColor, `node-${node.type}`);
@@ -1460,7 +1481,7 @@ class AppProps {
           // came back to a number typed mid-run rather than the run's start.
           const baseCount = node._initialResources;
           const baseMap = { ...node._initialColorMap };
-          node.setCount(Math.max(0, parseInt(v) || 0), color);
+          this._setLiveAmount(node, Math.max(0, parseInt(v) || 0), color);
           node._initialResources = baseCount;
           node._initialColorMap = baseMap;
         } else {
@@ -1489,8 +1510,7 @@ class AppProps {
         b.addEventListener('click', () => {
           if (delta < 0 && node.resources <= 0) return;
           if (delta > 0 && node.capacity !== Infinity && node.resources >= node.capacity) return;
-          if (delta < 0) node.takeResources(1);
-          else node.addResources(1, node.displayColor || DEFAULT_COLOR);
+          this._setLiveAmount(node, node.resources + delta, node.displayColor || DEFAULT_COLOR, true);
           this.renderer.render();
           this._refreshResourceCount();
           this._refreshTypeReadouts();

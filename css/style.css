@@ -1483,9 +1483,18 @@ input[type="range"] {
      so the whole footer (Replay, the slider, the step label, Back to live) sat
      below the fold with between zero and three usable pixels. html and body do
      not scroll and #tl-resize is mousedown-only, so there was no way to reach
-     it. Fit the content instead of cropping it, and let the drawer scroll if a
-     long legend still overflows. */
-  #timeline { height: auto; min-height: 150px; max-height: 46vh; overflow-y: auto; }
+     it.
+     Sizing to content instead overshot the other way: #timeline-canvas is a
+     <canvas>, so its intrinsic height (whatever it last rendered at) drives the
+     drawer's content height however small its flex basis is, and the drawer
+     took 324px of a 1024px screen with a 230px chart in it. Zero the canvas's
+     CSS height so the flex layout, not the bitmap, decides how tall it is; the
+     90px min-height on the base rule is still its floor. That holds the drawer
+     at a steady 190px from 320px wide up to 768px, with the scrub row inside it
+     even at the legend's two-row cap, and dragging #tl-resize still grows the
+     chart rather than opening a gap under it. */
+  #timeline-canvas { height: 0; }
+  #timeline { height: 190px; min-height: 0; max-height: 40vh; overflow-y: auto; }
   /* The scrub row is the reason the drawer exists on a phone; never let it
      shrink away under a tall legend. */
   #tl-scrub { flex-shrink: 0; }
