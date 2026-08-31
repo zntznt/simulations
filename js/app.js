@@ -536,6 +536,11 @@ class App {
   // without it, so an undo looked repaired on screen and was thrown away on the
   // next reload, taking the mistake it had just undone with it.
   _persistAutosave() {
+    // Never in embed mode. The chrome is hidden there but the canvas is still
+    // editable, and sim_autosave is same-origin: a visitor who nudged a node in
+    // someone's embedded diagram had their own saved work silently replaced by
+    // it, and found the embed's diagram waiting for them on their next visit.
+    if (document.body.classList.contains('embed')) return;
     try { localStorage.setItem('sim_autosave', this._lastState); } catch { /* blocked storage */ }
   }
 
@@ -789,7 +794,25 @@ class App {
       name.id = 'embed-title';
       tail.appendChild(name);
       const link = document.createElement('a');
-      link.href = location.href.replace(/([?&])embed(=[^&]*)?/, '$1').replace(/[?&]$/, '');
+      // Rebuild the URL without the embed marker, wherever it came from. The
+      // marker is accepted in the query (?embed) and in the hash (#embed, or
+      // #d=...&embed, which is what the knowledge base documents), but only the
+      // query form was ever stripped: for a hash embed the link pointed back at
+      // the embed itself, so the one escape hatch an embed offers did nothing.
+      link.href = (() => {
+        try {
+          const u = new URL(location.href);
+          u.searchParams.delete('embed');
+          u.hash = u.hash
+            .replace(/(^#|&)embed\b(=[^&]*)?/g, '$1')
+            .replace(/^#&/, '#')
+            .replace(/&&+/g, '&')
+            .replace(/[#&]$/, '');
+          return u.toString();
+        } catch {
+          return location.href.replace(/([?&])embed(=[^&]*)?/, '$1').replace(/[?&]$/, '');
+        }
+      })();
       link.target = '_blank'; link.rel = 'noopener';
       link.textContent = 'open in Simulations ↗';
       tail.appendChild(link);

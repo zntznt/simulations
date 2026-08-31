@@ -1538,7 +1538,12 @@ body.embed #palette,
 body.embed #props-panel,
 body.embed #diagram-rail,
 body.embed .file-controls,
-body.embed .analysis-controls { display: none; }
+body.embed .analysis-controls,
+/* The overflow menu carries everything the collapsed topbar hides, so at any
+   width under 768px, which is most iframes, it handed every control the rules
+   above just removed straight back: the palette, the file controls, New
+   diagram, Open file, Save as JSON and the rest. */
+body.embed #btn-mobile-menu { display: none; }
 body.embed #topbar { min-height: 44px; }
 .embed-open {
   margin-left: auto; font-size: 11px; color: var(--text-faint); white-space: nowrap;

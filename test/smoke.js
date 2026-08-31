@@ -2588,6 +2588,56 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Embed mode: the chrome is stripped but the canvas stays editable, so an
+  // embed must not write the host's sim_autosave, must not hand the hidden
+  // controls back through the overflow menu at iframe widths, and its one
+  // escape hatch must actually leave the embed.
+  const embed = await (async () => {
+    const ctx = await browser.newContext({ viewport: { width: 700, height: 600 } });
+    const ep = await ctx.newPage();
+    await ep.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await ep.addInitScript(() => {
+      try {
+        localStorage.setItem('sim_seen_welcome', '1');
+        localStorage.setItem('sim_autosave', JSON.stringify({
+          version: 1, meta: { name: 'HostWork' }, connections: [],
+          nodes: [1, 2, 3, 4].map(i => ({ id: 'h' + i, type: 'pool', x: i * 100, y: 100, label: 'Host' + i })),
+        }));
+      } catch (e) {}
+    });
+    // The hash form is what the knowledge base documents.
+    await ep.goto(URL + '#embed', { waitUntil: 'networkidle' });
+    const onLoad = await ep.evaluate(() => {
+      const m = document.getElementById('btn-mobile-menu');
+      return {
+        isEmbed: document.body.classList.contains('embed'),
+        menuVisible: !!m && getComputedStyle(m).display !== 'none' && m.getBoundingClientRect().width > 0,
+        link: (document.querySelector('.embed-open a') || {}).href || '',
+      };
+    });
+    // Edit inside the embed with a real drag.
+    await ep.evaluate(() => {
+      const app = window.app; app._clearAll();
+      const n = new MNode(NodeType.POOL, 300, 300); n.label = 'EmbedDoc';
+      app.diagram.addNode(n); app.renderer.render(); app._commit();
+    });
+    await ep.mouse.move(400, 300); await ep.mouse.down();
+    await ep.mouse.move(460, 340, { steps: 6 }); await ep.mouse.up();
+    await ep.waitForTimeout(150);
+    const host = await ep.evaluate(() => {
+      try {
+        const a = JSON.parse(localStorage.getItem('sim_autosave') || '{}');
+        return { name: a.meta && a.meta.name, nodes: (a.nodes || []).length };
+      } catch { return { name: null, nodes: -1 }; }
+    });
+    await ctx.close();
+    return { onLoad, host };
+  })();
+  if (embed.onLoad.isEmbed && !embed.onLoad.menuVisible && !/embed/.test(embed.onLoad.link)
+    && embed.host.name === 'HostWork' && embed.host.nodes === 4)
+    ok('embed: leaves the host autosave alone, hides the overflow menu, and links back out');
+  else fail('embed: ' + JSON.stringify(embed));
+
   // Undo: an arrow-key nudge is coalesced for 400ms, so a Ctrl+Z inside that
   // window used to step straight past it and undo the edit before it (a node
   // placement), and the pending commit then landed and wiped the redo stack, so
