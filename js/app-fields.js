@@ -224,7 +224,13 @@ class AppFields {
   // Unique id generator for programmatic label↔control association.
   _uid() { return 'fld-' + (App._fieldSeq = (App._fieldSeq || 0) + 1); }
 
-  _field(panel, label, type, value, onChange, placeholder = '') {
+  // `commitOn` is the DOM event that applies the edit. 'input' (the default)
+  // fires on every keystroke, which is what makes a field feel live. Pass
+  // 'change' for a field whose write is destructive, so it applies once the
+  // user has finished typing: typing "12" through an 'input' field commits the
+  // intermediate value 1 first, and for a Delay or Queue that physically
+  // discards the units and timers the difference stands for.
+  _field(panel, label, type, value, onChange, placeholder = '', commitOn = 'input') {
     const row = document.createElement('div');
     row.className = 'prop-row';
     const lbl = document.createElement('label');
@@ -235,7 +241,7 @@ class AppFields {
     if (placeholder) inp.placeholder = placeholder;
     if (label) { inp.id = this._uid(); lbl.htmlFor = inp.id; }
     else inp.setAttribute('aria-label', placeholder || 'value');
-    inp.addEventListener('input', () => onChange(inp.value));
+    inp.addEventListener(commitOn, () => onChange(inp.value));
     row.appendChild(lbl);
     row.appendChild(inp);
     panel.appendChild(row);

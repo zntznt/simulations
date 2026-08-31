@@ -857,8 +857,25 @@ class Editor {
   // Select a node from the keyboard and make sure it can actually be seen.
   // Only pans when the node is outside the viewport: recentring on every step
   // would make the whole diagram lurch while tabbing between visible nodes.
+  // Say what the keyboard just landed on. Selection moves inside the SVG, so
+  // DOM focus never moves and assistive technology is told nothing at all:
+  // tabbing through a diagram was completely silent. The properties panel does
+  // repaint, but it is not focused and not a live region.
+  _announceSelection(node, index, total) {
+    const live = document.getElementById('canvas-live');
+    if (!live || !node) return;
+    const name = node.label || node.type;
+    const value = node.chartValue;
+    const parts = [`${node.type} ${name}`];
+    if (isFinite(value)) parts.push(String(value));
+    parts.push(`${index + 1} of ${total}`);
+    live.textContent = parts.join(', ');
+  }
+
   _keyboardGoTo(node) {
     if (!node) return;
+    const order = this._nodesInReadingOrder();
+    this._announceSelection(node, order.findIndex(n => n.id === node.id), order.length);
     this._select(node.id, 'node');
     const r = this.svg.getBoundingClientRect();
     const sx = node.x * this.renderer._scale + this.renderer._panX;
@@ -1032,8 +1049,20 @@ class Editor {
       for (const t of targets) { t.x += dx; t.y += dy; }
       this.renderer.render();
       clearTimeout(this._nudgeTimer);
-      this._nudgeTimer = setTimeout(() => this._changed(), 400);
+      this._nudgeTimer = setTimeout(() => { this._nudgeTimer = null; this._changed(); }, 400);
     }
+  }
+
+  // Commit a nudge that is still inside its coalescing window. Arrow-key moves
+  // are batched for 400ms so a held key is one undo step, but anything that
+  // reads the undo history has to see the moves the user has already made:
+  // with the commit still pending, Ctrl+Z stepped straight past the nudge and
+  // undid whatever edit came before it.
+  flushPending() {
+    if (!this._nudgeTimer) return;
+    clearTimeout(this._nudgeTimer);
+    this._nudgeTimer = null;
+    this._changed();
   }
 
   _onKeyUp(e) {

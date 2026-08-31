@@ -505,7 +505,7 @@ class App {
   _commitReplace(prevSnap) {
     this._dropScenarioState();
     const snap = this._snapshot();
-    if (snap === prevSnap) { this._lastState = snap; this._updateUndoButtons(); return; }
+    if (this._sameSnapshot(snap, prevSnap)) { this._lastState = snap; this._updateUndoButtons(); return; }
     if (prevSnap != null) {
       this._undoStack.push(prevSnap);
       if (this._undoStack.length > 100) this._undoStack.shift();
@@ -516,11 +516,31 @@ class App {
     this._persistAutosave();
   }
 
+  // Two snapshots describe the same diagram. The module-level id counter rides
+  // along in the JSON and loadJSON only ever raises it, so that ids handed out
+  // since cannot collide, which means restoring a snapshot never reproduces its
+  // own text. Comparing the raw strings therefore reported a change after every
+  // undo, and the next commit, even one that changed nothing at all, pushed an
+  // undo entry and wiped the redo stack.
+  _sameSnapshot(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null) return false;
+    try {
+      const strip = (j) => { const o = JSON.parse(j); delete o._idSeq; return JSON.stringify(o); };
+      return strip(a) === strip(b);
+    } catch { return false; }
+  }
+
   // Mirror the current state into the autosave slot. Every path that changes
   // what is on the canvas has to call this: undo and redo moved _lastState
   // without it, so an undo looked repaired on screen and was thrown away on the
   // next reload, taking the mistake it had just undone with it.
   _persistAutosave() {
+    // Never in embed mode. The chrome is hidden there but the canvas is still
+    // editable, and sim_autosave is same-origin: a visitor who nudged a node in
+    // someone's embedded diagram had their own saved work silently replaced by
+    // it, and found the embed's diagram waiting for them on their next visit.
+    if (document.body.classList.contains('embed')) return;
     try { localStorage.setItem('sim_autosave', this._lastState); } catch { /* blocked storage */ }
   }
 
@@ -530,7 +550,7 @@ class App {
   // delegated commit listener) don't create empty undo steps.
   _commit() {
     let snap = this._snapshot();
-    if (snap === this._lastState) return;
+    if (this._sameSnapshot(snap, this._lastState)) return;
     // A real change happened: bump the file's modified timestamp (it is part
     // of the snapshot, so re-take it after stamping).
     this.diagram.meta.modified = Date.now();
@@ -560,6 +580,7 @@ class App {
   }
 
   undo() {
+    this.editor.flushPending();
     if (!this._undoStack.length) return;
     this._redoStack.push(this._lastState);
     this._lastState = this._undoStack.pop();
@@ -569,6 +590,7 @@ class App {
   }
 
   redo() {
+    this.editor.flushPending();
     if (!this._redoStack.length) return;
     this._undoStack.push(this._lastState);
     this._lastState = this._redoStack.pop();
@@ -685,7 +707,10 @@ class App {
     if (!play) return;
     const on = !!this._scrubPlayTimer;
     play.replaceChildren(this._faIcon(on ? 'pause' : 'play'));
+    // The icon and the tooltip swapped but the accessible name was markup, so
+    // the control announced "Replay the run" while it was the Pause button.
     play.title = on ? 'Pause replay' : 'Replay the run';
+    play.setAttribute('aria-label', play.title);
   }
 
   // Auto-advance through history at the current sim speed; stops at the end.
@@ -772,7 +797,25 @@ class App {
       name.id = 'embed-title';
       tail.appendChild(name);
       const link = document.createElement('a');
-      link.href = location.href.replace(/([?&])embed(=[^&]*)?/, '$1').replace(/[?&]$/, '');
+      // Rebuild the URL without the embed marker, wherever it came from. The
+      // marker is accepted in the query (?embed) and in the hash (#embed, or
+      // #d=...&embed, which is what the knowledge base documents), but only the
+      // query form was ever stripped: for a hash embed the link pointed back at
+      // the embed itself, so the one escape hatch an embed offers did nothing.
+      link.href = (() => {
+        try {
+          const u = new URL(location.href);
+          u.searchParams.delete('embed');
+          u.hash = u.hash
+            .replace(/(^#|&)embed\b(=[^&]*)?/g, '$1')
+            .replace(/^#&/, '#')
+            .replace(/&&+/g, '&')
+            .replace(/[#&]$/, '');
+          return u.toString();
+        } catch {
+          return location.href.replace(/([?&])embed(=[^&]*)?/, '$1').replace(/[?&]$/, '');
+        }
+      })();
       link.target = '_blank'; link.rel = 'noopener';
       link.textContent = 'open in Simulations ↗';
       tail.appendChild(link);
@@ -1509,7 +1552,11 @@ class App {
     const zoomLabel = document.getElementById('btn-zoom-level');
     zoomLabel.addEventListener('click', () => this.renderer.zoomTo(1));
     this.renderer.onViewChange = (scale) => {
-      zoomLabel.textContent = `${Math.round(scale * 100)}%`;
+      const pct = Math.round(scale * 100);
+      zoomLabel.textContent = `${pct}%`;
+      // The visible readout is live but the accessible name was markup, so it
+      // announced "100%" at every zoom level.
+      zoomLabel.setAttribute('aria-label', `Current zoom ${pct}%. Click to reset to 100%`);
       this._minimap.update();
     };
     this.renderer.onViewChange(this.renderer._scale);

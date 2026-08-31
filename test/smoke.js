@@ -2588,6 +2588,288 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Accessibility: three controls whose accessible name has to track state.
+  const a11yNames = await (async () => {
+    await page.evaluate(() => {
+      const app = window.app;
+      app._clearAll(); app._closeFeature();
+      ['Gold', 'Wood', 'Ore'].forEach((label, i) => {
+        const n = new MNode(NodeType.POOL, 200 + i * 150, 200);
+        n.label = label; n.setCount((i + 1) * 5);
+        app.diagram.addNode(n);
+      });
+      app.renderer.render(); app._commit();
+      app.editor._select(null, null);
+      document.getElementById('canvas').focus();
+    });
+    // Keyboard selection must be announced: DOM focus never leaves the <svg>.
+    await page.keyboard.press('Tab');
+    const first = await page.evaluate(() => (document.getElementById('canvas-live') || {}).textContent || '');
+    await page.keyboard.press('Tab');
+    const second = await page.evaluate(() => (document.getElementById('canvas-live') || {}).textContent || '');
+    const liveRegion = await page.evaluate(() => {
+      const el = document.getElementById('canvas-live');
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return { role: el.getAttribute('role'), live: el.getAttribute('aria-live'), w: Math.round(el.getBoundingClientRect().width) };
+    });
+    // Zoom readout: visible text is live, the accessible name was markup.
+    const zoom = await page.evaluate(() => {
+      const b = document.getElementById('btn-zoom-level');
+      window.app.renderer.zoomStep(1.2);
+      const after = { text: b.textContent, label: b.getAttribute('aria-label') };
+      window.app.renderer.zoomTo(1);
+      return after;
+    });
+    // Replay button: icon and title swap, the accessible name did not.
+    const replay = await page.evaluate(() => {
+      const app = window.app;
+      app.engine.reset();
+      for (let i = 0; i < 4; i++) app.engine.doStep();
+      app._refreshScrubber();
+      const b = document.getElementById('tl-play');
+      const idle = b.getAttribute('aria-label');
+      app._toggleScrubPlay();
+      const playing = b.getAttribute('aria-label');
+      app._toggleScrubPlay();
+      return { idle, playing };
+    });
+    return { first, second, liveRegion, zoom, replay };
+  })();
+  if (a11yNames.liveRegion && a11yNames.liveRegion.live === 'polite' && a11yNames.liveRegion.w <= 1
+    && /Gold/.test(a11yNames.first) && /1 of 3/.test(a11yNames.first)
+    && /Wood/.test(a11yNames.second) && /2 of 3/.test(a11yNames.second)
+    && a11yNames.zoom.text === '120%' && a11yNames.zoom.label.includes('120%')
+    && /replay/i.test(a11yNames.replay.idle) && /pause/i.test(a11yNames.replay.playing))
+    ok('a11yNames: canvas keyboard selection is announced, zoom and replay names track state');
+  else fail('a11yNames: ' + JSON.stringify(a11yNames));
+
+  // Checkpoints: forking while the timeline is being replayed must leave replay
+  // first. Scrub mode paints a past step's values over the live model, so the
+  // canvas kept showing the replayed step's numbers under the checkpoint's step
+  // label: two different moments in one view.
+  const forkScrub = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    const src = new MNode(NodeType.SOURCE, 100, 200); src.label = 'Mine';
+    const pool = new MNode(NodeType.POOL, 400, 200); pool.label = 'Gold';
+    app.diagram.addNode(src); app.diagram.addNode(pool);
+    const c = new MConnection(src.id, pool.id, ConnectionType.RESOURCE); c.rate = 5;
+    app.diagram.addConnection(c);
+    app.renderer.render(); app._commit();
+    app.engine.reset();
+    for (let i = 0; i < 5; i++) app.engine.doStep();
+    app._addCheckpoint();                      // step 5, Gold = 25
+    const cp = app._checkpoints[app._checkpoints.length - 1];
+    for (let i = 0; i < 10; i++) app.engine.doStep();   // step 15, Gold = 75
+    app._scrubTo(2);                           // replay step 2, Gold = 10
+    const scrubbing = { idx: app._scrubIndex, shown: app._panelValueOf(pool) };
+    app._forkFrom(cp);
+    // restoreState rebuilds the diagram through loadJSON, so the node objects
+    // are new: look the pool up by id rather than holding the old reference.
+    const poolAfter = app.diagram.nodes.get(pool.id);
+    return {
+      scrubbing,
+      afterIdx: app._scrubIndex,
+      engineStep: app.engine.step,
+      poolNow: poolAfter ? poolAfter.resources : null,
+      painted: app._panelValueOf(poolAfter),
+      labelStep: (document.getElementById('step-counter').textContent || '').trim(),
+    };
+  });
+  if (forkScrub.scrubbing.idx != null && forkScrub.afterIdx == null
+    && forkScrub.engineStep === 5 && forkScrub.poolNow === 25 && forkScrub.painted === 25
+    && /Step 5\b/.test(forkScrub.labelStep))
+    ok('checkpoints: forking while replaying leaves replay, so canvas and step label agree');
+  else fail('fork while scrubbing: ' + JSON.stringify(forkScrub));
+
+  // Artificial player: a rule whose target node is gone must say so, not display
+  // a different node while silently never firing.
+  const playerRule = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll();
+    const a = new MNode(NodeType.POOL, 200, 200); a.label = 'Chest';
+    a.activation = ActivationMode.INTERACTIVE;
+    const b = new MNode(NodeType.POOL, 400, 200); b.label = 'Shop';
+    b.activation = ActivationMode.INTERACTIVE;
+    app.diagram.addNode(a); app.diagram.addNode(b);
+    app.renderer.render(); app._commit();
+    app._closeFeature();
+    document.querySelector('#diagram-rail .rail-btn[data-feature="player"]').click();
+    const ai = app.diagram.aiPlayer;
+    ai.rules.push({ nodeId: b.id, mode: 'interval', every: 2 });
+    ai.enabled = true;
+    app._renderProps();
+    const sel = () => document.querySelector('#props-content .ai-rule select');
+    const before = { value: sel().value, text: sel().selectedOptions[0].textContent, isShop: sel().value === b.id };
+    // Delete the rule's target through the model, then re-render the panel.
+    app.diagram.removeNode(b.id);
+    app.renderer.render(); app._commit();
+    app._renderProps();
+    const s2 = sel();
+    return {
+      before,
+      afterText: s2.selectedOptions[0].textContent,
+      afterValue: s2.value,
+      ruleStillPointsAtGone: ai.rules[0].nodeId !== a.id,
+      warned: /never fires/i.test(document.getElementById('props-content').textContent),
+    };
+  });
+  if (playerRule.before.isShop && /deleted/i.test(playerRule.afterText)
+    && playerRule.afterValue === '' && playerRule.warned)
+    ok('player: a rule whose target node is gone says so instead of naming another node');
+  else fail('player rule: ' + JSON.stringify(playerRule));
+
+  // Embed mode: the chrome is stripped but the canvas stays editable, so an
+  // embed must not write the host's sim_autosave, must not hand the hidden
+  // controls back through the overflow menu at iframe widths, and its one
+  // escape hatch must actually leave the embed.
+  const embed = await (async () => {
+    const ctx = await browser.newContext({ viewport: { width: 700, height: 600 } });
+    const ep = await ctx.newPage();
+    await ep.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await ep.addInitScript(() => {
+      try {
+        localStorage.setItem('sim_seen_welcome', '1');
+        localStorage.setItem('sim_autosave', JSON.stringify({
+          version: 1, meta: { name: 'HostWork' }, connections: [],
+          nodes: [1, 2, 3, 4].map(i => ({ id: 'h' + i, type: 'pool', x: i * 100, y: 100, label: 'Host' + i })),
+        }));
+      } catch (e) {}
+    });
+    // The hash form is what the knowledge base documents.
+    await ep.goto(URL + '#embed', { waitUntil: 'networkidle' });
+    const onLoad = await ep.evaluate(() => {
+      const m = document.getElementById('btn-mobile-menu');
+      return {
+        isEmbed: document.body.classList.contains('embed'),
+        menuVisible: !!m && getComputedStyle(m).display !== 'none' && m.getBoundingClientRect().width > 0,
+        link: (document.querySelector('.embed-open a') || {}).href || '',
+      };
+    });
+    // Edit inside the embed with a real drag.
+    await ep.evaluate(() => {
+      const app = window.app; app._clearAll();
+      const n = new MNode(NodeType.POOL, 300, 300); n.label = 'EmbedDoc';
+      app.diagram.addNode(n); app.renderer.render(); app._commit();
+    });
+    await ep.mouse.move(400, 300); await ep.mouse.down();
+    await ep.mouse.move(460, 340, { steps: 6 }); await ep.mouse.up();
+    await ep.waitForTimeout(150);
+    const host = await ep.evaluate(() => {
+      try {
+        const a = JSON.parse(localStorage.getItem('sim_autosave') || '{}');
+        return { name: a.meta && a.meta.name, nodes: (a.nodes || []).length };
+      } catch { return { name: null, nodes: -1 }; }
+    });
+    await ctx.close();
+    return { onLoad, host };
+  })();
+  if (embed.onLoad.isEmbed && !embed.onLoad.menuVisible && !/embed/.test(embed.onLoad.link)
+    && embed.host.name === 'HostWork' && embed.host.nodes === 4)
+    ok('embed: leaves the host autosave alone, hides the overflow menu, and links back out');
+  else fail('embed: ' + JSON.stringify(embed));
+
+  // Undo: an arrow-key nudge is coalesced for 400ms, so a Ctrl+Z inside that
+  // window used to step straight past it and undo the edit before it (a node
+  // placement), and the pending commit then landed and wiped the redo stack, so
+  // the node could not be brought back.
+  const nudgeUndo = await (async () => {
+    await page.evaluate(() => { window.app._clearAll(); window.app._commit(); });
+    for (const [x, y] of [[300, 300], [500, 300]]) {
+      await page.click('[data-tool="place-pool"]');
+      await page.mouse.click(x, y);
+    }
+    const placed = await page.evaluate(() => window.app.diagram.nodes.size);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    const nudgedXs = await page.evaluate(() => [...window.app.diagram.nodes.values()].map(n => n.x));
+    await page.keyboard.press('Control+z');
+    const afterUndo = await page.evaluate(() => ({
+      nodes: window.app.diagram.nodes.size,
+      xs: [...window.app.diagram.nodes.values()].map(n => n.x),
+    }));
+    await page.waitForTimeout(700); // any pending coalesced commit lands here
+    const settled = await page.evaluate(() => ({
+      nodes: window.app.diagram.nodes.size,
+      redoDisabled: document.getElementById('btn-redo').disabled,
+    }));
+    await page.keyboard.press('Control+y');
+    const afterRedo = await page.evaluate(() => [...window.app.diagram.nodes.values()].map(n => n.x));
+    return { placed, nudgedXs, afterUndo, settled, afterRedo };
+  })();
+  if (nudgeUndo.placed === 2 && nudgeUndo.afterUndo.nodes === 2 && nudgeUndo.settled.nodes === 2
+    && JSON.stringify(nudgeUndo.afterUndo.xs) !== JSON.stringify(nudgeUndo.nudgedXs)
+    && !nudgeUndo.settled.redoDisabled
+    && JSON.stringify(nudgeUndo.afterRedo) === JSON.stringify(nudgeUndo.nudgedXs))
+    ok('undo: Ctrl+Z right after an arrow nudge undoes the nudge, and redo survives');
+  else fail('nudge undo: ' + JSON.stringify(nudgeUndo));
+
+  // Undo: after any undo the id counter has moved on, so a raw snapshot compare
+  // always saw a change. A commit that changes nothing must not clear redo.
+  const redoKeep = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._commit();
+    const n = new MNode(NodeType.POOL, 200, 200); n.label = 'One';
+    app.diagram.addNode(n); app.renderer.render(); app._commit();
+    app.undo();
+    const beforeNoop = app._redoStack.length;
+    app._commit();          // nothing changed since the undo
+    app._commit();
+    return { beforeNoop, afterNoop: app._redoStack.length, undoDepth: app._undoStack.length };
+  });
+  if (redoKeep.beforeNoop === 1 && redoKeep.afterNoop === 1)
+    ok('undo: a commit that changes nothing keeps the redo stack');
+  else fail('redo preservation: ' + JSON.stringify(redoKeep));
+
+  // Properties: typing into a Delay's live Amount field must not scramble the
+  // in-flight schedule. The field commits per keystroke, so typing "12" used to
+  // commit 1 first, and for a Delay that physically discards the units and
+  // timers the difference stands for.
+  const delayType = await (async () => {
+    const build = () => page.evaluate(() => {
+      const app = window.app;
+      app._clearAll();
+      const del = new MNode(NodeType.DELAY, 300, 300); del.label = 'Belt';
+      del.delay = 5; del.setCount(12, '#8d6e63');
+      const out = new MNode(NodeType.POOL, 600, 300); out.label = 'Out';
+      app.diagram.addNode(del); app.diagram.addNode(out);
+      const c = new MConnection(del.id, out.id, ConnectionType.RESOURCE); c.rate = 99;
+      app.diagram.addConnection(c);
+      app.renderer.render(); app._commit();
+      app.engine.reset();
+      app.engine.doStep(); app.engine.doStep();
+      app.editor._select(del.id, 'node');
+      return { delayId: del.id, outId: out.id };
+    });
+    const drain = (ids) => page.evaluate(({ outId }) => {
+      const app = window.app; const seq = [];
+      for (let i = 0; i < 10; i++) { app.engine.doStep(); seq.push(app.diagram.nodes.get(outId).resources); }
+      return seq;
+    }, ids);
+
+    const ids = await build();
+    const baseline = await drain(ids);
+
+    const ids2 = await build();
+    const inp = await page.$('#props-content input[type="number"]');
+    if (!inp) return { error: 'no amount field on a delay' };
+    await inp.click({ clickCount: 3 });
+    await page.keyboard.press('Control+a');
+    await page.keyboard.type('12', { delay: 60 });
+    const midTyping = await page.evaluate(({ delayId }) => {
+      const n = window.app.diagram.nodes.get(delayId);
+      return { res: n.resources, batches: (n._queue || []).length };
+    }, ids2);
+    await page.keyboard.press('Tab');
+    const after = await drain(ids2);
+    return { baseline, midTyping, after };
+  })();
+  if (!delayType.error && delayType.midTyping.batches === 1 && delayType.midTyping.res === 12
+    && JSON.stringify(delayType.after) === JSON.stringify(delayType.baseline))
+    ok('properties: retyping a delay\'s live amount leaves its release schedule alone');
+  else fail('delay amount typing: ' + JSON.stringify(delayType));
+
   // Export: a big diagram must not silently download a 0-byte PNG. Browsers cap
   // both a canvas's longest side and its total area; past either, drawImage
   // no-ops and toDataURL returns a stub.
