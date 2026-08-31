@@ -2588,6 +2588,62 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Accessibility: three controls whose accessible name has to track state.
+  const a11yNames = await (async () => {
+    await page.evaluate(() => {
+      const app = window.app;
+      app._clearAll(); app._closeFeature();
+      ['Gold', 'Wood', 'Ore'].forEach((label, i) => {
+        const n = new MNode(NodeType.POOL, 200 + i * 150, 200);
+        n.label = label; n.setCount((i + 1) * 5);
+        app.diagram.addNode(n);
+      });
+      app.renderer.render(); app._commit();
+      app.editor._select(null, null);
+      document.getElementById('canvas').focus();
+    });
+    // Keyboard selection must be announced: DOM focus never leaves the <svg>.
+    await page.keyboard.press('Tab');
+    const first = await page.evaluate(() => (document.getElementById('canvas-live') || {}).textContent || '');
+    await page.keyboard.press('Tab');
+    const second = await page.evaluate(() => (document.getElementById('canvas-live') || {}).textContent || '');
+    const liveRegion = await page.evaluate(() => {
+      const el = document.getElementById('canvas-live');
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return { role: el.getAttribute('role'), live: el.getAttribute('aria-live'), w: Math.round(el.getBoundingClientRect().width) };
+    });
+    // Zoom readout: visible text is live, the accessible name was markup.
+    const zoom = await page.evaluate(() => {
+      const b = document.getElementById('btn-zoom-level');
+      window.app.renderer.zoomStep(1.2);
+      const after = { text: b.textContent, label: b.getAttribute('aria-label') };
+      window.app.renderer.zoomTo(1);
+      return after;
+    });
+    // Replay button: icon and title swap, the accessible name did not.
+    const replay = await page.evaluate(() => {
+      const app = window.app;
+      app.engine.reset();
+      for (let i = 0; i < 4; i++) app.engine.doStep();
+      app._refreshScrubber();
+      const b = document.getElementById('tl-play');
+      const idle = b.getAttribute('aria-label');
+      app._toggleScrubPlay();
+      const playing = b.getAttribute('aria-label');
+      app._toggleScrubPlay();
+      return { idle, playing };
+    });
+    return { first, second, liveRegion, zoom, replay };
+  })();
+  if (a11yNames.liveRegion && a11yNames.liveRegion.live === 'polite' && a11yNames.liveRegion.w <= 1
+    && /Gold/.test(a11yNames.first) && /1 of 3/.test(a11yNames.first)
+    && /Wood/.test(a11yNames.second) && /2 of 3/.test(a11yNames.second)
+    && a11yNames.zoom.text === '120%' && a11yNames.zoom.label.includes('120%')
+    && /replay/i.test(a11yNames.replay.idle) && /pause/i.test(a11yNames.replay.playing))
+    ok('a11yNames: canvas keyboard selection is announced, zoom and replay names track state');
+  else fail('a11yNames: ' + JSON.stringify(a11yNames));
+
   // Checkpoints: forking while the timeline is being replayed must leave replay
   // first. Scrub mode paints a past step's values over the live model, so the
   // canvas kept showing the replayed step's numbers under the checkpoint's step

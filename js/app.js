@@ -707,7 +707,10 @@ class App {
     if (!play) return;
     const on = !!this._scrubPlayTimer;
     play.replaceChildren(this._faIcon(on ? 'pause' : 'play'));
+    // The icon and the tooltip swapped but the accessible name was markup, so
+    // the control announced "Replay the run" while it was the Pause button.
     play.title = on ? 'Pause replay' : 'Replay the run';
+    play.setAttribute('aria-label', play.title);
   }
 
   // Auto-advance through history at the current sim speed; stops at the end.
@@ -1549,7 +1552,11 @@ class App {
     const zoomLabel = document.getElementById('btn-zoom-level');
     zoomLabel.addEventListener('click', () => this.renderer.zoomTo(1));
     this.renderer.onViewChange = (scale) => {
-      zoomLabel.textContent = `${Math.round(scale * 100)}%`;
+      const pct = Math.round(scale * 100);
+      zoomLabel.textContent = `${pct}%`;
+      // The visible readout is live but the accessible name was markup, so it
+      // announced "100%" at every zoom level.
+      zoomLabel.setAttribute('aria-label', `Current zoom ${pct}%. Click to reset to 100%`);
       this._minimap.update();
     };
     this.renderer.onViewChange(this.renderer._scale);

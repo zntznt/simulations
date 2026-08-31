@@ -292,6 +292,10 @@
     <!-- Canvas -->
     <div id="canvas-wrap">
       <svg id="canvas" role="application" aria-label="Diagram editing canvas" tabindex="0"></svg>
+      <!-- Keyboard selection moves inside the SVG, so DOM focus never leaves the
+           canvas and a screen reader has nothing to announce. Tab and Shift+Tab
+           write what they landed on here instead. -->
+      <div id="canvas-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
       <div id="minimap" class="hidden" aria-hidden="true">
         <canvas id="minimap-canvas"></canvas>
       </div>
