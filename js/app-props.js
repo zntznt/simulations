@@ -100,9 +100,17 @@ class AppProps {
     // link, then point the --font stack at the family. '' restores the
     // built-in stack. If the fetch fails (offline), the fallbacks apply.
     let link = document.getElementById('gfont-link');
-    if (meta.font) {
+    // Only a family from the curated list. meta.font arrives with the diagram,
+    // which is untrusted input, and it was pasted straight into a third-party
+    // stylesheet URL: opening a shared link fired a request to
+    // fonts.googleapis.com carrying a string of the diagram author's choosing,
+    // telling them the reader's IP and that they had opened it. It also went
+    // raw into the --font CSS value. Anything not on the list falls back to the
+    // built-in stack, which is what an unset font already does.
+    const font = GOOGLE_FONTS.includes(meta.font) ? meta.font : '';
+    if (font) {
       const href = 'https://fonts.googleapis.com/css2?family='
-        + encodeURIComponent(meta.font).replace(/%20/g, '+')
+        + encodeURIComponent(font).replace(/%20/g, '+')
         + ':wght@400;600;700&display=swap';
       if (!link) {
         link = document.createElement('link');
@@ -111,7 +119,7 @@ class AppProps {
         document.head.appendChild(link);
       }
       if (link.getAttribute('href') !== href) link.setAttribute('href', href);
-      rootStyle.setProperty('--font', `'${meta.font}', 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`);
+      rootStyle.setProperty('--font', `'${font}', 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`);
     } else {
       if (link) link.remove();
       rootStyle.removeProperty('--font');
@@ -812,8 +820,13 @@ class AppProps {
       // node it has nothing to do with while the rule silently never fired.
       const targetGone = !!rule.nodeId && !interactives.some(n => n.id === rule.nodeId);
       if (targetGone) {
+        // Shown but not choosable. As a real option it could be picked, which
+        // cleared the rule's target to '' and made the next render fall back to
+        // displaying the first interactive node with no warning: exactly the
+        // misleading state this placeholder exists to prevent.
         const o = document.createElement('option');
-        o.value = ''; o.textContent = '(node deleted)'; o.selected = true;
+        o.value = ''; o.textContent = '(node deleted)';
+        o.selected = true; o.disabled = true;
         ns.appendChild(o);
       }
       for (const n of interactives) {
@@ -1446,6 +1459,15 @@ class AppProps {
     const delta = Math.max(0, target) - node.resources;
     if (delta > 0) node.addResources(delta, color);
     else if (delta < 0) node.takeResources(-delta);
+    // At rest this field IS the starting amount, so the nudge has to move the
+    // reset baseline with it. addResources/takeResources only touch the live
+    // count (setCount is what writes the baseline), so the +/- buttons changed
+    // the number on the canvas, in undo and in autosave, and then Reset or a
+    // reload put it straight back.
+    if (this.engine.step === 0) {
+      node._initialResources = node.resources;
+      node._initialColorMap = { ...node.colorMap };
+    }
   }
 
   _nodeProps(panel, node) {

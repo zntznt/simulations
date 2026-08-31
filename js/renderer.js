@@ -218,11 +218,26 @@ class BallSystem {
     this._running = false;
   }
 
+  // Ceiling on simultaneously animating dots (see spawn).
+  static get MAX_LIVE() { return 240; }
+
   spawn(pathEl, amount, color, durationMs) {
     if (!pathEl) return;
     // Respect the user's motion preference: transfers still happen, the
     // travelling-ball animation is simply skipped.
     if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // Nothing to animate for, and nothing that would ever clear it. Cleanup runs
+    // from requestAnimationFrame, which a browser suspends in a hidden tab while
+    // it keeps the setInterval that drives the steps running (throttled). So a
+    // run left in a background tab kept producing dots that nothing consumed:
+    // measured climbing past 30,000 elements with the step cost going from 27ms
+    // to 485ms. Producing only while something can consume keeps the two in step.
+    if (typeof document !== 'undefined' && document.hidden) return;
+    // Hard ceiling on live dots. They are decoration: past this many the canvas
+    // is a solid mass of them anyway, and each one costs a getPointAtLength per
+    // frame. A big model at the top of the speed slider used to hold 1,500 at
+    // once and drag the page to about 17fps.
+    if (this._balls.length >= BallSystem.MAX_LIVE) return;
     const capped = Math.min(amount, 12);
     const pathLen = pathEl.getTotalLength();
     if (pathLen < 1) return;
@@ -1446,9 +1461,19 @@ class Renderer {
       if (fromGate) {
         const gmode = src.gateMode === 'random' ? 'probabilistic' : src.gateMode;
         // Mirror engine._connWeight so formula weights make the labels live.
+        // Drawing a label must not advance the shared RNG: a weight formula can
+        // draw random numbers, and the canvas repaints on hover, pan, zoom,
+        // selection and every step, so painting was eating draws the run was
+        // about to make. The same diagram under the same seed then produced
+        // different results depending on how much the user moved the mouse.
+        // detectLoops guards its own probes the same way.
         const getW = c => {
-          if (c.weightFormula) { const w = evalFormula(c.weightFormula, this.diagram.variables); return isFinite(w) && w >= 0 ? w : 0; }
-          const w = Number(c.weight); return isFinite(w) && w >= 0 ? w : 1;
+          if (!c.weightFormula) { const w = Number(c.weight); return isFinite(w) && w >= 0 ? w : 1; }
+          const rng = SimRandom.getState();
+          try {
+            const w = evalFormula(c.weightFormula, this.diagram.variables);
+            return isFinite(w) && w >= 0 ? w : 0;
+          } finally { SimRandom.setState(rng); }
         };
         if (gmode === 'probabilistic') {
           const allOuts = [...this.diagram.connections.values()]

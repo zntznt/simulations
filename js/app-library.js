@@ -23,7 +23,7 @@ class AppLibrary {
       { name: 'Civilization Empire', desc: 'A 4X economy in one diagram: logistic population, five yields, building converters, and a Science-gated tech tree (irrigation, drama, banking, university).', load: () => this._demoCiv() },
       { name: 'Megafactory Line', desc: 'A 4-tier auto-factory: ore → smelting → components → widgets. A tiny circuit buffer and a slow assembly station back the line up. Watch the bottleneck.', load: () => this._demoFactory() },
       { name: 'Business Cycle', desc: 'A full circular-flow macroeconomy with households, firms, banks, government and a central bank. Countercyclical stimulus through a policy lag drives a boom-bust cycle.', load: () => this._demoBusinessCycle() },
-      { name: 'Food Web', desc: 'A four-trophic ecosystem: producers, grazers, carnivores, an apex predator and a nutrient-recycling loop. Ten species lock into coupled, bounded oscillations.', load: () => this._demoFoodWeb() },
+      { name: 'Food Web', desc: 'A four-trophic ecosystem: producers, grazers, carnivores, an apex predator and a nutrient-recycling loop. Populations cycle against each other, and a predator that over-hunts its prey can collapse without recovering.', load: () => this._demoFoodWeb() },
       { name: 'Auction Economy', desc: 'A player-driven MMO economy: gather, refine and craft goods, then watch the auction house prices and stocks oscillate as supply meets price-elastic demand.', load: () => this._demoAuction() },
     ];
 
@@ -38,8 +38,9 @@ class AppLibrary {
       // Capture a small canvas snapshot so the row is recognisable at a glance
       // (15b). Falls back to a blank thumb when rasterizing is unavailable.
       this._captureThumbnail((thumb) => {
+        // Fresh read, so a save here does not drop what another tab added.
         const lib = this._getLibrary();
-        const entry = { name, date: new Date().toLocaleString(), json: this._snapshot(), nodes: this.diagram.nodes.size };
+        const entry = { id: this._entryKey(), name, date: new Date().toLocaleString(), json: this._snapshot(), nodes: this.diagram.nodes.size };
         if (thumb) entry.thumb = thumb;
         lib.push(entry);
         if (!this._saveLibrary(lib)) {
@@ -95,6 +96,37 @@ class AppLibrary {
     try { return JSON.parse(localStorage.getItem('sim_library') || '[]'); } catch { return []; }
   }
 
+  // A stable per-entry key so an edit can find its target in a list another tab
+  // may have changed since this one was rendered.
+  _entryKey() {
+    return 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  // Apply an edit against what storage holds RIGHT NOW, not the array this list
+  // was rendered from. Delete, Duplicate and Rename each wrote back the snapshot
+  // taken when the list was drawn, so a diagram another tab had saved since was
+  // erased along with the edit. Entries are located by id, falling back to a
+  // content match for rows saved before ids existed.
+  _mutateStore(get, save, entry, index, fn, label) {
+    const fresh = get.call(this);
+    let i = -1;
+    if (entry && entry.id) i = fresh.findIndex(e => e && e.id === entry.id);
+    if (i < 0 && entry) {
+      i = fresh.findIndex(e => e && e.name === entry.name && e.date === entry.date && e.json === entry.json);
+    }
+    if (i < 0 && index != null && index >= 0 && index < fresh.length) i = index;
+    if (i < 0) {
+      this._toast('That entry is no longer there. It may have been changed in another tab.');
+      return false;
+    }
+    fn(fresh, i);
+    if (!save.call(this, fresh)) {
+      this._toast(`Could not update ${label}. Browser storage is full or blocked.`);
+      return false;
+    }
+    return true;
+  }
+
   // Returns false when the write fails (storage full or blocked) so callers
   // can tell the user instead of toasting a false "Saved".
   _saveLibrary(lib) {
@@ -119,8 +151,9 @@ class AppLibrary {
     const nodes = [...ids].map(id => this.diagram.nodes.get(id)).filter(Boolean).map(n => n.toJSON());
     const conns = [...this.diagram.connections.values()]
       .filter(c => ids.has(c.sourceId) && ids.has(c.targetId)).map(c => c.toJSON());
+    // Fresh read, so a save here does not drop what another tab added.
     const list = this._getComponents();
-    list.push({ name, date: new Date().toLocaleString(), nodes, conns });
+    list.push({ id: this._entryKey(), name, date: new Date().toLocaleString(), nodes, conns });
     if (!this._saveComponents(list)) {
       this._toast(`Could not save "${name}". Browser storage is full or blocked.`);
       return;
@@ -183,8 +216,8 @@ class AppLibrary {
       delBtn.setAttribute('aria-label', 'Delete component');
       delBtn.className = 'btn';
       delBtn.addEventListener('click', () => {
-        list.splice(i, 1);
-        if (!this._saveComponents(list)) this._toast('Could not update components. Browser storage is blocked.');
+        this._mutateStore(this._getComponents, this._saveComponents, comp, i,
+          (l, at) => l.splice(at, 1), 'components');
         this._renderComponentsList();
       });
       btns.appendChild(insertBtn);
@@ -243,6 +276,11 @@ class AppLibrary {
     this.engine.reset();
     this._commitReplace(prev);
     this.renderer.fitView();
+    // Repaint the panel. The Simulation rail panel reads the diagram's metadata
+    // when it is drawn, so after a template load it went on showing the empty
+    // canvas it had been drawn against: a blank Name and a FILE block reading
+    // 0 nodes, 0 connections, next to a canvas full of them.
+    this._renderProps();
   }
 
   async _loadTemplate(t) {
@@ -298,9 +336,9 @@ class AppLibrary {
         this._openMenu(r.left, r.bottom + 4, (add, sep) => {
           add('Rename…', 'pen', () => this._renameLibraryEntry(row, entry, i));
           add('Duplicate', 'clone', () => {
-            const copy = { ...entry, name: `${entry.name} copy`, date: new Date().toLocaleString() };
-            lib.splice(i + 1, 0, copy);
-            if (!this._saveLibrary(lib)) this._toast('Could not update the Library. Browser storage is blocked.');
+            const copy = { ...entry, id: this._entryKey(), name: `${entry.name} copy`, date: new Date().toLocaleString() };
+            this._mutateStore(this._getLibrary, this._saveLibrary, entry, i,
+              (list, at) => list.splice(at + 1, 0, copy), 'the Library');
             this._renderLibraryList();
           });
           add('Export as JSON', 'download', () => {
@@ -312,8 +350,8 @@ class AppLibrary {
           });
           sep();
           add('Delete', 'trash-can', () => {
-            lib.splice(i, 1);
-            if (!this._saveLibrary(lib)) this._toast('Could not update the Library. Browser storage is blocked.');
+            this._mutateStore(this._getLibrary, this._saveLibrary, entry, i,
+              (list, at) => list.splice(at, 1), 'the Library');
             this._renderLibraryList();
           }, { danger: true });
         });
@@ -374,9 +412,8 @@ class AppLibrary {
       done = true;
       const name = input.value.trim();
       if (save && name && name !== entry.name) {
-        const lib = this._getLibrary();
-        if (lib[index]) { lib[index].name = name; }
-        if (!this._saveLibrary(lib)) this._toast('Could not update the Library. Browser storage is blocked.');
+        this._mutateStore(this._getLibrary, this._saveLibrary, entry, index,
+          (list, at) => { list[at].name = name; }, 'the Library');
       }
       this._renderLibraryList();
     };

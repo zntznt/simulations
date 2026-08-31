@@ -2588,6 +2588,394 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Determinism: painting the canvas must not advance the seeded RNG. A gate's
+  // weight formula can draw random numbers and the label mirrors it, so every
+  // repaint (hover, pan, zoom, selection, each step) was eating draws the run
+  // was about to make.
+  const paintRng = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    app.diagram.seed = 'fixed-42';
+    const g = new MNode(NodeType.GATE, 300, 300); g.label = 'G'; g.setCount(200); g.gateMode = 'random';
+    const p1 = new MNode(NodeType.POOL, 600, 200); p1.label = 'A';
+    const p2 = new MNode(NodeType.POOL, 600, 400); p2.label = 'B';
+    [g, p1, p2].forEach(n => app.diagram.addNode(n));
+    const c1 = new MConnection(g.id, p1.id, ConnectionType.RESOURCE);
+    c1.weightFormula = 'randomInt(1,10)';
+    const c2 = new MConnection(g.id, p2.id, ConnectionType.RESOURCE); c2.weight = 1;
+    app.diagram.addConnection(c1); app.diagram.addConnection(c2);
+    app.engine.reset();
+    const before = SimRandom.getState();
+    app.renderer.render();
+    const afterPlain = SimRandom.getState();
+    app.editor._select(c1.id, 'conn');
+    const mid = SimRandom.getState();
+    app.renderer.render();
+    const afterSelected = SimRandom.getState();
+    return { seeded: before !== null, movedPlain: before !== afterPlain, movedSelected: mid !== afterSelected };
+  });
+  if (paintRng.seeded && !paintRng.movedPlain && !paintRng.movedSelected)
+    ok('determinism: repainting the canvas leaves the seeded RNG where it was');
+  else fail('paint rng: ' + JSON.stringify(paintRng));
+
+  // Embed at iframe widths must still offer Reset: the small-screen rules hide
+  // it on the assumption the overflow menu carries it, and an embed hides that.
+  const embedReset = await (async () => {
+    const ctx = await browser.newContext({ viewport: { width: 700, height: 600 } });
+    const ep = await ctx.newPage();
+    await ep.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await ep.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+    await ep.goto(URL + '#embed', { waitUntil: 'networkidle' });
+    const r = await ep.evaluate(() => {
+      const vis = (id) => {
+        const e = document.getElementById(id);
+        if (!e) return false;
+        return getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0;
+      };
+      return { reset: vis('btn-reset'), run: vis('btn-run'), step: vis('btn-step'), menu: vis('btn-mobile-menu') };
+    });
+    await ctx.close();
+    return r;
+  })();
+  if (embedReset.reset && embedReset.run && embedReset.step && !embedReset.menu)
+    ok('embed: a narrow embed still offers Run, Step and Reset');
+  else fail('embed reset: ' + JSON.stringify(embedReset));
+
+  // Animation layer: cleanup runs from requestAnimationFrame, which a browser
+  // suspends in a hidden tab while the setInterval driving the run keeps going,
+  // so the layer was produced into and never consumed. Two guarantees: a hard
+  // ceiling on live dots, and nothing produced at all while the tab is hidden.
+  // (Headless Chromium reports a backgrounded page as visible, so the hidden
+  // half is driven through the event rather than by switching tabs.)
+  const ballLayer = await (async () => {
+    const ctx = await browser.newContext({ reducedMotion: 'no-preference' });
+    const bp = await ctx.newPage();
+    await bp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await bp.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+    await bp.goto(URL, { waitUntil: 'networkidle' });
+    // Heavy model at the top of the speed slider.
+    await bp.evaluate(() => {
+      const app = window.app;
+      app._clearAll();
+      app._templates.find(t => /business/i.test(t.name)) ? app._installTemplate(app._templates.find(t => /business/i.test(t.name))) : app._loadDemo();
+      app.engine.speed = 10;
+      app.engine.run();
+    });
+    await bp.waitForTimeout(2500);
+    const peak = await bp.evaluate(() => (window.app.renderer.balls._balls || []).length);
+    const cap = await bp.evaluate(() => BallSystem.MAX_LIVE);
+    // Now the hidden half, driven through the real handler.
+    const whenHidden = await bp.evaluate(() => {
+      const app = window.app;
+      const orig = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      const clearedTo = (app.renderer.balls._balls || []).length;
+      // Spawning must be refused outright while hidden.
+      for (let i = 0; i < 5; i++) app.engine.doStep();
+      const afterSteps = (app.renderer.balls._balls || []).length;
+      delete document.hidden;
+      if (orig) Object.defineProperty(Document.prototype, 'hidden', orig);
+      app.engine.stop();
+      return { clearedTo, afterSteps };
+    });
+    await ctx.close();
+    return { peak, cap, ...whenHidden };
+  })();
+  if (ballLayer.peak <= ballLayer.cap && ballLayer.clearedTo === 0 && ballLayer.afterSteps === 0)
+    ok(`animation: live dots stay under the ${ballLayer.cap} cap (peak ${ballLayer.peak}) and stop entirely while hidden`);
+  else fail('ball layer: ' + JSON.stringify(ballLayer));
+
+  // Library: loading a template must refresh the Simulation panel, which reads
+  // the diagram metadata when it is drawn.
+  const tmplPanel = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    const t = app._templates[0];
+    app._installTemplate(t);
+    const txt = document.getElementById('props-content').textContent;
+    const nameInput = [...document.querySelectorAll('#props-content input')].find(i => i.type === 'text');
+    return {
+      tmplName: t.name, nodes: app.diagram.nodes.size,
+      panelName: nameInput ? nameInput.value : null,
+      panelNodes: Number((txt.match(/Nodes\s*(\d+)/) || [])[1]),
+    };
+  });
+  if (tmplPanel.panelName === tmplPanel.tmplName && tmplPanel.panelNodes === tmplPanel.nodes)
+    ok('library: loading a template refreshes the Simulation panel');
+  else fail('template panel: ' + JSON.stringify(tmplPanel));
+
+  // Demos: no bundled template may produce a non-finite value. Smoke only ever
+  // checked that they load, so a demo could go to NaN and CI would stay green.
+  const demoSanity = await page.evaluate(() => {
+    const app = window.app;
+    const bad = [];
+    for (const t of app._templates) {
+      app._clearAll();
+      app._installTemplate(t);
+      app.engine.reset();
+      for (let i = 0; i < 120; i++) app.engine.doStep();
+      for (const n of app.diagram.nodes.values()) {
+        const v = n.chartValue;
+        if (v != null && !Number.isFinite(v)) bad.push(`${t.name}:${n.label || n.type}=${v}`);
+      }
+    }
+    // Leave a neutral canvas behind: fitView left the zoom at whatever the last
+    // template needed, and later checks assume 100%.
+    app._clearAll();
+    app.renderer.resetView();
+    return { templates: app._templates.length, bad };
+  });
+  if (demoSanity.templates >= 10 && demoSanity.bad.length === 0)
+    ok(`demos: all ${demoSanity.templates} templates run 120 steps with every value finite`);
+  else fail('demo sanity: ' + JSON.stringify(demoSanity));
+
+  // Multi-tab: two tabs share one localStorage. A Library edit made in one must
+  // not erase what the other saved, and a tab whose autosave slot is taken over
+  // has to be told rather than carry on believing its work is safe.
+  const multiTab = await (async () => {
+    const ctx = await browser.newContext();
+    const mk = async () => {
+      const p2 = await ctx.newPage();
+      await p2.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+      await p2.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+      await p2.goto(URL, { waitUntil: 'networkidle' });
+      return p2;
+    };
+    const tabA = await mk();
+    const tabB = await mk();
+    const saveEntry = (p2, label) => p2.evaluate((nm) => {
+      const app = window.app;
+      app._clearAll();
+      const n = new MNode(NodeType.POOL, 200, 200); n.label = nm;
+      app.diagram.addNode(n); app.renderer.render(); app._commit();
+      document.getElementById('btn-library').click();
+      document.getElementById('lib-name').value = nm;
+      document.getElementById('lib-save').click();
+      return null;
+    }, label);
+
+    // Spy on tab A's toasts before anything cross-tab happens: the takeover
+    // warning fires once per tab, so installing it later would miss it.
+    await tabA.evaluate(() => {
+      window.__toasts = [];
+      const t = window.app._toast.bind(window.app);
+      window.app._toast = (m) => { window.__toasts.push(m); return t(m); };
+    });
+    await saveEntry(tabA, 'FromA');
+    await tabA.waitForTimeout(400);
+    await tabB.reload({ waitUntil: 'networkidle' });   // B now sees A's entry
+    // A renders its Library list NOW, holding only FromA...
+    await tabA.evaluate(() => {
+      window.app._openLibrary();
+      window.app._setLibraryTab('mine');
+    });
+    // ...and only then does B save, so A's rendered list is stale from here on.
+    // That is the shape of the bug: the row's Delete wrote back the array the
+    // list was drawn from, taking FromB with it.
+    await saveEntry(tabB, 'FromB');
+    await tabB.waitForTimeout(400);
+    await tabA.click('button[aria-label="More actions for \\"FromA\\""]');
+    await tabA.waitForSelector('#ctx-menu .menu-item', { timeout: 2000 }).catch(() => {});
+    const clickedDelete = await tabA.evaluate(() => {
+      const item = [...document.querySelectorAll('#ctx-menu .menu-item')]
+        .find(b => /^\s*Delete\s*$/.test(b.textContent));
+      if (!item) return false;
+      item.click();
+      return true;
+    });
+    await tabA.waitForTimeout(200);
+    const deleted = await tabA.evaluate(() => {
+      try { return JSON.parse(localStorage.getItem('sim_library') || '[]').map(e => e.name); }
+      catch { return ['READ_FAILED']; }
+    });
+
+    // Autosave takeover warning: B's saves reach A's storage event.
+    await tabB.evaluate(() => {
+      const app = window.app;
+      const n = new MNode(NodeType.POOL, 500, 400); n.label = 'BEdit';
+      app.diagram.addNode(n); app.renderer.render(); app._commit();
+    });
+    await tabA.waitForTimeout(600);
+    const warned = await tabA.evaluate(() => (window.__toasts || []).some(m => /no longer the saved copy/i.test(m)));
+    await ctx.close();
+    return { clickedDelete, afterDelete: deleted, warned };
+  })();
+  if (multiTab.clickedDelete && multiTab.afterDelete.includes('FromB')
+    && !multiTab.afterDelete.includes('FromA') && multiTab.warned)
+    ok('multi-tab: a Library delete keeps the other tab\'s entry, and autosave takeover is announced');
+  else fail('multi-tab: ' + JSON.stringify(multiTab));
+
+  // Properties: at step 0 the amount field is the Starting amount, so the +/-
+  // buttons have to move the reset baseline. They only moved the live count, so
+  // the canvas, undo and autosave all showed the new number and Reset or a
+  // reload silently put the old one back.
+  const stepperBaseline = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    const p = new MNode(NodeType.POOL, 300, 300); p.label = 'Gold';
+    p.setCount(10, '#9e9e9e');
+    app.diagram.addNode(p);
+    app.renderer.render(); app._commit();
+    app.editor._select(p.id, 'node');
+    const plus = [...document.querySelectorAll('#props-content button')]
+      .find(b => b.getAttribute('aria-label') === 'Add one resource');
+    if (!plus) return { error: 'no stepper' };
+    for (let i = 0; i < 3; i++) plus.click();
+    const afterClicks = p.resources;
+    let saved = null;
+    try {
+      const j = JSON.parse(localStorage.getItem('sim_autosave') || '{}');
+      const n = (j.nodes || []).find(x => x.label === 'Gold') || {};
+      saved = { resources: n.resources, initial: n.initialResources };
+    } catch { /* blocked */ }
+    app.engine.reset();
+    return { afterClicks, afterReset: p.resources, saved };
+  });
+  if (!stepperBaseline.error && stepperBaseline.afterClicks === 13
+    && stepperBaseline.afterReset === 13
+    && stepperBaseline.saved.resources === 13 && stepperBaseline.saved.initial === undefined)
+    ok('properties: the +/- steppers move the starting amount, and Reset keeps it');
+  else fail('stepper baseline: ' + JSON.stringify(stepperBaseline));
+
+  // Player: the "(node deleted)" placeholder must not be selectable.
+  const placeholder = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    const a = new MNode(NodeType.POOL, 200, 200); a.label = 'Chest';
+    a.activation = ActivationMode.INTERACTIVE;
+    const b = new MNode(NodeType.POOL, 400, 200); b.label = 'Shop';
+    b.activation = ActivationMode.INTERACTIVE;
+    app.diagram.addNode(a); app.diagram.addNode(b);
+    app.renderer.render(); app._commit();
+    document.querySelector('#diagram-rail .rail-btn[data-feature="player"]').click();
+    const ai = app.diagram.aiPlayer;
+    ai.rules.push({ nodeId: b.id, mode: 'interval', every: 2 });
+    ai.enabled = true;
+    app.diagram.removeNode(b.id);
+    app.renderer.render();
+    app._renderProps();
+    const opt = [...document.querySelectorAll('#props-content .ai-rule option')]
+      .find(o => /deleted/i.test(o.textContent));
+    return {
+      present: !!opt,
+      disabled: !!(opt && opt.disabled),
+      selected: !!(opt && opt.selected),
+      stillWarns: /never fires/i.test(document.getElementById('props-content').textContent),
+    };
+  });
+  if (placeholder.present && placeholder.disabled && placeholder.selected && placeholder.stillWarns)
+    ok('player: the "(node deleted)" placeholder is shown but cannot be chosen');
+  else fail('deleted placeholder: ' + JSON.stringify(placeholder));
+
+  // Security: opening a share link used to replace the reader's autosaved
+  // diagram silently, with nothing to undo it and a reload bringing back the
+  // sender's diagram rather than theirs.
+  const shareGuard = await (async () => {
+    const ctx = await browser.newContext();
+    const sp = await ctx.newPage();
+    await sp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await sp.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+    await sp.goto(URL, { waitUntil: 'networkidle' });
+    const hash = await sp.evaluate(() => {
+      const app = window.app;
+      app._clearAll();
+      for (let i = 0; i < 3; i++) {
+        const n = new MNode(NodeType.POOL, 150 + i * 120, 200); n.label = 'Mine' + i;
+        app.diagram.addNode(n);
+      }
+      app.diagram.meta.name = 'MyWork';
+      app._commit();
+      const d = new Diagram();
+      const n = new MNode(NodeType.POOL, 100, 100); n.label = 'Theirs';
+      d.addNode(n); d.meta.name = 'Colleague';
+      return '#d=' + btoa(unescape(encodeURIComponent(JSON.stringify(d.toJSON()))));
+    });
+    const savedName = () => sp.evaluate(() => {
+      try { return (JSON.parse(localStorage.getItem('sim_autosave') || '{}').meta || {}).name; }
+      catch { return null; }
+    });
+    // A hash-only goto is a same-document navigation, so reload to re-init.
+    await sp.goto(URL + hash, { waitUntil: 'networkidle' });
+    await sp.reload({ waitUntil: 'networkidle' });
+    await sp.waitForSelector('#guard-overlay:not(.hidden)', { timeout: 3000 }).catch(() => {});
+    const asked = await sp.evaluate(() => !document.getElementById('guard-overlay').classList.contains('hidden'));
+    if (asked) await sp.click('#guard-cancel');
+    await sp.waitForTimeout(150);
+    const declined = { saved: await savedName(), canvas: await sp.evaluate(() => window.app.diagram.meta.name) };
+    await sp.goto(URL + hash, { waitUntil: 'networkidle' });
+    await sp.reload({ waitUntil: 'networkidle' });
+    await sp.waitForSelector('#guard-overlay:not(.hidden)', { timeout: 3000 }).catch(() => {});
+    const asked2 = await sp.evaluate(() => !document.getElementById('guard-overlay').classList.contains('hidden'));
+    if (asked2) await sp.click('#guard-confirm');
+    await sp.waitForTimeout(150);
+    const accepted = { saved: await savedName(), hash: await sp.evaluate(() => location.hash) };
+    await ctx.close();
+    return { asked, declined, accepted };
+  })();
+  if (shareGuard.asked && shareGuard.declined.saved === 'MyWork' && shareGuard.declined.canvas === 'MyWork'
+    && shareGuard.accepted.saved === 'Colleague' && shareGuard.accepted.hash === '')
+    ok('security: a share link asks before it replaces the reader\'s saved diagram');
+  else fail('share guard: ' + JSON.stringify(shareGuard));
+
+  // Security: a diagram is untrusted input. Its parameter names reach the sweep
+  // results table, which built its header row with innerHTML and no escaping.
+  const sweepXss = await page.evaluate(async () => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    const p = new MNode(NodeType.POOL, 200, 200); p.label = 'Gold'; p.setCount(5);
+    app.diagram.addNode(p);
+    app.diagram.params = { 'rate"><img src=x onerror="window.__xss=1"><b': 2 };
+    app.renderer.render(); app._commit();
+    delete window.__xss;
+    app._openMonteCarlo();
+    document.getElementById('mc-runs').value = '2';
+    document.getElementById('mc-steps').value = '2';
+    await app._runSweep();
+    const out = document.getElementById('mc-results');
+    return {
+      fired: window.__xss === 1,
+      imgs: out.querySelectorAll('img').length,
+      headerText: (out.querySelector('th:nth-child(2)') || {}).textContent || '',
+    };
+  });
+  await page.evaluate(() => window.app._hideModal('mc-overlay'));
+  if (!sweepXss.fired && sweepXss.imgs === 0 && sweepXss.headerText.includes('<img'))
+    ok('security: a hostile parameter name renders as text in the sweep table, not as HTML');
+  else fail('sweep xss: ' + JSON.stringify(sweepXss));
+
+  // Security: meta.font rides in with the diagram and was pasted into a
+  // third-party stylesheet URL, so opening a shared link phoned home with a
+  // string of the sender's choosing.
+  const fontGuard = await (async () => {
+    const ctx = await browser.newContext();
+    const fp = await ctx.newPage();
+    const hits = [];
+    await fp.route('**://fonts.googleapis.com/**', r => { hits.push(r.request().url()); r.fulfill({ contentType: 'text/css', body: '' }); });
+    await fp.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+    await fp.goto(URL, { waitUntil: 'networkidle' });
+    const check = async (font) => {
+      hits.length = 0;
+      await fp.evaluate((f) => {
+        const app = window.app;
+        app._clearAll();
+        app.diagram.addNode(new MNode(NodeType.POOL, 200, 200));
+        app.diagram.meta.font = f;
+        app._applyMeta();
+      }, font);
+      await fp.waitForTimeout(250);
+      return { requests: hits.length, link: await fp.evaluate(() => !!document.getElementById('gfont-link')) };
+    };
+    const hostile = await check('Attacker-Beacon-12345');
+    const curated = await check('Lexend');
+    await ctx.close();
+    return { hostile, curated };
+  })();
+  if (fontGuard.hostile.requests === 0 && !fontGuard.hostile.link
+    && fontGuard.curated.requests === 1 && fontGuard.curated.link)
+    ok('security: an off-list display font fires no third-party request, a curated one still works');
+  else fail('font guard: ' + JSON.stringify(fontGuard));
+
   // Accessibility: three controls whose accessible name has to track state.
   const a11yNames = await (async () => {
     await page.evaluate(() => {

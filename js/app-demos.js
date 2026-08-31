@@ -857,7 +857,11 @@ class AppDemos {
   // grazers and a detritivore eat the base; two carnivores hunt them; Hawks are
   // the apex; a decomposer loop returns dead biomass to nutrients. Predation is
   // Lotka-Volterra formula rates; growth/death are register+modifier pairs. With
-  // no goal set, all ten populations settle into coupled, bounded oscillations.
+  // no goal set, the populations cycle against each other. Foxes are deliberately
+  // left over-exploiting: they boom, crash the rabbit base, and cannot recover,
+  // which is a real dynamic of this coupling rather than a mistuned constant.
+  // Measured: even at 3x the birth rate and a quarter of the death rate they
+  // still peak (167) and collapse to 1.
   _demoFoodWeb() {
     const b = this._demo();
     b.d.resourceTypes = [
@@ -1071,8 +1075,10 @@ class AppDemos {
     b.note(60, 1060, 540, 130,
       'Predation uses Lotka-Volterra formula rates (coef·prey·pred); growth & death use ' +
       'register+modifier pairs. Two periodic drivers (sunFactor, rainFactor) force the ' +
-      'producers. No goal is set, yet all ten populations lock into coupled, bounded ' +
-      'oscillations, predator peaks lagging prey. Press Run.');
+      'producers. No goal is set, yet the populations cycle against each other with ' +
+      'predator peaks lagging prey. Watch the Foxes: they boom on plentiful Rabbits, ' +
+      'eat the prey base out from under themselves, and crash to a level their birth ' +
+      'rate cannot climb back from. Press Run.');
     this.renderer.render();
   }
 

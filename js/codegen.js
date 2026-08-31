@@ -16,9 +16,18 @@
 /* exported buildEconomyModule */
 
 function buildEconomyModule(json, modelSrc, engineSrc, opts = {}) {
-  const globalName = opts.name || 'Economy';
-  const econName = (json.meta && json.meta.name) || 'economy';
-  const stamp = opts.generator || 'the simulations designer';
+  // Anything interpolated into the header comment must be unable to close it.
+  // meta.name comes from the diagram, which is untrusted input: a name
+  // containing */ ended the comment early and everything after it became
+  // top-level code in the emitted module, running on require().
+  const commentSafe = (v) => String(v == null ? '' : v)
+    .replace(/\*\//g, '* /').replace(/[\r\n]+/g, ' ');
+  // The global name reaches a code position (root.<name> = factory()), so it is
+  // held to an identifier.
+  const rawGlobal = String(opts.name || 'Economy');
+  const globalName = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(rawGlobal) ? rawGlobal : 'Economy';
+  const econName = commentSafe((json.meta && json.meta.name) || 'economy');
+  const stamp = commentSafe(opts.generator || 'the simulations designer');
   // Double-encode the diagram: the module keeps it as a JSON string and each
   // createEconomy() call parses a fresh deep copy.
   const diagramLiteral = JSON.stringify(JSON.stringify(json));
@@ -27,9 +36,9 @@ function buildEconomyModule(json, modelSrc, engineSrc, opts = {}) {
  * ${econName} — generated economy module
  * Built by ${stamp}. Self-contained: no dependencies, no DOM.
  *
- * Formulas evaluate with math.js when a global \`math\` is present (optional:
- * require('mathjs') and set global.math before loading this file); without it
- * they fall back to a plain JS expression evaluator.
+ * Formulas evaluate with math.js, so a global \`math\` is required:
+ * require('mathjs') and set global.math before loading this file. Without it
+ * every formula evaluates to 0.
  *
  * The RNG (SimRandom) is shared module state: run one seeded economy at a
  * time per process for bit-exact reproducibility.

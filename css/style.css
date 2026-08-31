@@ -1550,6 +1550,13 @@ body.embed .analysis-controls,
    above just removed straight back: the palette, the file controls, New
    diagram, Open file, Save as JSON and the rest. */
 body.embed #btn-mobile-menu { display: none; }
+/* ...which leaves an embed at these widths, and most iframes are at these
+   widths, with no way to reset a run at all: the small-screen rules hide Reset
+   from the topbar on the assumption that the overflow menu still carries it.
+   An embed offers Run, Step and Reset and nothing else, so Reset comes back. */
+@media (max-width: 768px) {
+  body.embed #btn-reset { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
+}
 body.embed #topbar { min-height: 44px; }
 .embed-open {
   margin-left: auto; font-size: 11px; color: var(--text-faint); white-space: nowrap;

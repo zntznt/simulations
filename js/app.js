@@ -84,6 +84,8 @@ class App {
     this.timeline.onInspect = (nodeId, index, cx, cy) => this._showWhyPopover(nodeId, index, cx, cy);
 
     this._bindControls();
+    this._watchForeignAutosave();
+    this._watchVisibility();
     this._initLibrary();
     this._initMenus();
     this._initPalette();
@@ -516,6 +518,37 @@ class App {
     this._persistAutosave();
   }
 
+  // localStorage is shared by every tab on this origin and sim_autosave is a
+  // single slot, so the tab that saves last silently becomes the saved copy and
+  // the other tab carries on believing its work is safe. Nothing can merge two
+  // diagrams, but the tab that has been superseded can at least be told, once,
+  // while its work is still on screen and can be exported. The storage event
+  // fires only in the OTHER tabs, so a write never warns the tab that made it.
+  // A hidden tab suspends requestAnimationFrame but keeps the setInterval that
+  // drives the run, so the animation layers were produced into and never
+  // consumed. Drop what is in flight when the tab goes away, and repaint when it
+  // comes back so the canvas matches the model rather than a stale frame.
+  _watchVisibility() {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.renderer.balls.clear();
+        this.renderer.flowFx.clear();
+      } else {
+        this.renderer.render();
+      }
+    });
+  }
+
+  _watchForeignAutosave() {
+    window.addEventListener('storage', (e) => {
+      if (e.key !== 'sim_autosave' || e.newValue == null) return;
+      if (document.body.classList.contains('embed')) return;
+      if (this._autosaveTakenOver) return;
+      this._autosaveTakenOver = true;
+      this._toast('Another tab just saved over this browser\'s autosave. Work in this tab is no longer the saved copy, so use File > Save as JSON to keep it.');
+    });
+  }
+
   // Two snapshots describe the same diagram. The module-level id counter rides
   // along in the JSON and loadJSON only ever raises it, so that ids handed out
   // since cannot collide, which means restoring a snapshot never reproduces its
@@ -842,8 +875,16 @@ class App {
       // the URL is the document, and an embed must not write over the host
       // page's autosave.
       if (!document.body.classList.contains('embed')) {
-        this._persistAutosave();
-        try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
+        let prior = null;
+        try { prior = JSON.parse(localStorage.getItem('sim_autosave') || 'null'); } catch { /* blocked or corrupt */ }
+        const priorNodes = prior && Array.isArray(prior.nodes) ? prior.nodes.length : 0;
+        if (priorNodes && this._canLoadDiagram(prior)) {
+          // There is real work in the saved slot. Ask before the link takes it.
+          this._adoptSharedDiagram(prior);
+        } else {
+          this._persistAutosave();
+          try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
+        }
       }
       return;
     }
@@ -1028,7 +1069,39 @@ class App {
     this._syncRailFades();
   }
 
-  _scrollRails() {
+    // A share link has just been loaded over an existing autosaved diagram. The
+  // shared one is already on screen; ask before it takes the saved slot, and put
+  // the reader's own diagram back if they decline. Without this, opening a link
+  // destroyed the reader's work with no prompt: a reload afterwards brought back
+  // the sender's diagram, not theirs, and nothing could undo it (a page load has
+  // no undo stack for state from before it).
+  async _adoptSharedDiagram(prior) {
+    const name = (this.diagram.meta && this.diagram.meta.name || '').trim();
+    const keep = await this._confirmGuard(
+      `Keep the shared diagram${name ? ` "${name}"` : ''}? It replaces the diagram saved in this browser.`,
+      'Shared diagram');
+    if (keep) {
+      this._persistAutosave();
+      try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
+      return;
+    }
+    // Declined: restore what they had. The hash stays, so the link still works
+    // if they change their mind.
+    this.diagram.loadJSON(prior);
+    this._applyMeta();
+    this.engine.reset();
+    this.renderer.balls.clear();
+    this.renderer.flowFx.clear();
+    this._clearSparklines();
+    this.editor._select(null, null);
+    this.renderer.render();
+    this.renderer.fitView();
+    this._resetHistory();
+    this._renderProps();
+    this._toast('Kept your own diagram. The shared one was not saved.');
+  }
+
+_scrollRails() {
     return ['palette', 'diagram-rail'].map(id => document.getElementById(id)).filter(Boolean);
   }
 

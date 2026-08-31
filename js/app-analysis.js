@@ -261,8 +261,14 @@ class AppAnalysis {
         + `, ${runs} runs × ${steps} steps per value`
         + (seed ? `, seed <b>${this._esc(seed)}</b>` : '') + '<br>'
         + '<span style="color:var(--text-dim)">Cells show the mean final value across runs.</span></p>';
+      // Escaped: `name` is a parameter name straight out of the loaded diagram,
+      // which is untrusted input (a shared #d= link, a downloaded .json/.econ,
+      // a library component). Every other interpolation in this function
+      // escapes; this one did not, so a parameter named with an <img onerror>
+      // ran the diagram author's script in the app's own origin the moment the
+      // reader pressed Run sweep.
       html += '<table><thead><tr><th>Node</th>'
-        + values.map(v => `<th>${name}=${v}</th>`).join('') + '</tr></thead><tbody>';
+        + values.map(v => `<th>${this._esc(name)}=${v}</th>`).join('') + '</tr></thead><tbody>';
       for (let n = 0; n < results[0].nodes.length; n++) {
         html += `<tr><td>${this._esc(results[0].nodes[n].label || results[0].nodes[n].type)}</td>`
           + results.map(r => `<td>${r.nodes[n].mean}</td>`).join('') + '</tr>';

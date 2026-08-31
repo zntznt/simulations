@@ -128,13 +128,43 @@ function _formulaRandomScope() {
 
 // `Math` stand-in whose random() draws from SimRandom (everything else is
 // inherited); shadows the global in the legacy Function-based evaluator.
-const _seededMath = Object.create(Math, { random: { value: () => SimRandom.random() } });
+// The `Math` object legacy formulas reach for, rebuilt as OWN properties:
+// math.js refuses to call a method it finds on a prototype, so Object.create
+// (Math) would give "No access to method random". `random` draws from SimRandom
+// so a seeded run stays reproducible on this path too.
+const _MATH_FNS = ['abs', 'ceil', 'floor', 'round', 'trunc', 'sign', 'min', 'max', 'pow',
+  'sqrt', 'cbrt', 'exp', 'log', 'log2', 'log10', 'hypot',
+  'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2'];
+const _MATH_CONSTS = ['PI', 'E', 'LN2', 'LN10', 'LOG2E', 'LOG10E', 'SQRT2', 'SQRT1_2'];
+function _seededMathScope() {
+  const m = { random: () => SimRandom.random() };
+  for (const k of _MATH_FNS) if (typeof Math[k] === 'function') m[k] = (...a) => Math[k](...a);
+  for (const k of _MATH_CONSTS) if (typeof Math[k] === 'number') m[k] = Math[k];
+  return m;
+}
+
+// Legacy JS operators that math.js spells differently. Applied ONLY to an
+// expression math.js has already refused to compile, so a well-formed math.js
+// expression is never rewritten.
+function _repairLegacyOps(expr) {
+  return expr
+    .replace(/!==/g, ' != ')
+    .replace(/===/g, ' == ')
+    .replace(/&&/g, ' and ')
+    .replace(/\|\|/g, ' or ')
+    .replace(/\*\*/g, '^')
+    .replace(/!(?=\s*[A-Za-z_(])/g, ' not ');
+}
 
 function _evalMathJS(expr, vars) {
   if (typeof math === 'undefined' || !math.compile) return undefined;
   let code = _mathCompileCache.get(expr);
   if (code === undefined) {
     try { code = math.compile(expr); } catch { code = null; }
+    // Second chance for a formula written in the older JS-flavoured syntax.
+    if (!code) {
+      try { code = math.compile(_repairLegacyOps(expr)); } catch { code = null; }
+    }
     if (_mathCompileCache.size > 500) _mathCompileCache.clear();
     _mathCompileCache.set(expr, code);
   }
@@ -143,8 +173,10 @@ function _evalMathJS(expr, vars) {
   for (const [k, v] of Object.entries(vars || {})) {
     if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)) scope[k] = v;
   }
-  // Seeded randomness (scope functions take precedence over math.js built-ins).
+  // Seeded randomness (scope functions take precedence over math.js built-ins),
+  // plus the Math object older formulas were written against.
   Object.assign(scope, _formulaRandomScope());
+  scope.Math = _seededMathScope();
   try {
     let r = code.evaluate(scope);
     if (r && typeof r === 'object' && typeof r.toNumber === 'function') r = r.toNumber();
@@ -156,41 +188,28 @@ function _evalMathJS(expr, vars) {
 
 function evalFormula(expr, vars = {}) {
   if (!expr || typeof expr !== 'string' || !expr.trim()) return 0;
+  // math.js only. There used to be a `new Function(expr)` fallback here for
+  // formulas math.js could not parse, which made every formula-bearing field a
+  // remote code execution sink: a diagram is untrusted input, arriving as a
+  // shared #d= link, a downloaded .json or .econ, a library component or a
+  // cli.js argument, and reset() evaluates register formulas on load, so simply
+  // opening a link ran the author's JavaScript. validateFormula reported such a
+  // payload as valid, so nothing warned. Nothing in the app needs it: all 110
+  // distinct expressions across the 12 demos and 11 templates compile under
+  // math.js, and the JS-flavoured spellings older saved diagrams might use are
+  // handled by _seededMathScope and _repairLegacyOps above.
   const viaMath = _evalMathJS(expr.trim(), vars);
-  if (viaMath !== undefined) return viaMath;
-  // Legacy fallback: plain JS expression over the same variables. The seeded
-  // random helpers are passed in too, and `Math` is shadowed so Math.random()
-  // also draws from SimRandom (seeded runs stay reproducible on this path).
-  const rng = _formulaRandomScope();
-  const keys = [], vals = [];
-  for (const [k, v] of Object.entries(vars || {})) {
-    if (VALID_IDENT.test(k) && typeof v === 'number' && isFinite(v)
-      && !(k in rng) && k !== 'Math') {
-      keys.push(k); vals.push(v);
-    }
-  }
-  for (const [k, fn] of Object.entries(rng)) { keys.push(k); vals.push(fn); }
-  keys.push('Math'); vals.push(_seededMath);
-  try {
-    // eslint-disable-next-line no-new-func
-    const fn = new Function(...keys, `"use strict"; return (${expr.trim()});`);
-    const r = Number(fn(...vals));
-    return isFinite(r) ? r : 0;
-  } catch { return 0; }
+  return viaMath === undefined ? 0 : viaMath;
 }
 
 // True if the expression parses in at least one of the two evaluators
 // (math.js syntax, or legacy JS syntax). Used for live input validation.
 function validateFormula(expr) {
   if (!expr || typeof expr !== 'string' || !expr.trim()) return false;
-  if (typeof math !== 'undefined' && math.parse) {
-    try { math.parse(expr.trim()); return true; } catch { /* try legacy */ }
-  }
-  try {
-    // eslint-disable-next-line no-new-func
-    new Function(`"use strict"; return (${expr.trim()});`);
-    return true;
-  } catch { return false; }
+  if (typeof math === 'undefined' || !math.parse) return false;
+  const t = expr.trim();
+  try { math.parse(t); return true; } catch { /* try the legacy spellings */ }
+  try { math.parse(_repairLegacyOps(t)); return true; } catch { return false; }
 }
 
 // Sample from a named statistical distribution. Returns a non-negative integer.
