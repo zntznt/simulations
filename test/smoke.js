@@ -2588,6 +2588,82 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Multi-tab: two tabs share one localStorage. A Library edit made in one must
+  // not erase what the other saved, and a tab whose autosave slot is taken over
+  // has to be told rather than carry on believing its work is safe.
+  const multiTab = await (async () => {
+    const ctx = await browser.newContext();
+    const mk = async () => {
+      const p2 = await ctx.newPage();
+      await p2.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+      await p2.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+      await p2.goto(URL, { waitUntil: 'networkidle' });
+      return p2;
+    };
+    const tabA = await mk();
+    const tabB = await mk();
+    const saveEntry = (p2, label) => p2.evaluate((nm) => {
+      const app = window.app;
+      app._clearAll();
+      const n = new MNode(NodeType.POOL, 200, 200); n.label = nm;
+      app.diagram.addNode(n); app.renderer.render(); app._commit();
+      document.getElementById('btn-library').click();
+      document.getElementById('lib-name').value = nm;
+      document.getElementById('lib-save').click();
+      return null;
+    }, label);
+
+    // Spy on tab A's toasts before anything cross-tab happens: the takeover
+    // warning fires once per tab, so installing it later would miss it.
+    await tabA.evaluate(() => {
+      window.__toasts = [];
+      const t = window.app._toast.bind(window.app);
+      window.app._toast = (m) => { window.__toasts.push(m); return t(m); };
+    });
+    await saveEntry(tabA, 'FromA');
+    await tabA.waitForTimeout(400);
+    await tabB.reload({ waitUntil: 'networkidle' });   // B now sees A's entry
+    // A renders its Library list NOW, holding only FromA...
+    await tabA.evaluate(() => {
+      window.app._openLibrary();
+      window.app._setLibraryTab('mine');
+    });
+    // ...and only then does B save, so A's rendered list is stale from here on.
+    // That is the shape of the bug: the row's Delete wrote back the array the
+    // list was drawn from, taking FromB with it.
+    await saveEntry(tabB, 'FromB');
+    await tabB.waitForTimeout(400);
+    await tabA.click('button[aria-label="More actions for \\"FromA\\""]');
+    await tabA.waitForSelector('#ctx-menu .menu-item', { timeout: 2000 }).catch(() => {});
+    const clickedDelete = await tabA.evaluate(() => {
+      const item = [...document.querySelectorAll('#ctx-menu .menu-item')]
+        .find(b => /^\s*Delete\s*$/.test(b.textContent));
+      if (!item) return false;
+      item.click();
+      return true;
+    });
+    await tabA.waitForTimeout(200);
+    const deleted = await tabA.evaluate(() => {
+      try { return JSON.parse(localStorage.getItem('sim_library') || '[]').map(e => e.name); }
+      catch { return ['READ_FAILED']; }
+    });
+
+    // Autosave takeover warning: B's saves reach A's storage event.
+    await tabB.evaluate(() => {
+      const app = window.app;
+      const n = new MNode(NodeType.POOL, 500, 400); n.label = 'BEdit';
+      app.diagram.addNode(n); app.renderer.render(); app._commit();
+    });
+    await tabA.waitForTimeout(600);
+    const warned = await tabA.evaluate(() => (window.__toasts || []).some(m => /no longer the saved copy/i.test(m)));
+    await ctx.close();
+    return { clickedDelete, afterDelete: deleted, warned };
+  })();
+  if (multiTab.clickedDelete && multiTab.afterDelete.includes('FromB')
+    && !multiTab.afterDelete.includes('FromA') && multiTab.warned)
+    ok('multi-tab: a Library delete keeps the other tab\'s entry, and autosave takeover is announced');
+  else fail('multi-tab: ' + JSON.stringify(multiTab));
+
   // Properties: at step 0 the amount field is the Starting amount, so the +/-
   // buttons have to move the reset baseline. They only moved the live count, so
   // the canvas, undo and autosave all showed the new number and Reset or a

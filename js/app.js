@@ -84,6 +84,7 @@ class App {
     this.timeline.onInspect = (nodeId, index, cx, cy) => this._showWhyPopover(nodeId, index, cx, cy);
 
     this._bindControls();
+    this._watchForeignAutosave();
     this._initLibrary();
     this._initMenus();
     this._initPalette();
@@ -514,6 +515,22 @@ class App {
     this._lastState = snap;
     this._updateUndoButtons();
     this._persistAutosave();
+  }
+
+  // localStorage is shared by every tab on this origin and sim_autosave is a
+  // single slot, so the tab that saves last silently becomes the saved copy and
+  // the other tab carries on believing its work is safe. Nothing can merge two
+  // diagrams, but the tab that has been superseded can at least be told, once,
+  // while its work is still on screen and can be exported. The storage event
+  // fires only in the OTHER tabs, so a write never warns the tab that made it.
+  _watchForeignAutosave() {
+    window.addEventListener('storage', (e) => {
+      if (e.key !== 'sim_autosave' || e.newValue == null) return;
+      if (document.body.classList.contains('embed')) return;
+      if (this._autosaveTakenOver) return;
+      this._autosaveTakenOver = true;
+      this._toast('Another tab just saved over this browser\'s autosave. Work in this tab is no longer the saved copy, so use File > Save as JSON to keep it.');
+    });
   }
 
   // Two snapshots describe the same diagram. The module-level id counter rides
