@@ -23,7 +23,7 @@ class AppLibrary {
       { name: 'Civilization Empire', desc: 'A 4X economy in one diagram: logistic population, five yields, building converters, and a Science-gated tech tree (irrigation, drama, banking, university).', load: () => this._demoCiv() },
       { name: 'Megafactory Line', desc: 'A 4-tier auto-factory: ore → smelting → components → widgets. A tiny circuit buffer and a slow assembly station back the line up. Watch the bottleneck.', load: () => this._demoFactory() },
       { name: 'Business Cycle', desc: 'A full circular-flow macroeconomy with households, firms, banks, government and a central bank. Countercyclical stimulus through a policy lag drives a boom-bust cycle.', load: () => this._demoBusinessCycle() },
-      { name: 'Food Web', desc: 'A four-trophic ecosystem: producers, grazers, carnivores, an apex predator and a nutrient-recycling loop. Ten species lock into coupled, bounded oscillations.', load: () => this._demoFoodWeb() },
+      { name: 'Food Web', desc: 'A four-trophic ecosystem: producers, grazers, carnivores, an apex predator and a nutrient-recycling loop. Populations cycle against each other, and a predator that over-hunts its prey can collapse without recovering.', load: () => this._demoFoodWeb() },
       { name: 'Auction Economy', desc: 'A player-driven MMO economy: gather, refine and craft goods, then watch the auction house prices and stocks oscillate as supply meets price-elastic demand.', load: () => this._demoAuction() },
     ];
 
@@ -276,6 +276,11 @@ class AppLibrary {
     this.engine.reset();
     this._commitReplace(prev);
     this.renderer.fitView();
+    // Repaint the panel. The Simulation rail panel reads the diagram's metadata
+    // when it is drawn, so after a template load it went on showing the empty
+    // canvas it had been drawn against: a blank Name and a FILE block reading
+    // 0 nodes, 0 connections, next to a canvas full of them.
+    this._renderProps();
   }
 
   async _loadTemplate(t) {

@@ -2588,6 +2588,148 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Determinism: painting the canvas must not advance the seeded RNG. A gate's
+  // weight formula can draw random numbers and the label mirrors it, so every
+  // repaint (hover, pan, zoom, selection, each step) was eating draws the run
+  // was about to make.
+  const paintRng = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    app.diagram.seed = 'fixed-42';
+    const g = new MNode(NodeType.GATE, 300, 300); g.label = 'G'; g.setCount(200); g.gateMode = 'random';
+    const p1 = new MNode(NodeType.POOL, 600, 200); p1.label = 'A';
+    const p2 = new MNode(NodeType.POOL, 600, 400); p2.label = 'B';
+    [g, p1, p2].forEach(n => app.diagram.addNode(n));
+    const c1 = new MConnection(g.id, p1.id, ConnectionType.RESOURCE);
+    c1.weightFormula = 'randomInt(1,10)';
+    const c2 = new MConnection(g.id, p2.id, ConnectionType.RESOURCE); c2.weight = 1;
+    app.diagram.addConnection(c1); app.diagram.addConnection(c2);
+    app.engine.reset();
+    const before = SimRandom.getState();
+    app.renderer.render();
+    const afterPlain = SimRandom.getState();
+    app.editor._select(c1.id, 'conn');
+    const mid = SimRandom.getState();
+    app.renderer.render();
+    const afterSelected = SimRandom.getState();
+    return { seeded: before !== null, movedPlain: before !== afterPlain, movedSelected: mid !== afterSelected };
+  });
+  if (paintRng.seeded && !paintRng.movedPlain && !paintRng.movedSelected)
+    ok('determinism: repainting the canvas leaves the seeded RNG where it was');
+  else fail('paint rng: ' + JSON.stringify(paintRng));
+
+  // Embed at iframe widths must still offer Reset: the small-screen rules hide
+  // it on the assumption the overflow menu carries it, and an embed hides that.
+  const embedReset = await (async () => {
+    const ctx = await browser.newContext({ viewport: { width: 700, height: 600 } });
+    const ep = await ctx.newPage();
+    await ep.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await ep.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+    await ep.goto(URL + '#embed', { waitUntil: 'networkidle' });
+    const r = await ep.evaluate(() => {
+      const vis = (id) => {
+        const e = document.getElementById(id);
+        if (!e) return false;
+        return getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0;
+      };
+      return { reset: vis('btn-reset'), run: vis('btn-run'), step: vis('btn-step'), menu: vis('btn-mobile-menu') };
+    });
+    await ctx.close();
+    return r;
+  })();
+  if (embedReset.reset && embedReset.run && embedReset.step && !embedReset.menu)
+    ok('embed: a narrow embed still offers Run, Step and Reset');
+  else fail('embed reset: ' + JSON.stringify(embedReset));
+
+  // Animation layer: cleanup runs from requestAnimationFrame, which a browser
+  // suspends in a hidden tab while the setInterval driving the run keeps going,
+  // so the layer was produced into and never consumed. Two guarantees: a hard
+  // ceiling on live dots, and nothing produced at all while the tab is hidden.
+  // (Headless Chromium reports a backgrounded page as visible, so the hidden
+  // half is driven through the event rather than by switching tabs.)
+  const ballLayer = await (async () => {
+    const ctx = await browser.newContext({ reducedMotion: 'no-preference' });
+    const bp = await ctx.newPage();
+    await bp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await bp.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+    await bp.goto(URL, { waitUntil: 'networkidle' });
+    // Heavy model at the top of the speed slider.
+    await bp.evaluate(() => {
+      const app = window.app;
+      app._clearAll();
+      app._templates.find(t => /business/i.test(t.name)) ? app._installTemplate(app._templates.find(t => /business/i.test(t.name))) : app._loadDemo();
+      app.engine.speed = 10;
+      app.engine.run();
+    });
+    await bp.waitForTimeout(2500);
+    const peak = await bp.evaluate(() => (window.app.renderer.balls._balls || []).length);
+    const cap = await bp.evaluate(() => BallSystem.MAX_LIVE);
+    // Now the hidden half, driven through the real handler.
+    const whenHidden = await bp.evaluate(() => {
+      const app = window.app;
+      const orig = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      const clearedTo = (app.renderer.balls._balls || []).length;
+      // Spawning must be refused outright while hidden.
+      for (let i = 0; i < 5; i++) app.engine.doStep();
+      const afterSteps = (app.renderer.balls._balls || []).length;
+      delete document.hidden;
+      if (orig) Object.defineProperty(Document.prototype, 'hidden', orig);
+      app.engine.stop();
+      return { clearedTo, afterSteps };
+    });
+    await ctx.close();
+    return { peak, cap, ...whenHidden };
+  })();
+  if (ballLayer.peak <= ballLayer.cap && ballLayer.clearedTo === 0 && ballLayer.afterSteps === 0)
+    ok(`animation: live dots stay under the ${ballLayer.cap} cap (peak ${ballLayer.peak}) and stop entirely while hidden`);
+  else fail('ball layer: ' + JSON.stringify(ballLayer));
+
+  // Library: loading a template must refresh the Simulation panel, which reads
+  // the diagram metadata when it is drawn.
+  const tmplPanel = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    const t = app._templates[0];
+    app._installTemplate(t);
+    const txt = document.getElementById('props-content').textContent;
+    const nameInput = [...document.querySelectorAll('#props-content input')].find(i => i.type === 'text');
+    return {
+      tmplName: t.name, nodes: app.diagram.nodes.size,
+      panelName: nameInput ? nameInput.value : null,
+      panelNodes: Number((txt.match(/Nodes\s*(\d+)/) || [])[1]),
+    };
+  });
+  if (tmplPanel.panelName === tmplPanel.tmplName && tmplPanel.panelNodes === tmplPanel.nodes)
+    ok('library: loading a template refreshes the Simulation panel');
+  else fail('template panel: ' + JSON.stringify(tmplPanel));
+
+  // Demos: no bundled template may produce a non-finite value. Smoke only ever
+  // checked that they load, so a demo could go to NaN and CI would stay green.
+  const demoSanity = await page.evaluate(() => {
+    const app = window.app;
+    const bad = [];
+    for (const t of app._templates) {
+      app._clearAll();
+      app._installTemplate(t);
+      app.engine.reset();
+      for (let i = 0; i < 120; i++) app.engine.doStep();
+      for (const n of app.diagram.nodes.values()) {
+        const v = n.chartValue;
+        if (v != null && !Number.isFinite(v)) bad.push(`${t.name}:${n.label || n.type}=${v}`);
+      }
+    }
+    // Leave a neutral canvas behind: fitView left the zoom at whatever the last
+    // template needed, and later checks assume 100%.
+    app._clearAll();
+    app.renderer.resetView();
+    return { templates: app._templates.length, bad };
+  });
+  if (demoSanity.templates >= 10 && demoSanity.bad.length === 0)
+    ok(`demos: all ${demoSanity.templates} templates run 120 steps with every value finite`);
+  else fail('demo sanity: ' + JSON.stringify(demoSanity));
+
   // Multi-tab: two tabs share one localStorage. A Library edit made in one must
   // not erase what the other saved, and a tab whose autosave slot is taken over
   // has to be told rather than carry on believing its work is safe.

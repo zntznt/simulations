@@ -85,6 +85,7 @@ class App {
 
     this._bindControls();
     this._watchForeignAutosave();
+    this._watchVisibility();
     this._initLibrary();
     this._initMenus();
     this._initPalette();
@@ -523,6 +524,21 @@ class App {
   // diagrams, but the tab that has been superseded can at least be told, once,
   // while its work is still on screen and can be exported. The storage event
   // fires only in the OTHER tabs, so a write never warns the tab that made it.
+  // A hidden tab suspends requestAnimationFrame but keeps the setInterval that
+  // drives the run, so the animation layers were produced into and never
+  // consumed. Drop what is in flight when the tab goes away, and repaint when it
+  // comes back so the canvas matches the model rather than a stale frame.
+  _watchVisibility() {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.renderer.balls.clear();
+        this.renderer.flowFx.clear();
+      } else {
+        this.renderer.render();
+      }
+    });
+  }
+
   _watchForeignAutosave() {
     window.addEventListener('storage', (e) => {
       if (e.key !== 'sim_autosave' || e.newValue == null) return;
