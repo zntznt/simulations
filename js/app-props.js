@@ -600,6 +600,12 @@ class AppProps {
   // the new timeline plots over the ghosts.
   _forkFrom(cp) {
     this.engine.stop();
+    // Leave replay first. Scrub mode makes the renderer paint a past step's
+    // values over the live model, so forking while scrubbing left the canvas
+    // showing the replayed step's numbers under the checkpoint's step label:
+    // two different moments in one view, with the slider still pointing at a
+    // history the fork has just thrown away.
+    this._exitScrub();
     this._syncRunButton();
     let kept = null;
     if (this.engine.history.length >= 2
@@ -613,6 +619,7 @@ class AppProps {
     this.renderer.flowFx.clear();
     this._clearSparklines();
     this.renderer.render();
+    this._refreshScrubber();
     this._commit();
     // The timeline is where the comparison lives — make sure it's on screen.
     if (kept && !this._timelineVisible) document.getElementById('btn-timeline').click();
@@ -799,14 +806,27 @@ class AppProps {
       // *displays* the first interactive node; the model is assigned on
       // change, which commits (mutating here would drift undo snapshots).
       const shownId = rule.nodeId || (interactives[0] && interactives[0].id);
+      // The rule's target can go away: the node is deleted, or its activation is
+      // switched off interactive. The dropdown then fell back to displaying the
+      // first interactive node, so the panel claimed the rule was wired to a
+      // node it has nothing to do with while the rule silently never fired.
+      const targetGone = !!rule.nodeId && !interactives.some(n => n.id === rule.nodeId);
+      if (targetGone) {
+        const o = document.createElement('option');
+        o.value = ''; o.textContent = '(node deleted)'; o.selected = true;
+        ns.appendChild(o);
+      }
       for (const n of interactives) {
         const o = document.createElement('option');
         o.value = n.id; o.textContent = n.label || n.type;
-        if (n.id === shownId) o.selected = true;
+        if (!targetGone && n.id === shownId) o.selected = true;
         ns.appendChild(o);
       }
       ns.addEventListener('change', () => { rule.nodeId = ns.value; this._commit(); });
       nodeRow.appendChild(nl); nodeRow.appendChild(ns); box.appendChild(nodeRow);
+      if (targetGone) {
+        this._info(box, 'This rule points at a node that is gone or is no longer interactive, so it never fires. Pick another node.');
+      }
 
       // Firing mode.
       const modeRow = document.createElement('div'); modeRow.className = 'prop-row';

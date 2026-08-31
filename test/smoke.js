@@ -2588,6 +2588,82 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Checkpoints: forking while the timeline is being replayed must leave replay
+  // first. Scrub mode paints a past step's values over the live model, so the
+  // canvas kept showing the replayed step's numbers under the checkpoint's step
+  // label: two different moments in one view.
+  const forkScrub = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    const src = new MNode(NodeType.SOURCE, 100, 200); src.label = 'Mine';
+    const pool = new MNode(NodeType.POOL, 400, 200); pool.label = 'Gold';
+    app.diagram.addNode(src); app.diagram.addNode(pool);
+    const c = new MConnection(src.id, pool.id, ConnectionType.RESOURCE); c.rate = 5;
+    app.diagram.addConnection(c);
+    app.renderer.render(); app._commit();
+    app.engine.reset();
+    for (let i = 0; i < 5; i++) app.engine.doStep();
+    app._addCheckpoint();                      // step 5, Gold = 25
+    const cp = app._checkpoints[app._checkpoints.length - 1];
+    for (let i = 0; i < 10; i++) app.engine.doStep();   // step 15, Gold = 75
+    app._scrubTo(2);                           // replay step 2, Gold = 10
+    const scrubbing = { idx: app._scrubIndex, shown: app._panelValueOf(pool) };
+    app._forkFrom(cp);
+    // restoreState rebuilds the diagram through loadJSON, so the node objects
+    // are new: look the pool up by id rather than holding the old reference.
+    const poolAfter = app.diagram.nodes.get(pool.id);
+    return {
+      scrubbing,
+      afterIdx: app._scrubIndex,
+      engineStep: app.engine.step,
+      poolNow: poolAfter ? poolAfter.resources : null,
+      painted: app._panelValueOf(poolAfter),
+      labelStep: (document.getElementById('step-counter').textContent || '').trim(),
+    };
+  });
+  if (forkScrub.scrubbing.idx != null && forkScrub.afterIdx == null
+    && forkScrub.engineStep === 5 && forkScrub.poolNow === 25 && forkScrub.painted === 25
+    && /Step 5\b/.test(forkScrub.labelStep))
+    ok('checkpoints: forking while replaying leaves replay, so canvas and step label agree');
+  else fail('fork while scrubbing: ' + JSON.stringify(forkScrub));
+
+  // Artificial player: a rule whose target node is gone must say so, not display
+  // a different node while silently never firing.
+  const playerRule = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll();
+    const a = new MNode(NodeType.POOL, 200, 200); a.label = 'Chest';
+    a.activation = ActivationMode.INTERACTIVE;
+    const b = new MNode(NodeType.POOL, 400, 200); b.label = 'Shop';
+    b.activation = ActivationMode.INTERACTIVE;
+    app.diagram.addNode(a); app.diagram.addNode(b);
+    app.renderer.render(); app._commit();
+    app._closeFeature();
+    document.querySelector('#diagram-rail .rail-btn[data-feature="player"]').click();
+    const ai = app.diagram.aiPlayer;
+    ai.rules.push({ nodeId: b.id, mode: 'interval', every: 2 });
+    ai.enabled = true;
+    app._renderProps();
+    const sel = () => document.querySelector('#props-content .ai-rule select');
+    const before = { value: sel().value, text: sel().selectedOptions[0].textContent, isShop: sel().value === b.id };
+    // Delete the rule's target through the model, then re-render the panel.
+    app.diagram.removeNode(b.id);
+    app.renderer.render(); app._commit();
+    app._renderProps();
+    const s2 = sel();
+    return {
+      before,
+      afterText: s2.selectedOptions[0].textContent,
+      afterValue: s2.value,
+      ruleStillPointsAtGone: ai.rules[0].nodeId !== a.id,
+      warned: /never fires/i.test(document.getElementById('props-content').textContent),
+    };
+  });
+  if (playerRule.before.isShop && /deleted/i.test(playerRule.afterText)
+    && playerRule.afterValue === '' && playerRule.warned)
+    ok('player: a rule whose target node is gone says so instead of naming another node');
+  else fail('player rule: ' + JSON.stringify(playerRule));
+
   // Embed mode: the chrome is stripped but the canvas stays editable, so an
   // embed must not write the host's sim_autosave, must not hand the hidden
   // controls back through the overflow menu at iframe widths, and its one
