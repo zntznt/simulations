@@ -842,8 +842,16 @@ class App {
       // the URL is the document, and an embed must not write over the host
       // page's autosave.
       if (!document.body.classList.contains('embed')) {
-        this._persistAutosave();
-        try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
+        let prior = null;
+        try { prior = JSON.parse(localStorage.getItem('sim_autosave') || 'null'); } catch { /* blocked or corrupt */ }
+        const priorNodes = prior && Array.isArray(prior.nodes) ? prior.nodes.length : 0;
+        if (priorNodes && this._canLoadDiagram(prior)) {
+          // There is real work in the saved slot. Ask before the link takes it.
+          this._adoptSharedDiagram(prior);
+        } else {
+          this._persistAutosave();
+          try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
+        }
       }
       return;
     }
@@ -1028,7 +1036,39 @@ class App {
     this._syncRailFades();
   }
 
-  _scrollRails() {
+    // A share link has just been loaded over an existing autosaved diagram. The
+  // shared one is already on screen; ask before it takes the saved slot, and put
+  // the reader's own diagram back if they decline. Without this, opening a link
+  // destroyed the reader's work with no prompt: a reload afterwards brought back
+  // the sender's diagram, not theirs, and nothing could undo it (a page load has
+  // no undo stack for state from before it).
+  async _adoptSharedDiagram(prior) {
+    const name = (this.diagram.meta && this.diagram.meta.name || '').trim();
+    const keep = await this._confirmGuard(
+      `Keep the shared diagram${name ? ` "${name}"` : ''}? It replaces the diagram saved in this browser.`,
+      'Shared diagram');
+    if (keep) {
+      this._persistAutosave();
+      try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
+      return;
+    }
+    // Declined: restore what they had. The hash stays, so the link still works
+    // if they change their mind.
+    this.diagram.loadJSON(prior);
+    this._applyMeta();
+    this.engine.reset();
+    this.renderer.balls.clear();
+    this.renderer.flowFx.clear();
+    this._clearSparklines();
+    this.editor._select(null, null);
+    this.renderer.render();
+    this.renderer.fitView();
+    this._resetHistory();
+    this._renderProps();
+    this._toast('Kept your own diagram. The shared one was not saved.');
+  }
+
+_scrollRails() {
     return ['palette', 'diagram-rail'].map(id => document.getElementById(id)).filter(Boolean);
   }
 

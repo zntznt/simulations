@@ -2588,6 +2588,114 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Security: opening a share link used to replace the reader's autosaved
+  // diagram silently, with nothing to undo it and a reload bringing back the
+  // sender's diagram rather than theirs.
+  const shareGuard = await (async () => {
+    const ctx = await browser.newContext();
+    const sp = await ctx.newPage();
+    await sp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await sp.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+    await sp.goto(URL, { waitUntil: 'networkidle' });
+    const hash = await sp.evaluate(() => {
+      const app = window.app;
+      app._clearAll();
+      for (let i = 0; i < 3; i++) {
+        const n = new MNode(NodeType.POOL, 150 + i * 120, 200); n.label = 'Mine' + i;
+        app.diagram.addNode(n);
+      }
+      app.diagram.meta.name = 'MyWork';
+      app._commit();
+      const d = new Diagram();
+      const n = new MNode(NodeType.POOL, 100, 100); n.label = 'Theirs';
+      d.addNode(n); d.meta.name = 'Colleague';
+      return '#d=' + btoa(unescape(encodeURIComponent(JSON.stringify(d.toJSON()))));
+    });
+    const savedName = () => sp.evaluate(() => {
+      try { return (JSON.parse(localStorage.getItem('sim_autosave') || '{}').meta || {}).name; }
+      catch { return null; }
+    });
+    // A hash-only goto is a same-document navigation, so reload to re-init.
+    await sp.goto(URL + hash, { waitUntil: 'networkidle' });
+    await sp.reload({ waitUntil: 'networkidle' });
+    await sp.waitForSelector('#guard-overlay:not(.hidden)', { timeout: 3000 }).catch(() => {});
+    const asked = await sp.evaluate(() => !document.getElementById('guard-overlay').classList.contains('hidden'));
+    if (asked) await sp.click('#guard-cancel');
+    await sp.waitForTimeout(150);
+    const declined = { saved: await savedName(), canvas: await sp.evaluate(() => window.app.diagram.meta.name) };
+    await sp.goto(URL + hash, { waitUntil: 'networkidle' });
+    await sp.reload({ waitUntil: 'networkidle' });
+    await sp.waitForSelector('#guard-overlay:not(.hidden)', { timeout: 3000 }).catch(() => {});
+    const asked2 = await sp.evaluate(() => !document.getElementById('guard-overlay').classList.contains('hidden'));
+    if (asked2) await sp.click('#guard-confirm');
+    await sp.waitForTimeout(150);
+    const accepted = { saved: await savedName(), hash: await sp.evaluate(() => location.hash) };
+    await ctx.close();
+    return { asked, declined, accepted };
+  })();
+  if (shareGuard.asked && shareGuard.declined.saved === 'MyWork' && shareGuard.declined.canvas === 'MyWork'
+    && shareGuard.accepted.saved === 'Colleague' && shareGuard.accepted.hash === '')
+    ok('security: a share link asks before it replaces the reader\'s saved diagram');
+  else fail('share guard: ' + JSON.stringify(shareGuard));
+
+  // Security: a diagram is untrusted input. Its parameter names reach the sweep
+  // results table, which built its header row with innerHTML and no escaping.
+  const sweepXss = await page.evaluate(async () => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    const p = new MNode(NodeType.POOL, 200, 200); p.label = 'Gold'; p.setCount(5);
+    app.diagram.addNode(p);
+    app.diagram.params = { 'rate"><img src=x onerror="window.__xss=1"><b': 2 };
+    app.renderer.render(); app._commit();
+    delete window.__xss;
+    app._openMonteCarlo();
+    document.getElementById('mc-runs').value = '2';
+    document.getElementById('mc-steps').value = '2';
+    await app._runSweep();
+    const out = document.getElementById('mc-results');
+    return {
+      fired: window.__xss === 1,
+      imgs: out.querySelectorAll('img').length,
+      headerText: (out.querySelector('th:nth-child(2)') || {}).textContent || '',
+    };
+  });
+  await page.evaluate(() => window.app._hideModal('mc-overlay'));
+  if (!sweepXss.fired && sweepXss.imgs === 0 && sweepXss.headerText.includes('<img'))
+    ok('security: a hostile parameter name renders as text in the sweep table, not as HTML');
+  else fail('sweep xss: ' + JSON.stringify(sweepXss));
+
+  // Security: meta.font rides in with the diagram and was pasted into a
+  // third-party stylesheet URL, so opening a shared link phoned home with a
+  // string of the sender's choosing.
+  const fontGuard = await (async () => {
+    const ctx = await browser.newContext();
+    const fp = await ctx.newPage();
+    const hits = [];
+    await fp.route('**://fonts.googleapis.com/**', r => { hits.push(r.request().url()); r.fulfill({ contentType: 'text/css', body: '' }); });
+    await fp.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+    await fp.goto(URL, { waitUntil: 'networkidle' });
+    const check = async (font) => {
+      hits.length = 0;
+      await fp.evaluate((f) => {
+        const app = window.app;
+        app._clearAll();
+        app.diagram.addNode(new MNode(NodeType.POOL, 200, 200));
+        app.diagram.meta.font = f;
+        app._applyMeta();
+      }, font);
+      await fp.waitForTimeout(250);
+      return { requests: hits.length, link: await fp.evaluate(() => !!document.getElementById('gfont-link')) };
+    };
+    const hostile = await check('Attacker-Beacon-12345');
+    const curated = await check('Lexend');
+    await ctx.close();
+    return { hostile, curated };
+  })();
+  if (fontGuard.hostile.requests === 0 && !fontGuard.hostile.link
+    && fontGuard.curated.requests === 1 && fontGuard.curated.link)
+    ok('security: an off-list display font fires no third-party request, a curated one still works');
+  else fail('font guard: ' + JSON.stringify(fontGuard));
+
   // Accessibility: three controls whose accessible name has to track state.
   const a11yNames = await (async () => {
     await page.evaluate(() => {

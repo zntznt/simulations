@@ -13,7 +13,9 @@ const path = require('path');
 
 // The browser loads math.js from vendor/math.min.js; headlessly we expose the
 // npm package as the same `math` global so formulas take the math.js path.
-// Tests still pass without it (formulas fall back to the legacy JS evaluator).
+// math.js is REQUIRED: the legacy `new Function(expr)` evaluator was removed
+// because it made every formula field a code-execution sink, so without math.js
+// every formula evaluates to 0 and the formula tests fail.
 try { global.math = require('mathjs'); } catch { /* optional */ }
 
 function loadEngine() {
@@ -772,6 +774,65 @@ test('an at-rest diagram still writes no baseline fields', () => {
   assert(!/initial(Resources|ColorMap)/.test(before), 'no baseline fields at rest');
   const e = new SimEngine(d); e.reset();
   eq(JSON.stringify(d.toJSON()), before, 'reset() alone changes nothing on disk');
+});
+
+test('a formula cannot execute arbitrary JavaScript', () => {
+  // evalFormula used to fall through to `new Function(expr)` whenever math.js
+  // could not parse the expression, and validateFormula reported such a payload
+  // as valid so nothing warned. A diagram is untrusted input: it arrives as a
+  // shared #d= link, a downloaded .json or .econ, a library component or a
+  // cli.js argument, and reset() evaluates register formulas on load. Opening a
+  // link therefore ran the author's JavaScript.
+  delete globalThis.__FORMULA_SIDE_EFFECT;
+  const payloads = [
+    "(function(){ globalThis.__FORMULA_SIDE_EFFECT = 1; return 7 })()",
+    "(() => { globalThis.__FORMULA_SIDE_EFFECT = 1; return 7 })()",
+    "[].constructor.constructor('globalThis.__FORMULA_SIDE_EFFECT = 1')()",
+    "this.constructor.constructor('globalThis.__FORMULA_SIDE_EFFECT = 1')()",
+  ];
+  for (const p of payloads) {
+    eq(evalFormula(p, {}), 0, `payload evaluates to 0: ${p.slice(0, 40)}`);
+    eq(validateFormula(p), false, `payload is reported invalid: ${p.slice(0, 40)}`);
+  }
+  eq(globalThis.__FORMULA_SIDE_EFFECT, undefined, 'no payload had any side effect');
+});
+
+test('formulas written in the older JS syntax still evaluate', () => {
+  // Removing the legacy evaluator must not silently break saved diagrams, so
+  // the Math object and the JS spellings of the operators are handled by the
+  // math.js path instead.
+  SimRandom.seed('legacy');
+  const vars = { gold: 9, a: 1, b: 2 };
+  const cases = [
+    ['Math.round(2.6)', 3], ['Math.floor(gold/3)', 3], ['Math.max(1, gold-2)', 7],
+    ['Math.min(a,b)', 1], ['Math.abs(0-4)', 4], ['Math.pow(2,3)', 8],
+    ['gold > 5 ? 2 : 1', 2], ['a && b', 1], ['!a', 0], ['2**3', 8],
+    ['gold % 4', 1], ['round(gold/2)', 5], ['a === 1', 1], ['a !== 1', 0],
+  ];
+  for (const [expr, want] of cases) {
+    eq(evalFormula(expr, vars), want, `legacy syntax still works: ${expr}`);
+    eq(validateFormula(expr), true, `and validates: ${expr}`);
+  }
+  // Math.random() must still draw from the seeded stream.
+  SimRandom.seed('s1');
+  const first = [0, 0, 0].map(() => evalFormula('Math.random()*1000', {}));
+  SimRandom.seed('s1');
+  const again = [0, 0, 0].map(() => evalFormula('Math.random()*1000', {}));
+  eq(JSON.stringify(first), JSON.stringify(again), 'Math.random stays reproducible under a seed');
+});
+
+test('a diagram name cannot break out of the generated module header comment', () => {
+  // meta.name is interpolated into a /* */ banner. A name containing the
+  // comment terminator ended it early and everything after became top-level
+  // code in the emitted module, running on require().
+  delete globalThis.__CODEGEN_SIDE_EFFECT;
+  const { d } = setup();
+  const p = node(d, NodeType.POOL); p.label = 'Gold';
+  const json = d.toJSON();
+  json.meta = { ...(json.meta || {}), name: 'Evil */ ; globalThis.__CODEGEN_SIDE_EFFECT = 1; /*' };
+  const Economy = buildTestModule(json);
+  eq(globalThis.__CODEGEN_SIDE_EFFECT, undefined, 'nothing escaped the banner');
+  assert(typeof Economy.createEconomy === 'function', 'the module still loads and works');
 });
 
 test('a trader cannot hand resources to another trader either', () => {
