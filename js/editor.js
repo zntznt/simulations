@@ -1032,8 +1032,20 @@ class Editor {
       for (const t of targets) { t.x += dx; t.y += dy; }
       this.renderer.render();
       clearTimeout(this._nudgeTimer);
-      this._nudgeTimer = setTimeout(() => this._changed(), 400);
+      this._nudgeTimer = setTimeout(() => { this._nudgeTimer = null; this._changed(); }, 400);
     }
+  }
+
+  // Commit a nudge that is still inside its coalescing window. Arrow-key moves
+  // are batched for 400ms so a held key is one undo step, but anything that
+  // reads the undo history has to see the moves the user has already made:
+  // with the commit still pending, Ctrl+Z stepped straight past the nudge and
+  // undid whatever edit came before it.
+  flushPending() {
+    if (!this._nudgeTimer) return;
+    clearTimeout(this._nudgeTimer);
+    this._nudgeTimer = null;
+    this._changed();
   }
 
   _onKeyUp(e) {

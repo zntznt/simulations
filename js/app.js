@@ -505,7 +505,7 @@ class App {
   _commitReplace(prevSnap) {
     this._dropScenarioState();
     const snap = this._snapshot();
-    if (snap === prevSnap) { this._lastState = snap; this._updateUndoButtons(); return; }
+    if (this._sameSnapshot(snap, prevSnap)) { this._lastState = snap; this._updateUndoButtons(); return; }
     if (prevSnap != null) {
       this._undoStack.push(prevSnap);
       if (this._undoStack.length > 100) this._undoStack.shift();
@@ -514,6 +514,21 @@ class App {
     this._lastState = snap;
     this._updateUndoButtons();
     this._persistAutosave();
+  }
+
+  // Two snapshots describe the same diagram. The module-level id counter rides
+  // along in the JSON and loadJSON only ever raises it, so that ids handed out
+  // since cannot collide, which means restoring a snapshot never reproduces its
+  // own text. Comparing the raw strings therefore reported a change after every
+  // undo, and the next commit, even one that changed nothing at all, pushed an
+  // undo entry and wiped the redo stack.
+  _sameSnapshot(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null) return false;
+    try {
+      const strip = (j) => { const o = JSON.parse(j); delete o._idSeq; return JSON.stringify(o); };
+      return strip(a) === strip(b);
+    } catch { return false; }
   }
 
   // Mirror the current state into the autosave slot. Every path that changes
@@ -530,7 +545,7 @@ class App {
   // delegated commit listener) don't create empty undo steps.
   _commit() {
     let snap = this._snapshot();
-    if (snap === this._lastState) return;
+    if (this._sameSnapshot(snap, this._lastState)) return;
     // A real change happened: bump the file's modified timestamp (it is part
     // of the snapshot, so re-take it after stamping).
     this.diagram.meta.modified = Date.now();
@@ -560,6 +575,7 @@ class App {
   }
 
   undo() {
+    this.editor.flushPending();
     if (!this._undoStack.length) return;
     this._redoStack.push(this._lastState);
     this._lastState = this._undoStack.pop();
@@ -569,6 +585,7 @@ class App {
   }
 
   redo() {
+    this.editor.flushPending();
     if (!this._redoStack.length) return;
     this._undoStack.push(this._lastState);
     this._lastState = this._redoStack.pop();

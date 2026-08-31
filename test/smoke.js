@@ -2588,6 +2588,58 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Undo: an arrow-key nudge is coalesced for 400ms, so a Ctrl+Z inside that
+  // window used to step straight past it and undo the edit before it (a node
+  // placement), and the pending commit then landed and wiped the redo stack, so
+  // the node could not be brought back.
+  const nudgeUndo = await (async () => {
+    await page.evaluate(() => { window.app._clearAll(); window.app._commit(); });
+    for (const [x, y] of [[300, 300], [500, 300]]) {
+      await page.click('[data-tool="place-pool"]');
+      await page.mouse.click(x, y);
+    }
+    const placed = await page.evaluate(() => window.app.diagram.nodes.size);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    const nudgedXs = await page.evaluate(() => [...window.app.diagram.nodes.values()].map(n => n.x));
+    await page.keyboard.press('Control+z');
+    const afterUndo = await page.evaluate(() => ({
+      nodes: window.app.diagram.nodes.size,
+      xs: [...window.app.diagram.nodes.values()].map(n => n.x),
+    }));
+    await page.waitForTimeout(700); // any pending coalesced commit lands here
+    const settled = await page.evaluate(() => ({
+      nodes: window.app.diagram.nodes.size,
+      redoDisabled: document.getElementById('btn-redo').disabled,
+    }));
+    await page.keyboard.press('Control+y');
+    const afterRedo = await page.evaluate(() => [...window.app.diagram.nodes.values()].map(n => n.x));
+    return { placed, nudgedXs, afterUndo, settled, afterRedo };
+  })();
+  if (nudgeUndo.placed === 2 && nudgeUndo.afterUndo.nodes === 2 && nudgeUndo.settled.nodes === 2
+    && JSON.stringify(nudgeUndo.afterUndo.xs) !== JSON.stringify(nudgeUndo.nudgedXs)
+    && !nudgeUndo.settled.redoDisabled
+    && JSON.stringify(nudgeUndo.afterRedo) === JSON.stringify(nudgeUndo.nudgedXs))
+    ok('undo: Ctrl+Z right after an arrow nudge undoes the nudge, and redo survives');
+  else fail('nudge undo: ' + JSON.stringify(nudgeUndo));
+
+  // Undo: after any undo the id counter has moved on, so a raw snapshot compare
+  // always saw a change. A commit that changes nothing must not clear redo.
+  const redoKeep = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._commit();
+    const n = new MNode(NodeType.POOL, 200, 200); n.label = 'One';
+    app.diagram.addNode(n); app.renderer.render(); app._commit();
+    app.undo();
+    const beforeNoop = app._redoStack.length;
+    app._commit();          // nothing changed since the undo
+    app._commit();
+    return { beforeNoop, afterNoop: app._redoStack.length, undoDepth: app._undoStack.length };
+  });
+  if (redoKeep.beforeNoop === 1 && redoKeep.afterNoop === 1)
+    ok('undo: a commit that changes nothing keeps the redo stack');
+  else fail('redo preservation: ' + JSON.stringify(redoKeep));
+
   // Properties: typing into a Delay's live Amount field must not scramble the
   // in-flight schedule. The field commits per keystroke, so typing "12" used to
   // commit 1 first, and for a Delay that physically discards the units and
