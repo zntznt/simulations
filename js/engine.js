@@ -1519,8 +1519,13 @@ class SimEngine {
           r = job.next();
         }
         if (r.done) { resolve(r.value); return; }
-        // Mid-trial breaths carry no new progress; only completed trials do.
-        if (opts.onProgress && !r.value.partial) opts.onProgress(r.value.done, r.value.total);
+        // Every yield carries the number of trials finished so far, mid-trial
+        // breaths included, so the chunk's last yield is always the current
+        // count. Reporting only on a non-partial yield reported almost never:
+        // with hundreds of steps per trial, well under 1% of yields end a
+        // trial, so a chunk hardly ever stopped on one and the dialog sat at
+        // "Running…" and a 0% bar for the whole batch.
+        if (opts.onProgress) opts.onProgress(r.value.done, r.value.total);
         setTimeout(tick, 0);
       };
       tick();

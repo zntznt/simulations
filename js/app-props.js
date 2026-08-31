@@ -1468,6 +1468,9 @@ class AppProps {
       // node.resources is the live count once a run has stepped; only at rest
       // does this field set the baseline that Reset returns to. Label it
       // honestly here, and keep it honest per step in _refreshResourceCount.
+      // A Delay's or Queue's amount edit moves the in-flight pipeline, so it
+      // must not run per keystroke: see the commitOn note on _field.
+      const pipelineNode = node.type === NodeType.DELAY || node.type === NodeType.QUEUE;
       this._field(panel, this.engine.step > 0 ? AMOUNT_LABEL_LIVE : AMOUNT_LABEL_AT_REST, 'number', node.resources, v => {
         // Keep the node's own colour. setCount defaults to DEFAULT_COLOR, so
         // retyping a pool's amount used to convert every typed resource it held
@@ -1493,7 +1496,7 @@ class AppProps {
         // number directly above the new one.
         this._refreshResourceCount();
         this._refreshTypeReadouts();
-      });
+      }, '', pipelineNode ? 'change' : 'input');
       // Quick +/- steppers for adjusting the current amount during play
       // (these nudge the live value without changing the starting baseline).
       const stepRow = document.createElement('div');

@@ -826,6 +826,34 @@ test('a Monte Carlo batch yields inside a trial, not only between trials', () =>
   assert(yields >= 2 * 25, `yields inside each trial too (got ${yields})`);
 });
 
+testAsync('a Monte Carlo batch reports progress while it runs', async () => {
+  // The async driver drains yields for a 14ms chunk and then looks at the last
+  // one. Once the generator started yielding after every step, well under 1% of
+  // yields ended a trial, so a chunk hardly ever stopped on one and the dialog
+  // sat at "Running..." with a 0% bar for the whole batch. Every yield carries
+  // the completed-trial count, so the chunk's last yield is always current.
+  const d = new Diagram();
+  const src = new MNode(NodeType.SOURCE, 0, 0); src.label = 'Mine';
+  const pool = new MNode(NodeType.POOL, 200, 0); pool.label = 'Gold';
+  d.addNode(src); d.addNode(pool);
+  const c = new MConnection(src.id, pool.id, ConnectionType.RESOURCE);
+  c.rateMode = RateMode.FORMULA; c.formula = 'randomInt(1,5)';
+  d.addConnection(c);
+
+  const e = new SimEngine(d);
+  const seen = [];
+  const res = await e.runMonteCarloAsync(300, 400, {
+    seed: 'progress',
+    onProgress: (done, total) => seen.push({ done, total }),
+  });
+  assert(res && res.runs === 300, 'the batch still completes');
+  assert(seen.length >= 3, `progress is reported repeatedly (got ${seen.length} reports)`);
+  assert(seen.every((v, i) => i === 0 || v.done >= seen[i - 1].done), 'the count never goes backwards');
+  assert(seen.every(v => v.total === 300), 'the total is the run count');
+  const last = seen[seen.length - 1].done;
+  assert(last > 300 * 0.5, `progress gets most of the way to the end before finishing (reached ${last}/300)`);
+});
+
 testAsync('a cancelled Monte Carlo batch still restores the RNG it borrowed', async () => {
   // The driver dropped the generator on cancel instead of closing it, so the
   // finally block never ran and the shared RNG stayed parked on the last

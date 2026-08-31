@@ -2588,6 +2588,54 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Properties: typing into a Delay's live Amount field must not scramble the
+  // in-flight schedule. The field commits per keystroke, so typing "12" used to
+  // commit 1 first, and for a Delay that physically discards the units and
+  // timers the difference stands for.
+  const delayType = await (async () => {
+    const build = () => page.evaluate(() => {
+      const app = window.app;
+      app._clearAll();
+      const del = new MNode(NodeType.DELAY, 300, 300); del.label = 'Belt';
+      del.delay = 5; del.setCount(12, '#8d6e63');
+      const out = new MNode(NodeType.POOL, 600, 300); out.label = 'Out';
+      app.diagram.addNode(del); app.diagram.addNode(out);
+      const c = new MConnection(del.id, out.id, ConnectionType.RESOURCE); c.rate = 99;
+      app.diagram.addConnection(c);
+      app.renderer.render(); app._commit();
+      app.engine.reset();
+      app.engine.doStep(); app.engine.doStep();
+      app.editor._select(del.id, 'node');
+      return { delayId: del.id, outId: out.id };
+    });
+    const drain = (ids) => page.evaluate(({ outId }) => {
+      const app = window.app; const seq = [];
+      for (let i = 0; i < 10; i++) { app.engine.doStep(); seq.push(app.diagram.nodes.get(outId).resources); }
+      return seq;
+    }, ids);
+
+    const ids = await build();
+    const baseline = await drain(ids);
+
+    const ids2 = await build();
+    const inp = await page.$('#props-content input[type="number"]');
+    if (!inp) return { error: 'no amount field on a delay' };
+    await inp.click({ clickCount: 3 });
+    await page.keyboard.press('Control+a');
+    await page.keyboard.type('12', { delay: 60 });
+    const midTyping = await page.evaluate(({ delayId }) => {
+      const n = window.app.diagram.nodes.get(delayId);
+      return { res: n.resources, batches: (n._queue || []).length };
+    }, ids2);
+    await page.keyboard.press('Tab');
+    const after = await drain(ids2);
+    return { baseline, midTyping, after };
+  })();
+  if (!delayType.error && delayType.midTyping.batches === 1 && delayType.midTyping.res === 12
+    && JSON.stringify(delayType.after) === JSON.stringify(delayType.baseline))
+    ok('properties: retyping a delay\'s live amount leaves its release schedule alone');
+  else fail('delay amount typing: ' + JSON.stringify(delayType));
+
   // Export: a big diagram must not silently download a 0-byte PNG. Browsers cap
   // both a canvas's longest side and its total area; past either, drawImage
   // no-ops and toDataURL returns a stub.
