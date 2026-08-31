@@ -774,6 +774,91 @@ test('an at-rest diagram still writes no baseline fields', () => {
   eq(JSON.stringify(d.toJSON()), before, 'reset() alone changes nothing on disk');
 });
 
+test('a trader cannot hand resources to another trader either', () => {
+  // _acceptable already refuses a trader as a flow target ("a trader never
+  // holds resources"), but the trader's own canAccept rejected only sources and
+  // registers. A trader used as another trader's partner therefore took the
+  // payment and kept it forever, invisibly: its canvas number, chart value and
+  // history entry all report the trade count, so the units simply left the
+  // economy and a mid-run save wrote them into the file as a hidden holding.
+  const d = new Diagram();
+  const gold = new MNode(NodeType.POOL, 0, 0); gold.label = 'Gold'; gold.setCount(100);
+  const mkt = new MNode(NodeType.TRADER, 200, 0); mkt.label = 'Market';
+  const broker = new MNode(NodeType.TRADER, 400, 0); broker.label = 'Broker';
+  d.addNode(gold); d.addNode(mkt); d.addNode(broker);
+  const cin = new MConnection(gold.id, mkt.id, ConnectionType.RESOURCE); cin.rate = 2;
+  const cout = new MConnection(mkt.id, broker.id, ConnectionType.RESOURCE); cout.rate = 0;
+  d.addConnection(cin); d.addConnection(cout);
+
+  const e = new SimEngine(d); e.reset();
+  for (let i = 0; i < 10; i++) e.doStep();
+  eq(gold.resources, 100, 'nothing leaves the pool for a trader partner');
+  eq(broker.resources, 0, 'and nothing is stashed on the partner trader');
+  eq(mkt.trades || 0, 0, 'the trade never happens');
+});
+
+test('a gate whose output weights are all zero routes nothing, in every mode', () => {
+  // A weight of 0 is off: the panel says so and shows 0%. Deterministic split
+  // ran through _proportionalShares, whose zero-total fallback spreads evenly
+  // (right for a delay releasing a matured batch, the opposite of what a gate's
+  // weights mean), so Split emptied the gate while Random and All held it.
+  for (const mode of ['split', 'random', 'all']) {
+    const d = new Diagram();
+    const g = new MNode(NodeType.GATE, 0, 0); g.label = 'G'; g.setCount(30); g.gateMode = mode;
+    const p1 = new MNode(NodeType.POOL, 200, -50); p1.label = 'P1';
+    const p2 = new MNode(NodeType.POOL, 200, 50); p2.label = 'P2';
+    d.addNode(g); d.addNode(p1); d.addNode(p2);
+    for (const p of [p1, p2]) {
+      const c = new MConnection(g.id, p.id, ConnectionType.RESOURCE); c.weight = 0;
+      d.addConnection(c);
+    }
+    const e = new SimEngine(d); e.reset();
+    for (let i = 0; i < 5; i++) e.doStep();
+    eq(g.resources, 30, `${mode}: the gate holds everything`);
+    eq(p1.resources + p2.resources, 0, `${mode}: no output receives anything`);
+  }
+  // A positive weight still routes, so the guard has not turned gates off.
+  const d = new Diagram();
+  const g = new MNode(NodeType.GATE, 0, 0); g.setCount(30); g.gateMode = 'split';
+  const p1 = new MNode(NodeType.POOL, 200, -50);
+  const p2 = new MNode(NodeType.POOL, 200, 50);
+  d.addNode(g); d.addNode(p1); d.addNode(p2);
+  const a = new MConnection(g.id, p1.id, ConnectionType.RESOURCE); a.weight = 2;
+  const b = new MConnection(g.id, p2.id, ConnectionType.RESOURCE); b.weight = 0;
+  d.addConnection(a); d.addConnection(b);
+  const e = new SimEngine(d); e.reset(); e.doStep();
+  eq(p1.resources, 30, 'the weighted output still takes everything');
+  eq(p2.resources, 0, 'and the zero-weight output stays off');
+});
+
+test('firing an interactive node before the first tick does not rewrite the baseline', () => {
+  // run() captures the baseline at step 0 and the first doStep() captured it
+  // again, so a click landing in the gap between them was recorded as the
+  // diagram's authored starting amount and Reset could never undo it.
+  const d = new Diagram();
+  const gold = new MNode(NodeType.POOL, 0, 0); gold.label = 'Gold'; gold.setCount(100);
+  gold.activation = ActivationMode.INTERACTIVE;
+  const buy = new MNode(NodeType.DRAIN, 200, 0); buy.label = 'Buy';
+  d.addNode(gold); d.addNode(buy);
+  const c = new MConnection(gold.id, buy.id, ConnectionType.RESOURCE); c.rate = 10;
+  d.addConnection(c);
+
+  const e = new SimEngine(d); e.reset();
+  e.saveInitial();          // what run() does at step 0
+  e.fireInteractive(gold.id);
+  eq(gold.resources, 90, 'the click spends from the pool');
+  e.doStep();
+  e.reset();
+  eq(gold.resources, 100, 'Reset returns to the authored starting amount');
+
+  // Same through the Step button, which bootstraps inside doStep itself.
+  const e2 = new SimEngine(d); e2.reset();
+  e2.fireInteractive(gold.id);
+  e2.doStep();
+  e2.reset();
+  eq(gold.resources, 100, 'and when the click precedes the very first Step');
+});
+
 test('a trader cannot pay out of a delay or a queue', () => {
   // Their contents are mirrored by an internal queue that releases on its own
   // schedule. takeResources would draw the count down and leave that queue

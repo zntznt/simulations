@@ -24,6 +24,12 @@ class SimEngine {
   }
 
   saveInitial() {
+    // One capture per run. run() takes the baseline at step 0 and then the
+    // first doStep() took it again, so anything that changed state in between,
+    // in particular clicking an interactive node while waiting for the first
+    // tick, was captured as the diagram's authored starting amount and Reset
+    // could never get the real one back.
+    this._baselineSaved = true;
     for (const n of this.diagram.nodes.values()) {
       const infiniteSource = n.type === NodeType.SOURCE && !n.limited;
       n._initialResources = infiniteSource ? Infinity : n.resources;
@@ -105,6 +111,7 @@ class SimEngine {
     // a prior Monte Carlo batch may have left on the shared RNG.
     SimRandom.seed(this.diagram.seed || null);
     this.step = 0;
+    this._baselineSaved = false;
     this.history = [];
     this._histStride = 1;
     // Flow accumulator for spike attribution: resource amounts per connection
@@ -201,7 +208,7 @@ class SimEngine {
 
   doStep() {
     if (this.step === 0) {
-      this.saveInitial();
+      if (!this._baselineSaved) this.saveInitial();
       this._seedPipelines();
       this._updateVariables();
       this._evalRegisters();
@@ -237,7 +244,7 @@ class SimEngine {
     // Pressing Play resamples 'play'-updated random variables once.
     this._sampleCustomVars('play');
     if (this.step === 0) {
-      this.saveInitial();
+      if (!this._baselineSaved) this.saveInitial();
       this._seedPipelines();
       this._updateVariables();
       this._evalRegisters();
@@ -254,6 +261,11 @@ class SimEngine {
   fireInteractive(nodeId) {
     const node = this.diagram.nodes.get(nodeId);
     if (!node || node.activation !== ActivationMode.INTERACTIVE) return;
+    // Firing is a play action, never an authoring one, so the baseline Reset
+    // returns to has to be whatever was on the canvas before the click. At step
+    // 0 it may not have been captured yet (Run takes it, but the click can land
+    // in the gap before the first tick, and Step has not run at all).
+    if (this.step === 0 && !this._baselineSaved) this.saveInitial();
     const ctx = this._makeCtx();
     const fired = [];
     this._runFireQueue([{ node, forced: true }], ctx, fired);
@@ -978,7 +990,14 @@ class SimEngine {
       return movedAny;
     }
 
-    // Deterministic: split proportionally to output weights.
+    // Deterministic: split proportionally to output weights. A weight of 0 is
+    // off, which is what the panel says ("0 = off") and what it shows (0%), so
+    // a gate whose outputs are all 0 routes nothing. _proportionalShares falls
+    // back to an even split when no weight is positive, which is right for a
+    // delay handing a matured batch to its outputs but is the opposite of what
+    // a gate's weights mean: it emptied the gate into every output at once,
+    // while the Random and All modes correctly held everything.
+    if (weights.reduce((a, b) => a + b, 0) <= 0) return movedAny;
     const shares = this._proportionalShares(node.resources, weights);
 
     outs.forEach((conn, i) => {
@@ -1069,7 +1088,15 @@ class SimEngine {
       // pays away (a full pool can still swap like-for-like).
       const canAccept = (n, recv, pays) => {
         if (recv <= 0) return true;
-        if (n.type === NodeType.SOURCE || n.type === NodeType.REGISTER) return false;
+        // Mirrors the general intake rule in _acceptable: a trader never holds
+        // resources, its connections are trade routes. This list was missing
+        // TRADER, so a trader used as another trader's partner accepted the
+        // payment and kept it forever, invisibly: its canvas number, chart
+        // value and history entry all report the trade count, not what it
+        // holds, so the units simply left the economy and a mid-run save
+        // carried them into the file as a hidden holding.
+        if (n.type === NodeType.SOURCE || n.type === NodeType.REGISTER
+          || n.type === NodeType.TRADER) return false;
         if (n.capacity === Infinity || n.type === NodeType.DRAIN) return true;
         return n.capacity - n.resources - (ctx.reserved.get(n.id) || 0) + pays >= recv;
       };
