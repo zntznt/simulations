@@ -820,8 +820,13 @@ class AppProps {
       // node it has nothing to do with while the rule silently never fired.
       const targetGone = !!rule.nodeId && !interactives.some(n => n.id === rule.nodeId);
       if (targetGone) {
+        // Shown but not choosable. As a real option it could be picked, which
+        // cleared the rule's target to '' and made the next render fall back to
+        // displaying the first interactive node with no warning: exactly the
+        // misleading state this placeholder exists to prevent.
         const o = document.createElement('option');
-        o.value = ''; o.textContent = '(node deleted)'; o.selected = true;
+        o.value = ''; o.textContent = '(node deleted)';
+        o.selected = true; o.disabled = true;
         ns.appendChild(o);
       }
       for (const n of interactives) {
@@ -1454,6 +1459,15 @@ class AppProps {
     const delta = Math.max(0, target) - node.resources;
     if (delta > 0) node.addResources(delta, color);
     else if (delta < 0) node.takeResources(-delta);
+    // At rest this field IS the starting amount, so the nudge has to move the
+    // reset baseline with it. addResources/takeResources only touch the live
+    // count (setCount is what writes the baseline), so the +/- buttons changed
+    // the number on the canvas, in undo and in autosave, and then Reset or a
+    // reload put it straight back.
+    if (this.engine.step === 0) {
+      node._initialResources = node.resources;
+      node._initialColorMap = { ...node.colorMap };
+    }
   }
 
   _nodeProps(panel, node) {

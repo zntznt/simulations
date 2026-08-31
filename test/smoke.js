@@ -2588,6 +2588,68 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn), insert adds 2 nodes, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // Properties: at step 0 the amount field is the Starting amount, so the +/-
+  // buttons have to move the reset baseline. They only moved the live count, so
+  // the canvas, undo and autosave all showed the new number and Reset or a
+  // reload silently put the old one back.
+  const stepperBaseline = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    const p = new MNode(NodeType.POOL, 300, 300); p.label = 'Gold';
+    p.setCount(10, '#9e9e9e');
+    app.diagram.addNode(p);
+    app.renderer.render(); app._commit();
+    app.editor._select(p.id, 'node');
+    const plus = [...document.querySelectorAll('#props-content button')]
+      .find(b => b.getAttribute('aria-label') === 'Add one resource');
+    if (!plus) return { error: 'no stepper' };
+    for (let i = 0; i < 3; i++) plus.click();
+    const afterClicks = p.resources;
+    let saved = null;
+    try {
+      const j = JSON.parse(localStorage.getItem('sim_autosave') || '{}');
+      const n = (j.nodes || []).find(x => x.label === 'Gold') || {};
+      saved = { resources: n.resources, initial: n.initialResources };
+    } catch { /* blocked */ }
+    app.engine.reset();
+    return { afterClicks, afterReset: p.resources, saved };
+  });
+  if (!stepperBaseline.error && stepperBaseline.afterClicks === 13
+    && stepperBaseline.afterReset === 13
+    && stepperBaseline.saved.resources === 13 && stepperBaseline.saved.initial === undefined)
+    ok('properties: the +/- steppers move the starting amount, and Reset keeps it');
+  else fail('stepper baseline: ' + JSON.stringify(stepperBaseline));
+
+  // Player: the "(node deleted)" placeholder must not be selectable.
+  const placeholder = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._closeFeature();
+    const a = new MNode(NodeType.POOL, 200, 200); a.label = 'Chest';
+    a.activation = ActivationMode.INTERACTIVE;
+    const b = new MNode(NodeType.POOL, 400, 200); b.label = 'Shop';
+    b.activation = ActivationMode.INTERACTIVE;
+    app.diagram.addNode(a); app.diagram.addNode(b);
+    app.renderer.render(); app._commit();
+    document.querySelector('#diagram-rail .rail-btn[data-feature="player"]').click();
+    const ai = app.diagram.aiPlayer;
+    ai.rules.push({ nodeId: b.id, mode: 'interval', every: 2 });
+    ai.enabled = true;
+    app.diagram.removeNode(b.id);
+    app.renderer.render();
+    app._renderProps();
+    const opt = [...document.querySelectorAll('#props-content .ai-rule option')]
+      .find(o => /deleted/i.test(o.textContent));
+    return {
+      present: !!opt,
+      disabled: !!(opt && opt.disabled),
+      selected: !!(opt && opt.selected),
+      stillWarns: /never fires/i.test(document.getElementById('props-content').textContent),
+    };
+  });
+  if (placeholder.present && placeholder.disabled && placeholder.selected && placeholder.stillWarns)
+    ok('player: the "(node deleted)" placeholder is shown but cannot be chosen');
+  else fail('deleted placeholder: ' + JSON.stringify(placeholder));
+
   // Security: opening a share link used to replace the reader's autosaved
   // diagram silently, with nothing to undo it and a reload bringing back the
   // sender's diagram rather than theirs.
