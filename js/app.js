@@ -574,7 +574,16 @@ class App {
     // someone's embedded diagram had their own saved work silently replaced by
     // it, and found the embed's diagram waiting for them on their next visit.
     if (document.body.classList.contains('embed')) return;
-    try { localStorage.setItem('sim_autosave', this._lastState); } catch { /* blocked storage */ }
+    try {
+      localStorage.setItem('sim_autosave', this._lastState);
+      this._autosaveWarned = false;
+    } catch {
+      // Full or blocked storage. Warn once per failure streak, not on every commit.
+      if (!this._autosaveWarned) {
+        this._toast('Autosave failed because browser storage is full or blocked. Use File > Save as JSON to keep your work.');
+        this._autosaveWarned = true;
+      }
+    }
   }
 
   // Record that the diagram changed (push the previous state onto the stack).
