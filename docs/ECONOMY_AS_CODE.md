@@ -216,9 +216,9 @@ eco.reset();         // back to step 0 (re-applies the seed)
 
 Notes:
 
-- Formulas evaluate with math.js when a global `math` exists (`global.math =
-  require('mathjs')` in Node); otherwise they fall back to the legacy plain-JS
-  expression path. Economies without math.js-specific syntax need nothing.
+- Formulas need math.js through a global `math` (`global.math =
+  require('mathjs')` in Node). Without it every formula evaluates to 0.
+  Economies with no formulas need nothing.
 - The RNG (`SimRandom`) is module-level state, exactly like the app: run one
   seeded economy at a time per process for bit-exact reproducibility.
 - `createEconomy()` parses a fresh copy of the embedded diagram each call, so

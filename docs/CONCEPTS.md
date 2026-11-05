@@ -89,7 +89,7 @@ evaluated each time they fire:
 | --- | --- |
 | **fixed** | A constant number. |
 | **dice** | `XdY` notation, e.g. `2d6` → 2–12. |
-| **formula** | A [math.js](https://mathjs.org/) expression over the shared variables, e.g. `treasury * 0.1`, `round(gold ^ 1.5)`, `a > 5 ? 10 : 0`, `randomInt(1, 7)`. Expressions math.js can't evaluate fall back to the legacy JavaScript‑style evaluator, so old diagrams keep working. Invalid names/expressions safely evaluate to 0. |
+| **formula** | A [math.js](https://mathjs.org/) expression over the shared variables, e.g. `treasury * 0.1`, `round(gold ^ 1.5)`, `a > 5 ? 10 : 0`, `randomInt(1, 7)`. Older JavaScript‑style spellings like `Math.round(x)` still work. Formulas may only call numeric functions (the list is `_FORMULA_FUNCTIONS` in `js/model.js`) and can't build ranges or matrices, assign variables or define functions, because a diagram is untrusted input. Anything else, including invalid names, safely evaluates to 0. |
 | **distribution** | A sample from `normal` (mean, std), `uniform` (min, max), `exponential` (mean), or `poisson` (λ). Always a non‑negative integer. |
 
 Additional per‑connection controls:
