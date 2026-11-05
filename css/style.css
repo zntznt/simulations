@@ -1062,6 +1062,7 @@ input[type="range"] {
 }
 #tour-coach p { font-size: 13px; line-height: 1.55; color: var(--text); margin: 0; }
 #tour-coach p b { color: var(--text-bright); }
+#tour-coach p code { font-family: var(--mono); font-size: 12px; color: var(--text-bright); }
 .tour-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 .tour-actions .btn { padding: 4px 12px; font-size: 12px; pointer-events: auto; }
 .tour-actions .hidden { display: none; }
