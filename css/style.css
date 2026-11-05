@@ -1127,10 +1127,21 @@ input[type="range"] {
 .welcome-col dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; margin: 0; }
 .welcome-col dt { font-size: 12px; font-weight: 600; color: var(--accent); white-space: nowrap; }
 .welcome-col dd { font-size: 12px; color: var(--text-dim); margin: 0; }
-/* Wraps: the three buttons need about 468px, so on a phone the row overflowed
-   to the left and pushed the primary "Take a quick tour" clean off screen. At
-   320px the second button went with it. This is the first screen a new user
-   sees, so nothing in it may sit outside the modal. */
+/* The first decision a new user makes, so it comes before the reference material
+   and neither answer is styled as the default. auto-fit stacks them on a phone. */
+.welcome-choices {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px; margin-bottom: 16px;
+}
+.welcome-choice {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; text-align: left;
+  font-family: var(--font); cursor: pointer; color: var(--text);
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+}
+.welcome-choice:hover, .welcome-choice:focus-visible { border-color: var(--accent); }
+.welcome-choice b { font-size: 14px; color: var(--text-bright); }
+.welcome-choice b i { color: var(--accent); margin-right: 4px; }
+.welcome-choice span { font-size: 12px; line-height: 1.45; color: var(--text-dim); }
 .welcome-actions {
   display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end;
   padding: 16px 20px; border-top: 1px solid var(--border); margin-top: 12px;
