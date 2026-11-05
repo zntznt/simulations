@@ -2679,7 +2679,7 @@ test('a huge dice count rolls the right distribution, promptly', () => {
 });
 
 test('a register whose formula is not a string does not break the engine', () => {
-  for (const bad of [5, [], {}]) {
+  for (const [bad, want] of [[5, 5], [[], 0], [{}, 0]]) {
     const { d } = setup();
     node(d, NodeType.REGISTER);
     const j = JSON.parse(JSON.stringify(d.toJSON()));
@@ -2690,8 +2690,76 @@ test('a register whose formula is not a string does not break the engine', () =>
     e2.reset();
     e2.doStep();
     detectLoops(d2);
-    eq([...d2.nodes.values()][0].value, 0, `formula ${JSON.stringify(bad)} is treated as empty`);
+    eq([...d2.nodes.values()][0].value, want, `formula ${JSON.stringify(bad)}`);
   }
+});
+
+test('loading a diagram rejects field values of the wrong type', () => {
+  // A diagram is untrusted input, and Object.assign used to copy anything in: a
+  // share link with a numeric note text stopped the whole app from starting.
+  const d = new Diagram();
+  d.loadJSON(JSON.parse(JSON.stringify({
+    nodes: [
+      { id: 'a', type: 'pool', x: 'x', y: {}, label: 5, resources: 'x', capacity: 'x', colorMap: { '#f00': 'x', '#0f0': 3 }, initialResources: 'x', initialColorMap: 7 },
+      { id: 'b', type: 'pool', x: 1, y: 2, capacity: null, colorMap: [], endEnabled: 1 },
+    ],
+    connections: [{ id: 'c', sourceId: 'a', targetId: 'b', rate: '5', interval: [], waypoints: 5, label: null }],
+    notes: [{ id: 'n', x: 'x', y: 2, text: 5, w: {} }],
+    groups: [{ id: 'g', x: null, y: 2, w: 'x', h: 50, label: [] }],
+    charts: [{ id: 'k', x: 'x', y: 2, nodeIds: 5, label: {} }],
+  })));
+  const a = d.nodes.get('a'), b = d.nodes.get('b'), c = d.connections.get('c');
+  eq(a.x, 0, 'a non-numeric position falls back to the default');
+  eq(a.y, 0, 'an object position falls back to the default');
+  eq(a.label, '5', 'a number is usable as a label');
+  eq(a.resources, 0, 'non-numeric resources fall back to the default');
+  eq(a.capacity, Infinity, 'non-numeric capacity falls back to the default');
+  eq(JSON.stringify(a.colorMap), '{"#0f0":3}', 'non-numeric color counts are dropped');
+  eq(a._initialResources, a.resources, 'a non-numeric baseline falls back to the live count');
+  eq(JSON.stringify(a._initialColorMap), '{}', 'a non-object color baseline is ignored');
+  eq(b.capacity, Infinity, 'a null capacity still means unlimited');
+  eq(JSON.stringify(b.colorMap), '{}', 'an array is not a color map');
+  eq(b.endEnabled, true, 'a truthy flag becomes a boolean');
+  eq(c.rate, 5, 'a numeric string is still a number');
+  eq(c.interval, 1, 'an array is not a number');
+  eq(JSON.stringify(c.waypoints), '[]', 'a number is not a list');
+  eq(c.label, '', 'null is not a label');
+  const note = d.notes.get('n'), group = d.groups.get('g'), chart = d.charts.get('k');
+  eq(note.text, '5', 'a numeric note text is usable');
+  eq(note.x, 0, 'non-numeric note position');
+  eq(note.w, 160, 'non-numeric note width');
+  eq(group.x, 0, 'null group position');
+  eq(group.w, 40, 'non-numeric group width');
+  eq(group.label, 'Group', 'an array is not a label');
+  eq(chart.x, 0, 'non-numeric chart position');
+  eq(JSON.stringify(chart.nodeIds), '[]', 'a number is not a node list');
+  eq(chart.label, 'Chart', 'an object is not a label');
+});
+
+test('loading a diagram cannot replace methods or the prototype', () => {
+  const j = JSON.parse('{"nodes":[{"id":"a","type":"pool","x":1,"y":2,"reconcile":5,"displayCount":9,"__proto__":{"x":1}}],"connections":[{"id":"c","sourceId":"a","targetId":"a","toJSON":5,"__proto__":{}}]}');
+  const d = new Diagram();
+  d.loadJSON(j);
+  assert(d.nodes.get('a') instanceof MNode, 'the node keeps its class');
+  eq(typeof d.nodes.get('a').reconcile, 'function', 'a method cannot be shadowed');
+  eq(typeof d.connections.get('c').toJSON, 'function', 'a connection method cannot be shadowed');
+  JSON.stringify(d.toJSON());
+});
+
+test('loading a diagram keeps fields this build does not know', () => {
+  const d = new Diagram();
+  d.loadJSON({ nodes: [{ id: 'a', type: 'pool', x: 1, y: 2, futureField: 'kept' }], connections: [] });
+  eq(d.nodes.get('a').futureField, 'kept', 'a newer file keeps its extra data');
+});
+
+test('a large Poisson mean still produces randomness', () => {
+  // exp(-mean) underflows to 0 above a mean of about 745, and this used to return
+  // the mean itself, every time.
+  SimRandom.seed('poisson');
+  const a = sampleDist('poisson', 1e6), b = sampleDist('poisson', 1e6);
+  SimRandom.seed(null);
+  assert(a !== b, `two draws differ (${a}, ${b})`);
+  assert(Math.abs(a - 1e6) < 5000 && Math.abs(b - 1e6) < 5000, `near the mean (${a}, ${b})`);
 });
 
 // ── Sweep fixes: delay honours a finite capacity ──────────────────────────────
