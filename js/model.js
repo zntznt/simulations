@@ -94,9 +94,9 @@ const VALID_IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 // round/floor/ceil/abs/min/max/sqrt/log/exp/mod, trig, constants (pi, e),
 // random() / randomInt(a,b) / pickRandom([…]), and more.
 //
-// Expressions that math.js cannot parse or evaluate (e.g. legacy JS syntax
-// like `Math.round(x)`) fall back to the original Function-based evaluator,
-// so existing diagrams keep working unchanged.
+// Older JS-flavoured formulas like `Math.round(x)` keep working through
+// _seededMathScope and _repairLegacyOps. Nothing falls back to JS evaluation:
+// see evalFormula for why. Expressions math.js cannot handle evaluate to 0.
 const _mathCompileCache = new Map();   // expr → compiled math.js code (or null if unparseable)
 
 // Formula randomness routed through SimRandom: these shadow math.js's own
@@ -126,8 +126,6 @@ function _formulaRandomScope() {
   };
 }
 
-// `Math` stand-in whose random() draws from SimRandom (everything else is
-// inherited); shadows the global in the legacy Function-based evaluator.
 // The `Math` object legacy formulas reach for, rebuilt as OWN properties:
 // math.js refuses to call a method it finds on a prototype, so Object.create
 // (Math) would give "No access to method random". `random` draws from SimRandom
@@ -202,8 +200,8 @@ function evalFormula(expr, vars = {}) {
   return viaMath === undefined ? 0 : viaMath;
 }
 
-// True if the expression parses in at least one of the two evaluators
-// (math.js syntax, or legacy JS syntax). Used for live input validation.
+// True if math.js can parse the expression, as written or after _repairLegacyOps
+// rewrites older JS spellings. Used for live input validation.
 function validateFormula(expr) {
   if (!expr || typeof expr !== 'string' || !expr.trim()) return false;
   if (typeof math === 'undefined' || !math.parse) return false;

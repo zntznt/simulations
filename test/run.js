@@ -2107,9 +2107,8 @@ test('random()/pickRandom() in formulas draw from the seeded stream too', () => 
   assert([10, 20, 30].includes(a[2]), 'pickRandom returns a list element');
 });
 
-test('legacy-fallback formulas (Math.random) are seeded as well', () => {
-  // math.js cannot evaluate `Math.*`, so this takes the Function fallback,
-  // where the shadowed Math draws from SimRandom.
+test('older JS-syntax formulas (Math.random) are seeded as well', () => {
+  // `Math` resolves to _seededMathScope, which draws from SimRandom.
   SimRandom.seed('legacy');
   const a = [evalFormula('Math.round(Math.random()*1000)'), evalFormula('Math.round(Math.random()*1000)')];
   SimRandom.seed('legacy');
@@ -2984,8 +2983,8 @@ test('math.js syntax works in formulas (power, ternary, functions)', () => {
   eq(evalFormula('log(e)'), 1, 'constants');
 });
 
-test('legacy JS-syntax formulas still evaluate (fallback path)', () => {
-  eq(evalFormula('Math.round(2.6)'), 3, 'Math.round falls back to JS eval');
+test('older JS-syntax formulas still evaluate through math.js', () => {
+  eq(evalFormula('Math.round(2.6)'), 3, 'Math.round resolves via the Math scope');
   eq(evalFormula('Math.min(a, 5)', { a: 3 }), 3, 'Math.min with vars');
 });
 

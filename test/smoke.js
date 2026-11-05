@@ -3382,6 +3382,48 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`persistence: undo and redo write autosave (${undoSave.built} nodes back on canvas and in storage)`);
   else fail('undo autosave: ' + JSON.stringify(undoSave));
 
+  // Persistence: a full or blocked localStorage used to fail silently, so someone
+  // could keep working for hours believing autosave had their back. Warn once per
+  // failure streak (not on every commit), and re-arm after a save succeeds.
+  const autosaveWarn = await page.evaluate(() => {
+    const app = window.app;
+    const realSetItem = Storage.prototype.setItem;
+    let full = true;
+    Storage.prototype.setItem = function (k, v) {
+      if (full && k === 'sim_autosave') throw new DOMException('full', 'QuotaExceededError');
+      return realSetItem.call(this, k, v);
+    };
+    const toast = () => document.getElementById('app-toast')?.textContent || '';
+    const change = () => {
+      app.diagram.meta.name = `quota-${Math.random()}`;
+      app._commit();
+    };
+    const warned = () => /autosave/i.test(toast());
+    try {
+      app._toast('sentinel');
+      change();
+      const first = warned();
+      app._toast('sentinel');
+      change();
+      const repeated = warned();
+      full = false;
+      app._toast('sentinel');
+      change();
+      const onRecovery = warned();
+      full = true;
+      change();
+      const rearmed = warned();
+      return { first, repeated, onRecovery, rearmed, copy: toast() };
+    } finally {
+      Storage.prototype.setItem = realSetItem;
+      app._persistAutosave();
+    }
+  });
+  if (autosaveWarn.first && !autosaveWarn.repeated && !autosaveWarn.onRecovery && autosaveWarn.rearmed
+    && !autosaveWarn.copy.includes('—'))
+    ok('persistence: a failed autosave warns once per streak and re-arms after a success');
+  else fail('autosave warning: ' + JSON.stringify(autosaveWarn));
+
   // Persistence: File > Open replaces everything on the canvas, so it must ask
   // first and stay undoable, like New / Load template / Load from library. It
   // did neither, and reset the history, so the replaced work was unrecoverable.
