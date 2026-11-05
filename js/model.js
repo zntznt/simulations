@@ -154,15 +154,51 @@ function _repairLegacyOps(expr) {
     .replace(/!(?=\s*[A-Za-z_(])/g, ' not ');
 }
 
+// A diagram is untrusted input, and math.js is a whole language: zeros(20000,20000)
+// or 1:1e10 exhaust memory, a recursive f(x)= or combinations(2e9,1e9) hang the tab,
+// and createUnit() or import() change the instance every formula shares. So formulas
+// may only call these numeric functions, and may not define anything. A blocklist
+// can't hold: ranges allocate without naming a function, and assignment aliases names.
+// ponytail: flat allowlist, extend it when a real formula needs another function.
+const _FORMULA_FUNCTIONS = new Set(`
+  abs cbrt ceil cube exp expm1 fix floor gamma hypot log log10 log1p log2 max mean
+  median min mod nthRoot pow prod round sign sqrt square std sum variance
+  acos acosh asin asinh atan atan2 atanh cos cosh sin sinh tan tanh
+  add divide multiply subtract unaryMinus
+  and not or xor equal larger largerEq smaller smallerEq unequal
+  pickRandom random randomInt
+`.trim().split(/\s+/));
+
+function _isForbiddenNode(n) {
+  switch (n.type) {
+    case 'AssignmentNode':
+    case 'FunctionAssignmentNode':
+    case 'RangeNode':
+      return true;
+    case 'FunctionNode':
+      if (n.fn.type === 'SymbolNode') return !_FORMULA_FUNCTIONS.has(n.fn.name);
+      // Math.round(x) from older formulas resolves to _seededMathScope.
+      return !(n.fn.type === 'AccessorNode' && n.fn.object.type === 'SymbolNode' && n.fn.object.name === 'Math');
+    default:
+      return false;
+  }
+}
+
+// The parsed formula, or null if it doesn't parse or isn't allowed. A formula in the
+// older JS-flavoured syntax gets a second chance after _repairLegacyOps.
+function _parseFormula(expr) {
+  try {
+    let node;
+    try { node = math.parse(expr); } catch { node = math.parse(_repairLegacyOps(expr)); }
+    return node.filter(_isForbiddenNode).length ? null : node;
+  } catch { return null; }
+}
+
 function _evalMathJS(expr, vars) {
   if (typeof math === 'undefined' || !math.compile) return undefined;
   let code = _mathCompileCache.get(expr);
   if (code === undefined) {
-    try { code = math.compile(expr); } catch { code = null; }
-    // Second chance for a formula written in the older JS-flavoured syntax.
-    if (!code) {
-      try { code = math.compile(_repairLegacyOps(expr)); } catch { code = null; }
-    }
+    try { code = _parseFormula(expr)?.compile() || null; } catch { code = null; }
     if (_mathCompileCache.size > 500) _mathCompileCache.clear();
     _mathCompileCache.set(expr, code);
   }
@@ -200,14 +236,11 @@ function evalFormula(expr, vars = {}) {
   return viaMath === undefined ? 0 : viaMath;
 }
 
-// True if math.js can parse the expression, as written or after _repairLegacyOps
-// rewrites older JS spellings. Used for live input validation.
+// True if evalFormula would run the expression. Used for live input validation.
 function validateFormula(expr) {
   if (!expr || typeof expr !== 'string' || !expr.trim()) return false;
   if (typeof math === 'undefined' || !math.parse) return false;
-  const t = expr.trim();
-  try { math.parse(t); return true; } catch { /* try the legacy spellings */ }
-  try { math.parse(_repairLegacyOps(t)); return true; } catch { return false; }
+  return _parseFormula(expr.trim()) !== null;
 }
 
 // Sample from a named statistical distribution. Returns a non-negative integer.

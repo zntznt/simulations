@@ -797,6 +797,44 @@ test('a formula cannot execute arbitrary JavaScript', () => {
   eq(globalThis.__FORMULA_SIDE_EFFECT, undefined, 'no payload had any side effect');
 });
 
+test('a formula cannot exhaust memory, hang, or change the shared math.js', () => {
+  // Without the guard these crash or hang the tab that opens a shared link. Check
+  // validateFormula first so a regression fails here instead of killing the run.
+  const payloads = [
+    'zeros(20000,20000)', 'ones(20000,20000)', 'identity(30000)', 'range(0,1e10)',
+    '1:1e10', 'sum(1:1e9)', 'map(1:1e8, sin)', 'combinations(2e9,1e9)',
+    'f(x)=x>0?f(x-1)+f(x-1):0; f(40)',
+    // Reaching a blocked function through an alias or an allowed name. Assignment
+    // goes with it: a multi-statement formula only ever evaluated to 0 anyway.
+    'a = 2; a * 3', 'g=zeros; g(20000,20000)', 'max=zeros; max(20000,20000)',
+    'Math=zeros; Math(20000,20000)', 'Math.round=zeros; Math.round(20000,20000)',
+    'o={f:zeros}; o.f(20000,20000)', '[zeros][1](20000,20000)',
+    // Reaching into the math.js instance every formula shares.
+    'createUnit("leakunit")', 'import({leak:1})', 'evaluate("1")', 'parse("1")',
+  ];
+  for (const p of payloads) {
+    eq(validateFormula(p), false, `reported invalid: ${p}`);
+    eq(evalFormula(p, {}), 0, `evaluates to 0: ${p}`);
+  }
+  let leaked = true;
+  try { math.evaluate('1 leakunit'); } catch { leaked = false; }
+  eq(leaked, false, 'a formula cannot register a unit');
+});
+
+test('the formula language keeps its numeric functions', () => {
+  const cases = [
+    ['round(2.6)', 3], ['floor(2.6)', 2], ['ceil(2.1)', 3], ['abs(-4)', 4], ['sqrt(16)', 4],
+    ['pow(2,3)', 8], ['mod(7,3)', 1], ['min(1,2)', 1], ['max(1,2)', 2], ['log(1)', 0],
+    ['log10(100)', 2], ['exp(0)', 1], ['sin(0)', 0], ['cos(0)', 1], ['sign(-2)', -1],
+    ['sum(1,2,3)', 6], ['mean(2,4)', 3], ['hypot(3,4)', 5], ['pickRandom([5])', 5],
+    ['randomInt(3,4)', 3], ['Math.sqrt(16)', 4], ['pi > 3 ? 1 : 0', 1],
+  ];
+  for (const [expr, want] of cases) {
+    eq(validateFormula(expr), true, `valid: ${expr}`);
+    eq(evalFormula(expr, {}), want, expr);
+  }
+});
+
 test('formulas written in the older JS syntax still evaluate', () => {
   // Removing the legacy evaluator must not silently break saved diagrams, so
   // the Math object and the JS spellings of the operators are handled by the
