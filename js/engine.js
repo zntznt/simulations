@@ -936,6 +936,36 @@ class SimEngine {
     return isFinite(w) && w >= 0 ? w : 1;
   }
 
+  // The same outcome as the per-unit loop in _fireGate, for a stock too large to loop
+  // over: draw each output's share in one step, then re-split what didn't fit among the
+  // outputs with room. Each round fills an output or places everything, so the number
+  // of rounds is bounded by the number of outputs.
+  _routeGateBatch(node, color, outs, weights, ctx) {
+    let movedAny = false;
+    while (node.colorMap[color] > 0) {
+      const open = outs
+        .map((c, i) => ({ c, w: weights[i] }))
+        .filter(a => a.w > 0 && this._acceptable(a.c.targetId, 1, ctx) >= 1);
+      let totalWeight = open.reduce((sum, a) => sum + a.w, 0);
+      let left = node.colorMap[color], placed = 0;
+      open.forEach((a, i) => {
+        const want = i === open.length - 1 ? left : sampleBinomial(left, a.w / totalWeight);
+        totalWeight -= a.w;
+        left -= want;
+        const amt = Math.min(want, this._acceptable(a.c.targetId, want, ctx));
+        if (amt <= 0) return;
+        this._give(a.c.targetId, color, amt, a.c.id, ctx);
+        this._reserve(a.c.targetId, amt, ctx);
+        node.colorMap[color] -= amt;
+        node.resources -= amt;
+        placed += amt;
+      });
+      if (placed <= 0) break;
+      movedAny = true;
+    }
+    return movedAny;
+  }
+
   // Gate: redistributes everything it holds across its outputs by weight.
   // `probabilistic` (alias of legacy `random`) routes each unit by weighted
   // chance; `deterministic` splits the total proportionally to the weights.
@@ -968,6 +998,13 @@ class SimEngine {
     if (mode === 'probabilistic') {
       // Route each unit to a weighted-random output that still has room.
       for (const color of Object.keys(node.colorMap)) {
+        // Infinity minus one is Infinity, so a 1e999 stock from a diagram file would
+        // never drain. It has no meaningful split, so the gate holds it.
+        if (!isFinite(node.colorMap[color])) continue;
+        if (node.colorMap[color] > EXACT_SAMPLE_LIMIT) {
+          movedAny = this._routeGateBatch(node, color, outs, weights, ctx) || movedAny;
+        }
+        // Whatever the batch left has nowhere to go, so this exits at once.
         while (node.colorMap[color] > 0) {
           let pool = 0;
           const cand = outs.map((c, i) => {

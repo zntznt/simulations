@@ -278,16 +278,37 @@ function sampleDist(type, p1 = 1, p2 = 0) {
   }
 }
 
+// How many units get an individual random draw. Above this, sample the total in one
+// step: the cost stays flat, and seeded runs at or below it keep their exact stream.
+const EXACT_SAMPLE_LIMIT = 10000;
+
+// How many of n units land on an outcome of probability p, for n above the exact
+// limit: Poisson when the rarer outcome is expected fewer than 30 times, else normal.
+function sampleBinomial(n, p) {
+  if (p <= 0) return 0;
+  if (p >= 1) return n;
+  const q = Math.min(p, 1 - p), mean = n * q;
+  const k = Math.min(n, mean < 30
+    ? sampleDist('poisson', mean)
+    : sampleDist('normal', mean, Math.sqrt(mean * (1 - q))));
+  return p <= 0.5 ? k : n - k;
+}
+
 // Roll XdY dice notation (e.g. "2d6" → 2..12). Plain numbers pass through.
 function rollDice(expr) {
   if (expr == null) return 0;
   const s = String(expr).trim().toLowerCase();
   const m = s.match(/^(\d+)\s*d\s*(\d+)$/);
   if (!m) { const n = parseFloat(s); return isNaN(n) ? 0 : n; }
-  // Cap the dice count (like sampleDist's poisson loop) so a pathological
-  // expression such as 999999999d6 can't freeze the tick.
-  const count = Math.min(10000, parseInt(m[1])), sides = parseInt(m[2]);
-  if (sides < 1) return 0;
+  const count = parseInt(m[1]), sides = parseInt(m[2]);
+  if (sides < 1 || !isFinite(count * sides)) return 0;
+  // Past the exact limit a loop could freeze the tick, so sample the sum from its
+  // normal approximation. Capping the count instead silently returned wrong totals.
+  if (count > EXACT_SAMPLE_LIMIT) {
+    if (sides === 1) return count;
+    const mean = count * (sides + 1) / 2, std = Math.sqrt(count * (sides * sides - 1) / 12);
+    return Math.min(count * sides, Math.max(count, sampleDist('normal', mean, std)));
+  }
   let sum = 0;
   for (let i = 0; i < count; i++) sum += Math.floor(SimRandom.random() * sides) + 1;
   return sum;
@@ -576,6 +597,8 @@ class MNode {
     Object.assign(this, d);
     this.capacity = d.capacity == null ? Infinity : d.capacity;
     this.colorMap = { ...(d.colorMap || {}) };
+    // The engine and loop detector call string methods on this. Diagrams are untrusted.
+    if (this.formula != null && typeof this.formula !== 'string') this.formula = '';
     const infiniteSource = this.type === NodeType.SOURCE && !this.limited;
     // A file written mid-run carries its baseline explicitly; in every other
     // case the live count IS the baseline, because the diagram was at rest when

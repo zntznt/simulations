@@ -585,6 +585,70 @@ test('probabilistic gate never routes to a zero-weight output', () => {
   });
 });
 
+test('a probabilistic gate routes a huge stock promptly and by weight', () => {
+  const n = 3e7;
+  const { d, e } = setup();
+  d.seed = 'gate'; // reset() reseeds from the diagram
+  const g = node(d, NodeType.GATE); g.setCount(n); g.gateMode = 'probabilistic';
+  const p1 = node(d, NodeType.POOL), p2 = node(d, NodeType.POOL);
+  conn(d, g, p1).weight = 1;
+  conn(d, g, p2).weight = 3;
+  const t0 = Date.now();
+  steps(e, 1);
+  assert(Date.now() - t0 < 1000, `routes promptly (${Date.now() - t0}ms)`);
+  eq(p1.resources + p2.resources, n, 'no units created or lost');
+  eq(g.resources, 0, 'the gate is emptied');
+  assert(Math.abs(p1.resources / n - 0.25) < 0.001, `split follows the weights (${p1.resources / n})`);
+});
+
+test('a huge probabilistic split respects capacity and keeps colors', () => {
+  const n = 3e7;
+  const { d, e } = setup();
+  d.seed = 'gate'; // reset() reseeds from the diagram
+  const g = node(d, NodeType.GATE); g.setCount(n, '#ff0000'); g.gateMode = 'probabilistic';
+  const p1 = node(d, NodeType.POOL), p2 = node(d, NodeType.POOL);
+  p1.capacity = 100;
+  conn(d, g, p1).weight = 1;
+  conn(d, g, p2).weight = 1;
+  steps(e, 1);
+  eq(p1.resources, 100, 'the full output stops at capacity');
+  eq(p2.resources, n - 100, 'the overflow goes to the output with room');
+  eq(p2.colorMap['#ff0000'], n - 100, 'units keep their color');
+});
+
+test('a probabilistic gate holds an infinite stock instead of hanging', () => {
+  const { d } = setup();
+  node(d, NodeType.GATE).gateMode = 'probabilistic';
+  const p = node(d, NodeType.POOL);
+  conn(d, [...d.nodes.values()][0], p);
+  // JSON.parse turns 1e999 into Infinity, so a diagram file can carry this.
+  const j = JSON.parse(JSON.stringify(d.toJSON()));
+  Object.assign(j.nodes[0], JSON.parse('{"resources":1e999,"colorMap":{"#ff0000":1e999}}'));
+  const d2 = new Diagram();
+  d2.loadJSON(j);
+  const e2 = new SimEngine(d2);
+  e2.reset();
+  e2.doStep();
+  eq(d2.nodes.get(p.id).resources, 0, 'nothing is routed');
+});
+
+test('a huge probabilistic split handles a tiny weight on either side', () => {
+  for (const tinyFirst of [true, false]) {
+    const n = 3e7;
+    const { d, e } = setup();
+    d.seed = 'gate';
+    const g = node(d, NodeType.GATE); g.setCount(n); g.gateMode = 'probabilistic';
+    const p1 = node(d, NodeType.POOL), p2 = node(d, NodeType.POOL);
+    conn(d, g, p1).weight = tinyFirst ? 2e-7 : 1;
+    conn(d, g, p2).weight = tinyFirst ? 1 : 2e-7;
+    steps(e, 1);
+    const tiny =tinyFirst ? p1.resources : p2.resources;
+    // Expected share is 6 units, so 40 is far out in the tail.
+    assert(tiny >= 0 && tiny < 40, `tiny output gets a few units (got ${tiny})`);
+    eq(p1.resources + p2.resources, n, 'no units created or lost');
+  }
+});
+
 test('legacy "random" gate mode still works (alias of probabilistic)', () => {
   withRandom(0.5, () => {
     const { d, e } = setup();
@@ -2600,11 +2664,34 @@ test('a NaN connection rate moves nothing and never corrupts node state', () => 
   eq(p.resources, 0, 'no resources moved by a NaN rate');
 });
 
-test('a huge dice count is capped and returns promptly', () => {
+test('a huge dice count rolls the right distribution, promptly', () => {
+  // These used to be capped at 10000 dice, which froze nothing but silently
+  // returned about half the right total for 20000d6.
+  SimRandom.seed('dice');
   const t0 = Date.now();
-  const v = rollDice('999999999d6');
+  const v = rollDice('20000d6'), huge = rollDice('999999999d6');
   assert(Date.now() - t0 < 1000, 'rollDice returns promptly');
-  assert(v >= 10000 && v <= 60000, `sum bounded by the 10000-dice cap (got ${v})`);
+  assert(Math.abs(v - 70000) < 5 * Math.sqrt(20000 * 35 / 12), `20000d6 near its mean (got ${v})`);
+  assert(Math.abs(huge - 3.5e9) < 5 * Math.sqrt(999999999 * 35 / 12), `999999999d6 near its mean (got ${huge})`);
+  eq(rollDice('20000d1'), 20000, 'one-sided dice have no spread');
+  eq(rollDice('9'.repeat(400) + 'd6'), 0, 'a count too large for a number evaluates to 0');
+  SimRandom.seed(null);
+});
+
+test('a register whose formula is not a string does not break the engine', () => {
+  for (const bad of [5, [], {}]) {
+    const { d } = setup();
+    node(d, NodeType.REGISTER);
+    const j = JSON.parse(JSON.stringify(d.toJSON()));
+    j.nodes[0].formula = bad;
+    const d2 = new Diagram();
+    d2.loadJSON(j);
+    const e2 = new SimEngine(d2);
+    e2.reset();
+    e2.doStep();
+    detectLoops(d2);
+    eq([...d2.nodes.values()][0].value, 0, `formula ${JSON.stringify(bad)} is treated as empty`);
+  }
 });
 
 // ── Sweep fixes: delay honours a finite capacity ──────────────────────────────
