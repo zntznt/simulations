@@ -262,7 +262,9 @@ function sampleDist(type, p1 = 1, p2 = 0) {
     case 'poisson': {
       const lam = Math.max(0, isFinite(p1) ? p1 : 1);
       const L = Math.exp(-lam);
-      if (!isFinite(L) || L <= 0) return Math.round(lam);
+      // exp(-lam) underflows for a mean above about 745. The normal approximation is
+      // close at that size, where returning lam would remove the randomness entirely.
+      if (!isFinite(L) || L <= 0) return sampleDist('normal', lam, Math.sqrt(lam));
       let k = 0, p = SimRandom.random();
       while (p > L && k < 10000) { p *= SimRandom.random(); k++; }
       return k;
@@ -377,6 +379,42 @@ function dominantColor(colorMap, fallback = null) {
 
 let _idSeq = 0;
 function genId(prefix) { return `${prefix}_${++_idSeq}_${Math.random().toString(36).slice(2, 7)}`; }
+
+// Copy loaded fields onto a freshly constructed object, using each default's type as
+// the schema. A diagram is untrusted input, and the render and engine code trust these
+// types: a numeric note text stopped the whole app from starting. A value that can't
+// be used keeps the default. Fields this build doesn't know stay, for newer files.
+function _assignFields(target, data) {
+  for (const [k, v] of Object.entries(data)) {
+    // Inherited names are methods, getters and __proto__, which data must not replace.
+    if (v === undefined || (k in target && !Object.hasOwn(target, k))) continue;
+    const cur = target[k];
+    switch (typeof cur) {
+      case 'number': {
+        const n = typeof v === 'string' && v.trim() ? Number(v) : v;
+        if (typeof n === 'number' && !isNaN(n)) target[k] = n;
+        break;
+      }
+      case 'string':
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') target[k] = String(v);
+        break;
+      case 'boolean':
+        target[k] = !!v;
+        break;
+      case 'object':
+        if (cur === null || (v && typeof v === 'object' && Array.isArray(v) === Array.isArray(cur))) target[k] = v;
+        break;
+      default:
+        target[k] = v;
+    }
+  }
+  return target;
+}
+
+// A color → count map holding only the numeric counts of `map`.
+function _numericCounts(map) {
+  return Object.fromEntries(Object.entries(map || {}).filter(([, n]) => typeof n === 'number'));
+}
 
 class MNode {
   constructor(type, x, y) {
@@ -594,19 +632,16 @@ class MNode {
   }
 
   loadJSON(d) {
-    Object.assign(this, d);
-    this.capacity = d.capacity == null ? Infinity : d.capacity;
-    this.colorMap = { ...(d.colorMap || {}) };
-    // The engine and loop detector call string methods on this. Diagrams are untrusted.
-    if (this.formula != null && typeof this.formula !== 'string') this.formula = '';
+    _assignFields(this, d);
+    this.colorMap = _numericCounts(this.colorMap);
     const infiniteSource = this.type === NodeType.SOURCE && !this.limited;
     // A file written mid-run carries its baseline explicitly; in every other
     // case the live count IS the baseline, because the diagram was at rest when
     // it was written. Older files have neither field and keep the old meaning.
     this._initialResources = infiniteSource ? Infinity
-      : (d.initialResources !== undefined ? d.initialResources : this.resources);
-    this._initialColorMap = { ...(d.initialColorMap || this.colorMap) };
-    // Object.assign above copied these in as stray public fields; they are
+      : (typeof d.initialResources === 'number' ? d.initialResources : this.resources);
+    this._initialColorMap = _numericCounts(d.initialColorMap || this.colorMap);
+    // _assignFields above copied these in as stray public fields; they are
     // read here and nowhere else, so drop them rather than let them ride along.
     delete this.initialResources;
     delete this.initialColorMap;
@@ -750,7 +785,7 @@ class MConnection {
     };
   }
 
-  loadJSON(d) { Object.assign(this, d); if (!Array.isArray(this.waypoints)) this.waypoints = []; return this; }
+  loadJSON(d) { _assignFields(this, d); if (!Array.isArray(this.waypoints)) this.waypoints = []; return this; }
 }
 
 class MGroup {
@@ -764,7 +799,7 @@ class MGroup {
   toJSON() {
     return { id: this.id, x: this.x, y: this.y, w: this.w, h: this.h, label: this.label, color: this.color };
   }
-  loadJSON(d) { Object.assign(this, d); return this; }
+  loadJSON(d) { return _assignFields(this, d); }
 }
 
 class MNote {
@@ -778,7 +813,7 @@ class MNote {
   toJSON() {
     return { id: this.id, x: this.x, y: this.y, w: this.w, h: this.h, text: this.text, color: this.color };
   }
-  loadJSON(d) { Object.assign(this, d); return this; }
+  loadJSON(d) { return _assignFields(this, d); }
 }
 
 // On-canvas chart widget: a live line chart of one or more tracked nodes'
@@ -802,8 +837,8 @@ class MChart {
     };
   }
   loadJSON(d) {
-    Object.assign(this, d);
-    this.nodeIds = [...(d.nodeIds || [])];
+    _assignFields(this, d);
+    this.nodeIds = [...this.nodeIds];
     if (!this.chartType) this.chartType = 'line';
     return this;
   }
@@ -941,7 +976,8 @@ class Diagram {
     this.assertions = [...(data.assertions || [])];
     this.meta = { ...Diagram.defaultMeta(), ...(data.meta || {}) };
     for (const nd of data.nodes) {
-      const node = new MNode(nd.type, nd.x, nd.y);
+      // Constructed with plain defaults: loadJSON checks the file's values against them.
+      const node = new MNode(nd.type, 0, 0);
       node.loadJSON(nd);
       this.nodes.set(node.id, node);
     }
@@ -951,17 +987,17 @@ class Diagram {
       this.connections.set(conn.id, conn);
     }
     for (const gd of (data.groups || [])) {
-      const g = new MGroup(gd.x, gd.y, gd.w, gd.h);
+      const g = new MGroup(0, 0, 40, 30);
       g.loadJSON(gd);
       this.groups.set(g.id, g);
     }
     for (const nd of (data.notes || [])) {
-      const note = new MNote(nd.x, nd.y);
+      const note = new MNote(0, 0);
       note.loadJSON(nd);
       this.notes.set(note.id, note);
     }
     for (const cd of (data.charts || [])) {
-      const chart = new MChart(cd.x, cd.y);
+      const chart = new MChart(0, 0);
       chart.loadJSON(cd);
       this.charts.set(chart.id, chart);
     }
