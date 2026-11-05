@@ -792,9 +792,8 @@ const KB_ARTICLES = [
       + 'createEconomy() returns a handle with step(), run(), get(), set(), '
       + 'fire() for interactive nodes, values() and onStep(), plus seed and '
       + 'parameter overrides. The same file comes out of the command line with '
-      + 'node cli.js economy.json --emit economy.module.js. Formulas use '
-      + 'math.js when a global math object is present and fall back to plain '
-      + 'JS expressions otherwise.',
+      + 'node cli.js economy.json --emit economy.module.js. Formulas need '
+      + 'math.js through a global math object. Without it they evaluate to 0.',
   },
 ];
 
