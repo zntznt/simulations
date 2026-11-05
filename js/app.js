@@ -292,22 +292,38 @@ class App {
         text: 'Press <b>Run</b> to watch resources stream from the Source into the Pool at the rate you set, live.',
         done: () => this.engine.running || this.engine.step > this._tour.base.step,
       },
-      // ── Hand-off: point at where the real power lives, so a "graduate" doesn't
-      //    exit onto a blank canvas with no map. Click-through (info) cards.
+      // ── Hand-off: show where the real power lives, so a "graduate" doesn't exit
+      //    onto a blank canvas with no map. Click-through (info) cards, each of
+      //    which opens its destination and returns a cleanup (see _enterStep).
       {
-        target: '#btn-library',
+        target: '#lib-modal',
         info: true,
-        text: 'That\'s the loop: <b>place → connect → set a rate → Run</b>. Now the payoff. The <b>Library</b> has ready-made economies (try <b>F2P Mobile Economy</b>) you can open and pull apart.',
+        text: 'That\'s the loop: <b>place → connect → set a rate → Run</b>. Now the payoff. This is the <b>Library</b>, full of ready-made economies (try <b>F2P Mobile Economy</b>) you can open and pull apart.',
+        enter: () => {
+          const tab = this._libTab;
+          this._libTab = 'templates';
+          this._openLibrary();
+          return () => { this._hideModal('lib-overlay'); this._libTab = tab; };
+        },
       },
       {
-        target: '#diagram-rail',
+        target: '#diagram-rail, #props-panel',
         info: true,
-        text: 'This rail holds the model\'s brains: <b>Parameters</b> and <b>Variables</b> to drive formulas, <b>Resource types</b>, and a live <b>monitor</b>. Rates can be formulas, dice or distributions too, not just fixed numbers.',
+        text: 'The model\'s brains live here. This is <b>Parameters</b>, which drive formulas. <b>Variables</b>, <b>Resource types</b> and a live <b>monitor</b> are one click away. Rates can be formulas, dice or distributions too, not just fixed numbers.',
+        enter: () => {
+          const prev = this._activeFeature;
+          if (prev !== 'params') this._toggleFeature('params');
+          return () => { if (this._activeFeature !== prev) this._toggleFeature(prev); };
+        },
       },
       {
-        target: '#btn-analysis-menu',
+        target: '#mc-modal',
         info: true,
-        text: 'Balancing an economy? <b>Analysis → Batch (Monte Carlo)</b> runs your model hundreds of times and shows the spread of outcomes, the fastest way to tune a curve.',
+        text: 'Balancing an economy? <b>Batch (Monte Carlo)</b> runs your model hundreds of times and shows the spread of outcomes, the fastest way to tune a curve. Find it under <b>Analysis</b>.',
+        enter: () => {
+          this._openMonteCarlo();
+          return () => { this._mcCancel = true; this._hideModal('mc-overlay'); };
+        },
       },
       {
         target: '#btn-run',
@@ -341,6 +357,9 @@ class App {
     // the properties panel or any other scrollable ancestor. Without this the
     // cut-out stays where the target used to be and highlights the wrong control.
     window.addEventListener('scroll', this._tourReposition, { capture: true, passive: true });
+    // The phone's bottom sheet slides up, so a target inside it measures off-screen
+    // until it lands.
+    window.addEventListener('transitionend', this._tourReposition, true);
     window.addEventListener('keydown', this._tourKey, true);
     this._enterStep(this._tourSteps()[0]);
     this._renderTourStep();
@@ -368,20 +387,28 @@ class App {
     const tgt = step.target ? document.querySelector(step.target) : null;
     if (tgt && tgt.scrollIntoView) tgt.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     this._positionTour();
+    // A preview's dialog takes focus when it opens, and its Tab cycle can't reach
+    // this button. Next only becomes visible above, so this can't happen on enter.
+    if (this._tour.focusNext) { this._tour.focusNext = false; next.focus(); }
   }
 
   // Place the spotlight cut-out over the current target and the coach card
-  // beside it (right → below → left), clamped to the viewport.
+  // beside it (right → left → below → above), clamped to the viewport.
   _positionTour() {
     if (!this._tour) return;
     const step = this._tourSteps()[this._tour.idx];
     const spot = document.getElementById('tour-spotlight');
     const coach = document.getElementById('tour-coach');
-    const target = step.target ? document.querySelector(step.target) : null;
+    // A target can be several elements, spotlit as one box. Hidden ones measure as
+    // zero at the screen corner, so they don't count: the visitor may have closed
+    // a preview, and the rail doesn't exist on a phone.
+    const rects = step.target
+      ? [...document.querySelectorAll(step.target)].map(el => el.getBoundingClientRect()).filter(b => b.width && b.height)
+      : [];
     const vw = window.innerWidth, vh = window.innerHeight;
     const cw = coach.offsetWidth || 290, ch = coach.offsetHeight || 140;
 
-    if (!target) {
+    if (!rects.length) {
       spot.classList.add('off');
       spot.style.cssText += ';width:0;height:0;left:-9999px;top:-9999px;';
       coach.style.left = `${(vw - cw) / 2}px`;
@@ -389,7 +416,12 @@ class App {
       return;
     }
     spot.classList.remove('off');
-    const r = target.getBoundingClientRect();
+    const r = {
+      left: Math.min(...rects.map(b => b.left)), top: Math.min(...rects.map(b => b.top)),
+      right: Math.max(...rects.map(b => b.right)), bottom: Math.max(...rects.map(b => b.bottom)),
+    };
+    r.width = r.right - r.left;
+    r.height = r.bottom - r.top;
     const pad = 6;
     spot.style.left = `${r.left - pad}px`;
     spot.style.top = `${r.top - pad}px`;
@@ -400,7 +432,11 @@ class App {
     let left = r.right + gap, top = r.top;          // prefer right
     if (left + cw > vw - 8) {                        // else left
       left = r.left - cw - gap;
-      if (left < 8) { left = r.left; top = r.bottom + gap; } // else below
+      if (left < 8) {                                // else below, or above if it won't fit
+        left = r.left;
+        top = r.bottom + gap;
+        if (top + ch > vh - 8 && r.top - ch - gap >= 8) top = r.top - ch - gap;
+      }
     }
     coach.style.left = `${Math.max(8, Math.min(left, vw - cw - 8))}px`;
     coach.style.top = `${Math.max(8, Math.min(top, vh - ch - 8))}px`;
@@ -408,11 +444,21 @@ class App {
 
   // Run a step's one-time enter() hook exactly once on landing — it snapshots a
   // baseline for delta-detected steps, and _tourCheck fires on every edit, so a
-  // guard keeps it from re-snapshotting (which would mask the change).
+  // guard keeps it from re-snapshotting (which would mask the change). A hook may
+  // return a cleanup, which runs on leaving the step by any route (see _leaveStep).
   _enterStep(step) {
     if (!this._tour || this._tour.entered === this._tour.idx) return;
+    this._leaveStep();
     this._tour.entered = this._tour.idx;
-    if (step && step.enter) step.enter();
+    this._tour.focusNext = !!(step && step.info);
+    if (step && step.enter) this._tour.leave = step.enter();
+  }
+
+  _leaveStep() {
+    const leave = this._tour && this._tour.leave;
+    if (!leave) return;
+    this._tour.leave = null;
+    leave();
   }
 
   // Called after edits/runs: advance past any satisfied action step(s). Info and
@@ -444,10 +490,12 @@ class App {
 
   _endTour(completed) {
     if (!this._tour) return;
+    this._leaveStep();
     this._tour = null;
     document.getElementById('tour').classList.add('hidden');
     window.removeEventListener('resize', this._tourReposition);
     window.removeEventListener('scroll', this._tourReposition, { capture: true });
+    window.removeEventListener('transitionend', this._tourReposition, true);
     if (this._tourRaf) { cancelAnimationFrame(this._tourRaf); this._tourRaf = 0; }
     window.removeEventListener('keydown', this._tourKey, true);
     try { localStorage.setItem('sim_seen_tour', '1'); } catch { /* ignore */ }
@@ -1151,6 +1199,7 @@ _scrollRails() {
 
   _hideModal(overlayId) {
     document.getElementById(overlayId).classList.add('hidden');
+    this._positionTour(); // A tour card may be spotlighting this dialog.
     const back = this._modalReturnFocus;
     this._modalReturnFocus = null;
     if (!back || !back.focus) return;

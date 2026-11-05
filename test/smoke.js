@@ -101,6 +101,102 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (tourOk) ok('tour: place→connect→rate→Run, then Library/rail/Batch hand-off cards, then finish');
   else fail('tour: ' + JSON.stringify(tour));
 
+  // Each hand-off card opens the place it describes, and leaving the card, by
+  // any route, puts the app back as it was.
+  const preview = await page.evaluate(() => {
+    const t = window.app;
+    const open = id => !document.getElementById(id).classList.contains('hidden');
+    const next = () => document.getElementById('tour-next').click();
+    const nextFocused = () => document.activeElement === document.getElementById('tour-next');
+    const spotOver = id => {
+      const a = document.getElementById('tour-spotlight').style, r = document.getElementById(id).getBoundingClientRect();
+      return Math.abs(parseFloat(a.left) + 6 - r.left) <= 1 && Math.abs(parseFloat(a.top) + 6 - r.top) <= 1;
+    };
+    const toLibrary = () => {
+      t._clearAll(); t._resetHistory();
+      t._startTour();
+      const s = t.diagram.addNode(new MNode(NodeType.SOURCE, 200, 200)); t._commit();
+      const p = t.diagram.addNode(new MNode(NodeType.POOL, 420, 200)); t._commit();
+      const c = t.diagram.addConnection(new MConnection(s.id, p.id)); t._commit();
+      c.rate = 5; t._commit();
+      t.engine.doStep();
+    };
+
+    t._libTab = 'mine';
+    toLibrary();
+    const library = {
+      open: open('lib-overlay'), templates: open('lib-pane-templates'),
+      f2p: /F2P Mobile Economy/.test(document.getElementById('lib-templates').textContent),
+      spot: spotOver('lib-modal'), focus: nextFocused(),
+    };
+    next();
+    const rail = {
+      libClosed: !open('lib-overlay'), tabRestored: t._libTab === 'mine',
+      params: t._activeFeature === 'params', pressed: document.querySelector('[data-feature="params"]').classList.contains('active'),
+    };
+    next();
+    const batch = {
+      railClosed: t._activeFeature === null, open: open('mc-overlay'),
+      spot: spotOver('mc-modal'), focus: nextFocused(),
+    };
+    next();
+    const finalCard = { mcClosed: !open('mc-overlay') };
+    next();
+
+    // Escape in the middle of a preview must not strand the dialog.
+    toLibrary();
+    t._tourKey(new KeyboardEvent('keydown', { key: 'Escape' }));
+    const escaped = { ended: t._tour === null, libClosed: !open('lib-overlay'), tabRestored: t._libTab === 'mine' };
+
+    // If the visitor closes the preview, the spotlight must not jump to the
+    // corner of the screen, which is where a hidden element measures.
+    toLibrary();
+    t._hideModal('lib-overlay');
+    const closedEarly = document.getElementById('tour-spotlight').classList.contains('off');
+    t._endTour(false);
+    t._libTab = undefined;
+    t._clearAll(); t._resetHistory();
+    return { library, rail, batch, finalCard, escaped, closedEarly };
+  });
+  const allTrue = o => Object.values(o).every(Boolean);
+  if (allTrue(preview.library) && allTrue(preview.rail) && allTrue(preview.batch) && allTrue(preview.finalCard)
+      && allTrue(preview.escaped) && preview.closedEarly)
+    ok('tour: hand-off cards preview Library, Parameters and Batch, and clean up on every exit');
+  else fail('tour previews: ' + JSON.stringify(preview));
+
+  // On a phone the properties panel is a bottom sheet that slides up, so it has
+  // to be measured after it lands, and the card must not sit on top of it.
+  const sheet = await (async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'no-preference' });
+    const sp = await ctx.newPage();
+    await sp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await sp.addInitScript(() => { try { localStorage.setItem('sim_seen_welcome', '1'); } catch (e) {} });
+    await sp.goto(URL, { waitUntil: 'networkidle' });
+    const r = await sp.evaluate(async () => {
+      const t = window.app;
+      t._startTour();
+      const s = t.diagram.addNode(new MNode(NodeType.SOURCE, 100, 200)); t._commit();
+      const p = t.diagram.addNode(new MNode(NodeType.POOL, 250, 200)); t._commit();
+      const c = t.diagram.addConnection(new MConnection(s.id, p.id)); t._commit();
+      c.rate = 5; t._commit();
+      t.engine.doStep();
+      document.getElementById('tour-next').click();
+      await new Promise(res => setTimeout(res, 900));
+      const panel = document.getElementById('props-panel').getBoundingClientRect();
+      const spot = document.getElementById('tour-spotlight').getBoundingClientRect();
+      const coach = document.getElementById('tour-coach').getBoundingClientRect();
+      return {
+        panelTop: Math.round(panel.top), spotTop: Math.round(spot.top),
+        coachBottom: Math.round(coach.bottom), onScreen: panel.top < innerHeight,
+      };
+    });
+    await ctx.close();
+    return r;
+  })();
+  if (sheet.onScreen && Math.abs(sheet.spotTop + 6 - sheet.panelTop) <= 1 && sheet.coachBottom <= sheet.panelTop)
+    ok('tour: on a phone the spotlight lands on the bottom sheet and the card sits above it');
+  else fail('tour bottom sheet: ' + JSON.stringify(sheet));
+
   // The spotlight is position:fixed and measured from the target, so anything
   // that scrolls the target has to re-place it. The palette and the properties
   // panel both scroll, and scroll events do not bubble, so this only works from
