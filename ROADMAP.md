@@ -15,7 +15,6 @@ core loop or vendoring). Full detail for each lives in its section further down.
 
 | # | Item | Effort | Impact | Notes |
 |---|------|--------|--------|-------|
-| 1 | **Hand-off card previews** — flash each destination (Library/rail/Batch) instead of only pointing | S | High | Cheapest "aha" right after the tour; add `enter()` hooks to 3 existing cards |
 | 2 | **Branch the welcome by intent** — "Build from scratch" vs "Tour a finished economy" | S/M | High | First screen a new user sees; one overlay choice + routing |
 | 3 | **Tour Part 2 — walk a real economy** (annotate the F2P demo) | M | High | Closes the persona study's main gap: teaches the *model*, not just the gesture |
 | 4 | **Plugin hooks** (`onNodeFire`/`onTransfer`/`onStepEnd`) | S | Med | Tiny diff (3 callbacks + guards); power-user impact, off the adoption lens |
@@ -24,8 +23,8 @@ core loop or vendoring). Full detail for each lives in its section further down.
 | 7 | **Animated GIF export** | M | Med | Reach/shareability; needs a vendored encoder (gif.js) — acceptable per pragmatic dep policy |
 | — | **External diagram importer** | M | Niche | Parked: effort dominated by reverse-engineering other tools' formats; narrow audience |
 
-**Suggested first sprint: items 1–3** — all serve new-user adoption; 1 and 2 are
-small, 3 is the one larger investment worth making for that audience.
+**Suggested sprint: items 2–3** — both serve new-user adoption; 2 is small, 3 is
+the one larger investment worth making for that audience.
 
 ---
 
@@ -272,10 +271,9 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
       undiscoverable to a new user.
 
   *Tour — open follow-ups (refine before deciding what else to add).
-  Ranked in the [Next up](#-next-up--prioritized-effort--impact) table — items 1–3:*
-  - [ ] **Refine the hand-off cards (P0 #2).** They're a first cut — revisit
-        wording, placement, and whether each card should *preview* its
-        destination (e.g. flash the Library open) rather than only point at it.
+  Ranked in the [Next up](#-next-up--prioritized-effort--impact) table:*
+  - [x] **Refine the hand-off cards (P0 #2).** Each card now opens its destination
+        (Library, Parameters, Batch) while it's showing and closes it on leaving.
   - [ ] **Tour Part 2 — walk a real economy.** After the basics, offer "See it
         in a real model": load the F2P economy and annotate its formula faucet,
         dice faucet, gacha gate, a register formula, and a chart.
