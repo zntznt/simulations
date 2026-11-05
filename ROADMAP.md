@@ -16,15 +16,14 @@ core loop or vendoring). Full detail for each lives in its section further down.
 | # | Item | Effort | Impact | Notes |
 |---|------|--------|--------|-------|
 | 2 | **Branch the welcome by intent** — "Build from scratch" vs "Tour a finished economy" | S/M | High | First screen a new user sees; one overlay choice + routing |
-| 3 | **Tour Part 2 — walk a real economy** (annotate the F2P demo) | M | High | Closes the persona study's main gap: teaches the *model*, not just the gesture |
 | 4 | **Plugin hooks** (`onNodeFire`/`onTransfer`/`onStepEnd`) | S | Med | Tiny diff (3 callbacks + guards); power-user impact, off the adoption lens |
 | 5 | **Web-worker engine** — move the tick loop off-thread | S | Med | Engine is already DOM-free; perf win, not adoption |
 | 6 | **Reusable subgraph components** (parameterized insert) | S | Med | Small extension of the existing component insert; power-user |
 | 7 | **Animated GIF export** | M | Med | Reach/shareability; needs a vendored encoder (gif.js) — acceptable per pragmatic dep policy |
 | — | **External diagram importer** | M | Niche | Parked: effort dominated by reverse-engineering other tools' formats; narrow audience |
 
-**Suggested sprint: items 2–3** — both serve new-user adoption; 2 is small, 3 is
-the one larger investment worth making for that audience.
+**Suggested next: item 2** — it serves new-user adoption, and its "Tour a finished
+economy" route can now open Part 2 of the tour.
 
 ---
 
@@ -274,9 +273,9 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
   Ranked in the [Next up](#-next-up--prioritized-effort--impact) table:*
   - [x] **Refine the hand-off cards (P0 #2).** Each card now opens its destination
         (Library, Parameters, Batch) while it's showing and closes it on leaving.
-  - [ ] **Tour Part 2 — walk a real economy.** After the basics, offer "See it
-        in a real model": load the F2P economy and annotate its formula faucet,
-        dice faucet, gacha gate, a register formula, and a chart.
+  - [x] **Tour Part 2 — walk a real economy.** The basics tour's final card and
+        Help offer it: it loads the F2P economy and walks its formula faucet, dice
+        faucet, gacha gate, a register formula, a run and a chart.
   - [ ] **Branch the welcome by intent** — "Build from scratch" vs. "Tour a
         finished economy", routing to the basics tour or Part 2.
   - [ ] **Usability snags surfaced by the persona pass (not tour-specific):**

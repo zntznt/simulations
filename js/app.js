@@ -244,12 +244,13 @@ class App {
   // How many "do this" action steps the tour has (excludes the info hand-off
   // cards and the final card) — drives the "Step N of M" counter.
   _actionStepCount() {
-    return this._tourSteps().filter(s => !s.final && !s.info).length;
+    return this._tourSteps().filter(s => !s.final && (!s.info || s.numbered)).length;
   }
 
   // Steps are evaluated as deltas from the baseline captured at start, so the
   // tour works whether you begin on an empty canvas or an existing diagram.
   _tourSteps() {
+    if (this._tour.steps) return this._tour.steps;
     return [
       {
         target: '[data-tool="place-source"]',
@@ -333,7 +334,81 @@ class App {
     ];
   }
 
-  _startTour() {
+  // Part 2: walks the F2P template, so a graduate sees what the pieces add up to.
+  // Built once on starting, so the visitor deleting a node mid-tour can't break a
+  // card, and it reads every value from the model so the copy can't drift from it.
+  _economySteps() {
+    const d = this.diagram;
+    const nodes = [...d.nodes.values()], conns = [...d.connections.values()];
+    const node = label => nodes.find(n => n.label === label);
+    const conn = (from, to) => conns.find(c => c.sourceId === node(from).id && c.targetId === node(to).id);
+    const code = s => `<code>${this._esc(String(s))}</code>`;
+    const list = a => `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`;
+    // ids[0] is selected, which puts its settings in the panel beside it.
+    const card = (ids, type, text) => ({
+      target: ids.map(id => `[data-id="${id}"]`).concat('#props-panel').join(', '),
+      info: true, numbered: true, text,
+      enter: () => this._tourFrame(ids, type),
+    });
+
+    const faucet = conn('Stamina Regen', 'Energy');
+    const ad = conn('Watch Ad', 'Energy');
+    const gate = node('Rarity Roll');
+    const drops = conns.filter(c => c.sourceId === gate.id);
+    const level = node('level');
+    const unlock = conns.find(c => c.sourceId === level.id && c.activator);
+    const chart = [...d.charts.values()].find(c => c.label === 'Energy · Gold · XP');
+    const tracked = chart.nodeIds.map(id => d.nodes.get(id).label);
+    return [
+      card([faucet.id, faucet.sourceId, faucet.targetId], 'conn', `A real free-to-play economy. This faucet's rate isn't a number, it's a <b>formula</b>: ${code(faucet.formula)}. That name is a <b>parameter</b>, currently ${code(d.params[faucet.formula])}, so changing it once retunes everything that reads it.`),
+      card([ad.id, ad.sourceId, ad.targetId], 'conn', `<b>Watch Ad</b> refills energy with <b>dice</b>: ${code(ad.dice)} at a ${ad.chance}% chance. Randomness like this means one run is only one sample, which is why Batch exists.`),
+      card([gate.id, ...drops.flatMap(c => [c.id, c.targetId])], 'node', `<b>Rarity Roll</b> is a <b>gate</b> with <b>Random</b> routing, and this is the game's drop table. Each box rolls against weights of ${list(drops.map(c => c.weight))}.`),
+      card([level.id], 'node', `A <b>register</b> computes a value instead of holding resources. Here ${code(level.label)} is ${code(level.formula)}, so each level costs more XP than the last. At level ${unlock.actValue} it unlocks the <b>Elite Stage</b>.`),
+      {
+        target: '#btn-run',
+        text: 'Now press <b>Run</b> and watch all of it move at once.',
+        done: () => this.engine.running || this.engine.step > this._tour.base.step,
+      },
+      card([chart.id], 'chart', `A <b>chart</b> follows chosen nodes over time, here ${list(tracked)}. Read the shape, not the numbers: a line that climbs forever is a faucet with no sink.`),
+      {
+        final: true,
+        text: 'That\'s a formula, dice, a gate, a register and a chart in one model. Click anything to see how it\'s set up, change a number and run it again. Ctrl+Z brings back what you had before.',
+      },
+    ];
+  }
+
+  // Select an element at full size and move it next to the properties panel, so
+  // one cut-out can show the element and its settings. On a phone the panel is a
+  // sheet along the bottom, so the element goes in the space above it.
+  _tourFrame(ids, type) {
+    const r = this.renderer;
+    if (!ids.some(id => document.querySelector(`[data-id="${id}"]`))) return;
+    this.editor._select(ids[0], type);
+    r.zoomTo(1);
+    r.render();
+    const boxes = ids.map(id => document.querySelector(`[data-id="${id}"]`)).filter(Boolean).map(el => el.getBoundingClientRect());
+    const left = Math.min(...boxes.map(b => b.left)), right = Math.max(...boxes.map(b => b.right));
+    const top = Math.min(...boxes.map(b => b.top)), bottom = Math.max(...boxes.map(b => b.bottom));
+    const view = r.svg.getBoundingClientRect();
+    const phone = !document.getElementById('diagram-rail').getClientRects().length;
+    const dx = phone
+      ? view.left + view.width / 2 - (left + right) / 2
+      : document.getElementById('props-panel').getBoundingClientRect().left - 40 - right;
+    const dy = view.top + view.height * (phone ? 0.3 : 0.5) - (top + bottom) / 2;
+    r.setPan(r._panX + dx, r._panY + dy);
+  }
+
+  async _startEconomyTour() {
+    this._endTour(false);
+    this._hideModal('help-overlay');
+    const t = this._templates.find(x => x.name === 'F2P Mobile Economy');
+    if (this.diagram.nodes.size
+        && !await this._confirmGuard(`Load "${t.name}"? Your current diagram will be replaced (Ctrl+Z to undo).`, 'Load template')) return;
+    this._installTemplate(t);
+    this._startTour('economy');
+  }
+
+  _startTour(kind = 'basics') {
     // Clean slate for the Run step's baseline, and close any overlays that would
     // sit on top of the coach-marks.
     this.engine.stop();
@@ -344,6 +419,7 @@ class App {
     this._tour = {
       idx: 0,
       entered: -1,
+      kind,
       base: {
         source: this._countNodeType(NodeType.SOURCE),
         pool: this._countNodeType(NodeType.POOL),
@@ -351,6 +427,7 @@ class App {
         step: this.engine.step,
       },
     };
+    if (kind === 'economy') this._tour.steps = this._economySteps();
     document.getElementById('tour').classList.remove('hidden');
     window.addEventListener('resize', this._tourReposition);
     // Scroll does not bubble, so capture is what catches it from the palette,
@@ -370,7 +447,7 @@ class App {
     const steps = this._tourSteps();
     const step = steps[this._tour.idx];
     document.getElementById('tour-count').textContent =
-      step.final ? 'All set' : step.info ? 'Next steps' : `Step ${this._tour.idx + 1} of ${this._actionStepCount()}`;
+      step.final ? 'All set' : step.info && !step.numbered ? 'Next steps' : `Step ${this._tour.idx + 1} of ${this._actionStepCount()}`;
     document.getElementById('tour-text').innerHTML = step.text;
     // Action steps advance on the user doing the thing (no button); info and
     // final cards advance/close on a click.
@@ -378,6 +455,7 @@ class App {
     next.classList.toggle('hidden', !(step.final || step.info));
     next.textContent = step.final ? 'Finish' : 'Next';
     document.getElementById('tour-skip').classList.toggle('hidden', !!step.final);
+    document.getElementById('tour-economy').classList.toggle('hidden', !(step.final && this._tour.kind === 'basics'));
     // Bring the target into view before measuring it. The palette and the
     // properties panel both scroll, and on a short window a step's control can
     // sit below the fold, which used to leave the card pointing at a cut-out
@@ -1811,6 +1889,7 @@ _scrollRails() {
     });
     // Help → "Take the tour" relaunches the interactive walkthrough.
     document.getElementById('help-take-tour').addEventListener('click', () => this._startTour());
+    document.getElementById('help-economy-tour').addEventListener('click', () => this._startEconomyTour());
     // Help → "Concept guide" opens the searchable knowledge base.
     document.getElementById('help-guide').addEventListener('click', () => {
       this._hideModal('help-overlay');
@@ -1840,6 +1919,7 @@ _scrollRails() {
     // Interactive tour controls.
     document.getElementById('tour-skip').addEventListener('click', () => this._endTour(false));
     document.getElementById('tour-next').addEventListener('click', () => this._tourNext());
+    document.getElementById('tour-economy').addEventListener('click', () => this._startEconomyTour());
   }
 
 }

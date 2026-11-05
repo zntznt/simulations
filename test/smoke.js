@@ -197,6 +197,85 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('tour: on a phone the spotlight lands on the bottom sheet and the card sits above it');
   else fail('tour bottom sheet: ' + JSON.stringify(sheet));
 
+  // Part 2 walks the F2P economy. Each card selects the real element, frames it
+  // beside the panel showing its settings, and quotes the model's actual values.
+  const economy = await page.evaluate(async () => {
+    const t = window.app;
+    if (t._tour) t._endTour(false);
+    const count = () => document.getElementById('tour-count').textContent;
+    const text = () => document.getElementById('tour-text').textContent;
+    const shown = id => !document.getElementById(id).classList.contains('hidden');
+    const next = () => document.getElementById('tour-next').click();
+    const settle = () => new Promise(r => setTimeout(r, 320));
+    const nodes = () => [...t.diagram.nodes.values()];
+    const conn = (from, to) => {
+      const a = nodes().find(n => n.label === from), b = nodes().find(n => n.label === to);
+      return [...t.diagram.connections.values()].find(c => c.sourceId === a.id && c.targetId === b.id);
+    };
+    // The selected element sits inside the viewport, and the cut-out covers both
+    // it and the panel.
+    const framed = async id => {
+      await settle();
+      const e = document.querySelector(`[data-id="${id}"]`).getBoundingClientRect();
+      const p = document.getElementById('props-panel').getBoundingClientRect();
+      const s = document.getElementById('tour-spotlight').getBoundingClientRect();
+      const svg = t.renderer.svg.getBoundingClientRect();
+      return t.renderer.selectedId === id
+        && e.left >= svg.left && e.right <= svg.right && e.top >= svg.top && e.bottom <= svg.bottom
+        && s.left <= e.left && s.right >= p.right - 1 && s.top <= e.top && s.bottom >= e.bottom
+        && e.right <= p.left;
+    };
+
+    // A diagram worth keeping gets the same confirmation a template load does.
+    t._clearAll(); t._resetHistory();
+    t.diagram.addNode(new MNode(NodeType.POOL, 50, 50)); t._commit();
+    const guarded = t._startEconomyTour();
+    const guardShown = shown('guard-overlay');
+    document.getElementById('guard-cancel').click();
+    await guarded;
+    const cancelled = t._tour === null && t.diagram.nodes.size === 1;
+
+    t._clearAll(); t._resetHistory();
+    await t._startEconomyTour();
+    const loaded = t.diagram.meta.name === 'F2P Mobile Economy' && t._tour.kind === 'economy';
+    const faucet = conn('Stamina Regen', 'Energy');
+    const s1 = { c: count() === 'Step 1 of 6', formula: text().includes(faucet.formula), value: text().includes(String(t.diagram.params.regenRate)), framed: await framed(faucet.id) };
+    next();
+    const ad = conn('Watch Ad', 'Energy');
+    const s2 = { dice: text().includes(ad.dice), chance: text().includes(`${ad.chance}%`), framed: await framed(ad.id) };
+    next();
+    const gate = nodes().find(n => n.label === 'Rarity Roll');
+    const s3 = { weights: ['70', '22', '7', '1'].every(w => text().includes(w)), framed: await framed(gate.id) };
+    next();
+    const level = nodes().find(n => n.label === 'level');
+    const s4 = { formula: text().includes(level.formula), framed: await framed(level.id) };
+    next();
+    const s5 = { run: /Run/.test(text()), noNext: !shown('tour-next') };
+    document.getElementById('btn-run').click();
+    for (let i = 0; i < 60 && t.engine.step === 0; i++) await new Promise(r => setTimeout(r, 50));
+    t.engine.stop(); t._syncRunButton();
+    const chart = [...t.diagram.charts.values()].find(c => c.label === 'Energy · Gold · XP');
+    const s6 = { c: count() === 'Step 6 of 6', names: ['Energy', 'Gold', 'XP'].every(n => text().includes(n)), framed: await framed(chart.id) };
+    next();
+    const sFinal = { c: count() === 'All set', finish: document.getElementById('tour-next').textContent === 'Finish', noPart2: !shown('tour-economy') };
+    next();
+    const ended = t._tour === null;
+    t._clearAll(); t._resetHistory();
+
+    // The basics tour offers Part 2 on its final card, and only there.
+    t._startTour();
+    const offerEarly = shown('tour-economy');
+    t._tour.idx = t._tourSteps().length - 1;
+    t._renderTourStep();
+    const offerFinal = shown('tour-economy');
+    t._endTour(false);
+    const helpEntry = !!document.getElementById('help-economy-tour');
+    return { guardShown, cancelled, loaded, s1, s2, s3, s4, s5, s6, sFinal, ended, noOfferEarly: !offerEarly, offerFinal, helpEntry };
+  });
+  const allPass = o => Object.values(o).every(v => (v && typeof v === 'object') ? allPass(v) : v);
+  if (allPass(economy)) ok('tour part 2: walks a formula, dice, a gate, a register, a run and a chart in the F2P economy');
+  else fail('tour part 2: ' + JSON.stringify(economy));
+
   // The spotlight is position:fixed and measured from the target, so anything
   // that scrolls the target has to re-place it. The palette and the properties
   // panel both scroll, and scroll events do not bubble, so this only works from
