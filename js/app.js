@@ -190,7 +190,8 @@ class App {
       if (Number(c.triggerChance) < 100) return true;
     }
     for (const n of this.diagram.nodes.values())
-      if (n.type === NodeType.GATE && n.gateMode === 'random') return true;
+      // 'random' is the older name for 'probabilistic', which the panel labels Random.
+      if (n.type === NodeType.GATE && (n.gateMode === 'random' || n.gateMode === 'probabilistic')) return true;
     for (const v of (this.diagram.customVars || []))
       if (v && v.kind && v.kind !== 'math') return true;
     return false;
@@ -1903,9 +1904,9 @@ _scrollRails() {
       this._dismissWelcome();
       this._startTour();
     });
-    document.getElementById('welcome-explore').addEventListener('click', () => {
+    document.getElementById('welcome-economy').addEventListener('click', () => {
       this._dismissWelcome();
-      this._loadDemo();
+      this._startEconomyTour();
     });
     document.getElementById('welcome-templates').addEventListener('click', () => {
       this._dismissWelcome();

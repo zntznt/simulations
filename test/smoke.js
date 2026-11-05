@@ -3651,7 +3651,7 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
       const need = ['Pool', 'Source', 'Drain', 'Gate', 'Converter', 'Register', 'Delay', 'Queue', 'Trader'];
       return need.every(n => dts.includes(n));
     });
-    await wp.click('#welcome-explore');
+    await wp.click('#welcome-templates');
     const hidden = await wp.evaluate(() => document.getElementById('welcome-overlay').classList.contains('hidden'));
     const flag = await wp.evaluate(() => localStorage.getItem('sim_seen_welcome'));
     await ctx.close();
@@ -3660,6 +3660,57 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (welcome.shown && welcome.glossaryComplete && welcome.hidden && welcome.flag === '1')
     ok('UX: first-run welcome overlay shows (full node glossary), dismisses, and persists the seen flag');
   else fail('UX welcome: ' + JSON.stringify(welcome));
+
+  // The welcome asks what the visitor came to do, and each answer goes straight
+  // to the matching tour. Both have to be on screen on a phone without scrolling.
+  const welcomeRoutes = await (async () => {
+    const route = async (button, viewport) => {
+      const ctx = await browser.newContext(viewport ? { viewport } : {});
+      const wp = await ctx.newPage();
+      await wp.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+      await wp.goto(URL, { waitUntil: 'networkidle' });
+      const onScreen = await wp.evaluate(() => ['welcome-tour', 'welcome-economy'].every(id => {
+        const r = document.getElementById(id).getBoundingClientRect();
+        return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+      }));
+      await wp.click(button);
+      const r = await wp.evaluate(() => ({
+        kind: window.app._tour && window.app._tour.kind,
+        nodes: window.app.diagram.nodes.size,
+        closed: document.getElementById('welcome-overlay').classList.contains('hidden'),
+        guard: !document.getElementById('guard-overlay').classList.contains('hidden'),
+      }));
+      await ctx.close();
+      return { ...r, onScreen };
+    };
+    return {
+      build: await route('#welcome-tour'),
+      economy: await route('#welcome-economy'),
+      phone: await route('#welcome-economy', { width: 390, height: 844 }),
+      small: await route('#welcome-tour', { width: 320, height: 568 }),
+    };
+  })();
+  if (welcomeRoutes.build.kind === 'basics' && welcomeRoutes.build.nodes === 0 && welcomeRoutes.build.closed
+      && welcomeRoutes.economy.kind === 'economy' && welcomeRoutes.economy.nodes > 0 && welcomeRoutes.economy.closed && !welcomeRoutes.economy.guard
+      && welcomeRoutes.economy.onScreen && welcomeRoutes.phone.onScreen && welcomeRoutes.phone.kind === 'economy'
+      && welcomeRoutes.small.onScreen && welcomeRoutes.small.kind === 'basics')
+    ok('UX: the welcome routes "Build from scratch" and "Tour a finished economy" to their tours, on screen on a phone');
+  else fail('UX welcome routes: ' + JSON.stringify(welcomeRoutes));
+
+  // A gate set to Random in the panel is stored as 'probabilistic', and that is
+  // real randomness, so it has to earn the Monte Carlo hint.
+  const randomGate = await page.evaluate(() => {
+    const t = window.app;
+    t._clearAll(); t._resetHistory();
+    const g = t.diagram.addNode(new MNode(NodeType.GATE, 100, 100));
+    const before = t._hasRandomness();
+    g.gateMode = 'probabilistic';
+    const after = t._hasRandomness();
+    t._clearAll(); t._resetHistory();
+    return { before, after };
+  });
+  if (!randomGate.before && randomGate.after) ok('Monte Carlo hint: a gate with Random routing counts as randomness');
+  else fail('random gate: ' + JSON.stringify(randomGate));
 
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
