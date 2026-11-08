@@ -141,6 +141,12 @@ function _seededMathScope() {
   return m;
 }
 
+// Built once: both only call SimRandom, so they hold no per-formula state, and
+// rebuilding their ~30 closures on every evaluation was a measurable share of a
+// Monte Carlo batch. Frozen because every formula shares them.
+const _FORMULA_RANDOM_SCOPE = Object.freeze(_formulaRandomScope());
+const _MATH_SCOPE = Object.freeze(_seededMathScope());
+
 // Legacy JS operators that math.js spells differently. Applied ONLY to an
 // expression math.js has already refused to compile, so a well-formed math.js
 // expression is never rewritten.
@@ -209,8 +215,8 @@ function _evalMathJS(expr, vars) {
   }
   // Seeded randomness (scope functions take precedence over math.js built-ins),
   // plus the Math object older formulas were written against.
-  Object.assign(scope, _formulaRandomScope());
-  scope.Math = _seededMathScope();
+  Object.assign(scope, _FORMULA_RANDOM_SCOPE);
+  scope.Math = _MATH_SCOPE;
   try {
     let r = code.evaluate(scope);
     if (r && typeof r === 'object' && typeof r.toNumber === 'function') r = r.toNumber();

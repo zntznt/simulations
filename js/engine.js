@@ -1,4 +1,7 @@
 class SimEngine {
+  // Optional off-thread runner for runMonteCarloAsync, set by js/mc-pool.js.
+  static mcPool = null;
+
   constructor(diagram) {
     this.diagram = diagram;
     this.step = 0;
@@ -1597,9 +1600,18 @@ class SimEngine {
     return r.value;
   }
 
-  // Same batch, but yields to the event loop between time-boxed chunks of
-  // work so the UI stays responsive; reports progress via opts.onProgress.
+  // Same batch without blocking the page; reports progress via opts.onProgress.
+  // Runs on the worker pool when one is installed (js/mc-pool.js, browser
+  // only) and the batch has no per-step callbacks, which cannot cross into a
+  // worker. Otherwise it runs here in time-boxed chunks.
   runMonteCarloAsync(runs = 100, maxSteps = 200, opts = {}) {
+    if (SimEngine.mcPool && !opts.perStep && !opts.onTrialEnd) {
+      return SimEngine.mcPool.run(this, runs, maxSteps, opts);
+    }
+    return this._mcAsyncLocal(runs, maxSteps, opts);
+  }
+
+  _mcAsyncLocal(runs, maxSteps, opts) {
     return new Promise(resolve => {
       const job = this._mcTrials(runs, maxSteps, opts);
       const tick = () => {
@@ -1634,65 +1646,82 @@ class SimEngine {
 
   // Generator yielding after every step, and again at the end of each trial
   // (the unmarked yields, which carry progress). Shared by the sync and async
-  // paths.
+  // paths; the worker pool runs the same _mcTrial over slices of trials.
   *_mcTrials(runs, maxSteps, opts = {}) {
-    runs = Math.max(1, Math.round(runs));
-    maxSteps = Math.max(1, Math.round(maxSteps));
+    const job = this._mcSetup(runs, maxSteps, opts);
+    const trials = [];
+    for (let r = 0; r < job.runs; r++) {
+      trials.push(yield* this._mcTrial(job, r, opts));
+      yield { done: r + 1, total: job.runs };
+    }
+    return this._mcSummary(job, trials);
+  }
+
+  // Everything a trial needs, as plain data so it can be posted to a worker.
+  _mcSetup(runs, maxSteps, opts = {}) {
     const base = opts.baseJSON || this.diagram.toJSON();
     // Tracked-node list comes from the base JSON (it may differ from the live
     // diagram when a sweep passes its own baseJSON).
     const proto = new Diagram();
-    proto.loadJSON(typeof structuredClone === 'function'
-      ? structuredClone(base) : JSON.parse(JSON.stringify(base)));
-    const tracked = [...proto.nodes.values()].filter(n => n.type !== NodeType.SOURCE || n.limited);
-    const samples = new Map(tracked.map(n => [n.id, []]));
-    const endSteps = [];
-    let endedCount = 0;
+    proto.loadJSON(structuredClone(base));
     const seeded = opts.seed != null && opts.seed !== '';
-    // Each trial engine owns its stream (see _withRng), so the batch never
-    // touches the live run's, however the two interleave.
-    for (let r = 0; r < runs; r++) {
-      const dg = new Diagram();
-      // structuredClone is markedly cheaper than a JSON round-trip per trial.
-      dg.loadJSON(typeof structuredClone === 'function'
-        ? structuredClone(base) : JSON.parse(JSON.stringify(base)));
-      // Per-trial sub-seed on the clone: same batch seed → identical batch,
-      // while each trial gets an independent stream. Set it on the diagram so
-      // reset() (the single RNG authority) applies it; '' overrides any live
-      // run seed carried in the clone, keeping an unseeded batch random.
-      dg.seed = seeded ? `${opts.seed}#${r}` : '';
-      const eng = new SimEngine(dg);
-      eng.reset();
-      if (opts.perStep) opts.perStep(eng, r);
-      let s = 0;
-      while (s < maxSteps && !eng.ended) {
-        eng.doStep(); s++;
-        if (opts.perStep) opts.perStep(eng, r);
-        // Breathe inside the trial too. One trial of a large model can take
-        // most of a second by itself, and yielding only between whole trials
-        // put that entirely outside the async driver's 14 ms time box: the UI
-        // froze in second-long blocks and Cancel went unanswered until the
-        // trial finished. Marked partial so it does not report progress.
-        yield { done: r, total: runs, partial: true };
-      }
-      if (opts.onTrialEnd) opts.onTrialEnd(eng, r);
-      for (const [id, arr] of samples) {
-        const n = dg.nodes.get(id);
-        arr.push(n ? n.chartValue : 0);
-      }
-      if (eng.ended) { endedCount++; endSteps.push(eng.ended.step); }
-      yield { done: r + 1, total: runs };
-    }
-
     return {
-      runs, maxSteps, seed: seeded ? String(opts.seed) : null,
-      nodes: tracked.map(n => ({
-        id: n.id, label: n.label, type: n.type, ...this._stats(samples.get(n.id)),
+      runs: Math.max(1, Math.round(runs)),
+      maxSteps: Math.max(1, Math.round(maxSteps)),
+      base,
+      seed: seeded ? String(opts.seed) : null,
+      tracked: [...proto.nodes.values()]
+        .filter(n => n.type !== NodeType.SOURCE || n.limited)
+        .map(n => ({ id: n.id, label: n.label, type: n.type })),
+    };
+  }
+
+  // Trial r of the batch, on its own clone and engine. Returns the tracked
+  // nodes' final values and the step the run ended at (null if it did not).
+  *_mcTrial(job, r, opts = {}) {
+    const dg = new Diagram();
+    // structuredClone is markedly cheaper than a JSON round-trip per trial.
+    dg.loadJSON(structuredClone(job.base));
+    // Per-trial sub-seed on the clone: same batch seed → identical batch,
+    // while each trial gets an independent stream. Set it on the diagram so
+    // reset() (the single RNG authority) applies it; '' overrides any live
+    // run seed carried in the clone, keeping an unseeded batch random. Each
+    // trial engine owns its stream (see _withRng), so trials never touch the
+    // live run's or each other's, however they interleave.
+    dg.seed = job.seed != null ? `${job.seed}#${r}` : '';
+    const eng = new SimEngine(dg);
+    eng.reset();
+    if (opts.perStep) opts.perStep(eng, r);
+    let s = 0;
+    while (s < job.maxSteps && !eng.ended) {
+      eng.doStep(); s++;
+      if (opts.perStep) opts.perStep(eng, r);
+      // Breathe inside the trial too. One trial of a large model can take
+      // most of a second by itself, and yielding only between whole trials
+      // put that entirely outside the async driver's 14 ms time box: the UI
+      // froze in second-long blocks and Cancel went unanswered until the
+      // trial finished. Marked partial so it does not report progress.
+      yield { done: r, total: job.runs, partial: true };
+    }
+    if (opts.onTrialEnd) opts.onTrialEnd(eng, r);
+    return {
+      vals: job.tracked.map(t => { const n = dg.nodes.get(t.id); return n ? n.chartValue : 0; }),
+      end: eng.ended ? eng.ended.step : null,
+    };
+  }
+
+  // The batch result from every trial's outcome, in trial order.
+  _mcSummary(job, trials) {
+    const ends = trials.filter(t => t.end != null).map(t => t.end);
+    return {
+      runs: job.runs, maxSteps: job.maxSteps, seed: job.seed,
+      nodes: job.tracked.map((t, i) => {
+        const samples = trials.map(x => x.vals[i]);
         // Raw final values, one per run — lets the UI draw distributions.
-        samples: samples.get(n.id),
-      })),
-      endedRate: endedCount / runs,
-      endStep: endSteps.length ? this._stats(endSteps) : null,
+        return { id: t.id, label: t.label, type: t.type, ...this._stats(samples), samples };
+      }),
+      endedRate: ends.length / job.runs,
+      endStep: ends.length ? this._stats(ends) : null,
     };
   }
 

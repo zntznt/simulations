@@ -1110,6 +1110,29 @@ test('a Monte Carlo batch yields inside a trial, not only between trials', () =>
   assert(yields >= 2 * 25, `yields inside each trial too (got ${yields})`);
 });
 
+// The worker pool (js/mc-pool.js) runs slices of trials apart and merges them;
+// that is only sound if trials are independent and merge by index.
+test('Monte Carlo trials run in any order merge to the same batch', () => {
+  const { e } = diceEngine('x');
+  const full = e.runMonteCarlo(20, 30, { seed: 's' });
+  const job = structuredClone(e._mcSetup(20, 30, { seed: 's' })); // crosses into a worker
+  const drain = it => { let x = it.next(); while (!x.done) x = it.next(); return x.value; };
+  const trials = [];
+  for (const r of [13, 19, 0, 7, 3, 18, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 14, 15, 16, 17])
+    trials[r] = drain(e._mcTrial(job, r));
+  eq(JSON.stringify(e._mcSummary(job, trials)), JSON.stringify(full), 'merged slices equal the whole batch');
+});
+
+test('runMonteCarloAsync uses an installed pool unless the batch has callbacks', () => {
+  const { e } = diceEngine('x');
+  SimEngine.mcPool = { run: () => 'pooled' };
+  try {
+    eq(e.runMonteCarloAsync(2, 2, {}), 'pooled', 'plain batch goes to the pool');
+    assert(e.runMonteCarloAsync(2, 2, { perStep() {} }) instanceof Promise, 'perStep stays in-page');
+    assert(e.runMonteCarloAsync(2, 2, { onTrialEnd() {} }) instanceof Promise, 'onTrialEnd stays in-page');
+  } finally { SimEngine.mcPool = null; }
+});
+
 testAsync('a Monte Carlo batch reports progress while it runs', async () => {
   // The async driver drains yields for a 14ms chunk and then looks at the last
   // one. Once the generator started yielding after every step, well under 1% of

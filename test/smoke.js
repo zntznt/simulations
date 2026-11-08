@@ -3716,6 +3716,35 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (!randomGate.before && randomGate.after) ok('Monte Carlo hint: a gate with Random routing counts as randomness');
   else fail('random gate: ' + JSON.stringify(randomGate));
 
+  // Monte Carlo on the worker pool: same seeded result as the in-page path,
+  // progress, cancel, and a fallback when the worker cannot load.
+  const pool = await page.evaluate(async () => {
+    const app = window.app, d = app.diagram;
+    app._clearAll(); app._resetHistory();
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 100)), p = d.addNode(new MNode(NodeType.POOL, 300, 100));
+    const c = d.addConnection(new MConnection(s.id, p.id)); c.rateMode = RateMode.DICE; c.dice = '2d6';
+    const local = JSON.stringify(app.engine.runMonteCarlo(40, 50, { seed: 'w' }));
+    const minWork = SimEngine.mcPool && SimEngine.mcPool.minWork;
+    if (SimEngine.mcPool) SimEngine.mcPool.minWork = 0; // this batch is small; force it off-thread
+    let progress = 0;
+    const pooled = JSON.stringify(await app.engine.runMonteCarloAsync(40, 50, { seed: 'w', onProgress: n => { progress = n; } }));
+    let polls = 0;
+    const cancelled = await app.engine.runMonteCarloAsync(400, 2000, { seed: 'w', shouldCancel: () => ++polls > 2 });
+    const url = SimEngine.mcPool && SimEngine.mcPool.url;
+    let fallback = null;
+    if (url) {
+      SimEngine.mcPool.url = 'js/workers/missing.js';
+      try { fallback = JSON.stringify(await app.engine.runMonteCarloAsync(40, 50, { seed: 'w' })); }
+      finally { SimEngine.mcPool.url = url; }
+    }
+    if (SimEngine.mcPool) SimEngine.mcPool.minWork = minWork;
+    app._clearAll(); app._resetHistory();
+    return { installed: !!url, same: pooled === local, progress, cancelled, fallbackSame: fallback === local };
+  });
+  if (pool.installed && pool.same && pool.progress === 40 && pool.cancelled === null && pool.fallbackSame)
+    ok('Monte Carlo workers: same seeded result as in-page, progress, cancel, fallback');
+  else fail('mc pool: ' + JSON.stringify(pool));
+
   // #49: edges of paste, undo and share links that the earlier checks skip.
   const uiEdges = await page.evaluate(() => {
     const app = window.app, d = app.diagram;
