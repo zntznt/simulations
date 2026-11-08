@@ -3716,6 +3716,15 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (!randomGate.before && randomGate.after) ok('Monte Carlo hint: a gate with Random routing counts as randomness');
   else fail('random gate: ' + JSON.stringify(randomGate));
 
+  // #48: a mixin reusing a method name already on App must fail at load,
+  // not silently replace the other definition.
+  const mixinClash = await page.evaluate(() => {
+    try { App._mixin(class { _toast() {} }); return 'installed'; }
+    catch (e) { return e.message; }
+  });
+  if (/_toast/.test(mixinClash)) ok('mixins: a duplicate App method name throws at load');
+  else fail('mixin clash: ' + mixinClash);
+
   if (errors.length) {
     console.log(`\n  \x1b[31mConsole/page errors:\x1b[0m`);
     for (const e of errors) console.log('   - ' + e);
