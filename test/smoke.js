@@ -2780,13 +2780,17 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     const c2 = new MConnection(g.id, p2.id, ConnectionType.RESOURCE); c2.weight = 1;
     app.diagram.addConnection(c1); app.diagram.addConnection(c2);
     app.engine.reset();
-    const before = SimRandom.getState();
-    app.renderer.render();
-    const afterPlain = SimRandom.getState();
+    // The run's stream lives on the engine (#50): read it there, and paint
+    // inside it the way an onStep repaint does.
+    const rng = () => app.engine._withRng(() => SimRandom.getState());
+    const paint = () => app.engine._withRng(() => app.renderer.render());
+    const before = rng();
+    paint();
+    const afterPlain = rng();
     app.editor._select(c1.id, 'conn');
-    const mid = SimRandom.getState();
-    app.renderer.render();
-    const afterSelected = SimRandom.getState();
+    const mid = rng();
+    paint();
+    const afterSelected = rng();
     return { seeded: before !== null, movedPlain: before !== afterPlain, movedSelected: mid !== afterSelected };
   });
   if (paintRng.seeded && !paintRng.movedPlain && !paintRng.movedSelected)

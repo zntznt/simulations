@@ -21,6 +21,27 @@ class SimEngine {
     // of each doStep. Condition/activator checks read it via _condValueOf so
     // decisions are synchronous (see that method). Null between steps.
     this._tickSnap = null;
+    // This engine's own position in the random stream (see _withRng). Undefined
+    // until reset() or restoreState() sets it: an engine that was never reset
+    // draws straight from SimRandom, as callers who seed it by hand expect.
+    this._rng = undefined;
+  }
+
+  // Run fn with SimRandom switched to this engine's stream, then put the
+  // caller's stream back. Every model helper still draws from SimRandom, but
+  // engines that step in turn (a live run during an async Monte Carlo batch)
+  // no longer consume each other's seeded draws. JS runs one fn at a time, so
+  // the swap is all the isolation needed.
+  _withRng(fn) {
+    if (this._rng === undefined || this._inRng) return fn();
+    const outer = SimRandom.getState();
+    SimRandom.setState(this._rng);
+    this._inRng = true;
+    try { return fn(); } finally {
+      this._inRng = false;
+      this._rng = SimRandom.getState();
+      SimRandom.setState(outer);
+    }
   }
 
   saveInitial() {
@@ -105,11 +126,16 @@ class SimEngine {
 
   reset() {
     this.stop();
-    // Apply the diagram's run seed (or clear back to Math.random when unset) so
-    // a seeded run is reproducible from the very first stochastic draw — the same
-    // contract the CLI gets by seeding before its reset. This also clears any seed
-    // a prior Monte Carlo batch may have left on the shared RNG.
+    // Start this engine's stream from the diagram's run seed (or Math.random
+    // when unset), so a seeded run is reproducible from its very first draw.
+    const outer = SimRandom.getState();
     SimRandom.seed(this.diagram.seed || null);
+    this._rng = SimRandom.getState();
+    SimRandom.setState(outer);
+    this._withRng(() => this._resetRun());
+  }
+
+  _resetRun() {
     this.step = 0;
     this._baselineSaved = false;
     this.history = [];
@@ -176,7 +202,7 @@ class SimEngine {
       spanFlows: this._spanFlows,
       // Seeded RNG position (null when unseeded), so a restored seeded run
       // replays the exact same stochastic draws it originally would have.
-      rng: SimRandom.getState(),
+      rng: this._rng === undefined ? SimRandom.getState() : this._rng,
       vars: this.diagram.variables,
       trigCounts: [...(this._trigCounts || new Map())],
       prevStateVals: [...(this._prevStateVals || new Map())],
@@ -203,10 +229,12 @@ class SimEngine {
     this.ended = s.ended;
     this._trigCounts = new Map(s.trigCounts);
     this._prevStateVals = new Map(s.prevStateVals);
-    SimRandom.setState(s.rng ?? null);
+    this._rng = s.rng ?? null;
   }
 
-  doStep() {
+  doStep() { this._withRng(() => this._step()); }
+
+  _step() {
     if (this.step === 0) {
       if (!this._baselineSaved) this.saveInitial();
       this._seedPipelines();
@@ -241,14 +269,16 @@ class SimEngine {
     // condition still holds after the next step).
     this.ended = null;
     this.running = true;
-    // Pressing Play resamples 'play'-updated random variables once.
-    this._sampleCustomVars('play');
-    if (this.step === 0) {
-      if (!this._baselineSaved) this.saveInitial();
-      this._seedPipelines();
-      this._updateVariables();
-      this._evalRegisters();
-    }
+    this._withRng(() => {
+      // Pressing Play resamples 'play'-updated random variables once.
+      this._sampleCustomVars('play');
+      if (this.step === 0) {
+        if (!this._baselineSaved) this.saveInitial();
+        this._seedPipelines();
+        this._updateVariables();
+        this._evalRegisters();
+      }
+    });
     const ms = Math.round(1000 / Math.max(0.1, this.speed));
     this._tid = setInterval(() => this.doStep(), ms);
   }
@@ -258,7 +288,9 @@ class SimEngine {
     if (this._tid) { clearInterval(this._tid); this._tid = null; }
   }
 
-  fireInteractive(nodeId) {
+  fireInteractive(nodeId) { this._withRng(() => this._fireInteractive(nodeId)); }
+
+  _fireInteractive(nodeId) {
     const node = this.diagram.nodes.get(nodeId);
     if (!node || node.activation !== ActivationMode.INTERACTIVE) return;
     // Firing is a play action, never an authoring one, so the baseline Reset
@@ -1617,48 +1649,39 @@ class SimEngine {
     const endSteps = [];
     let endedCount = 0;
     const seeded = opts.seed != null && opts.seed !== '';
-    // Every trial reseeds the shared RNG, so save the live run's stream position
-    // and put it back when the batch is done. Clearing it instead (the old
-    // `seed(null)`) dropped a paused seeded run onto Math.random: its remaining
-    // steps stopped being reproducible from its seed, with nothing on screen to
-    // say so.
-    const rngBefore = SimRandom.getState();
-
-    try {
-      for (let r = 0; r < runs; r++) {
-        const dg = new Diagram();
-        // structuredClone is markedly cheaper than a JSON round-trip per trial.
-        dg.loadJSON(typeof structuredClone === 'function'
-          ? structuredClone(base) : JSON.parse(JSON.stringify(base)));
-        // Per-trial sub-seed on the clone: same batch seed → identical batch,
-        // while each trial gets an independent stream. Set it on the diagram so
-        // reset() (the single RNG authority) applies it; '' overrides any live
-        // run seed carried in the clone, keeping an unseeded batch random.
-        dg.seed = seeded ? `${opts.seed}#${r}` : '';
-        const eng = new SimEngine(dg);
-        eng.reset();
+    // Each trial engine owns its stream (see _withRng), so the batch never
+    // touches the live run's, however the two interleave.
+    for (let r = 0; r < runs; r++) {
+      const dg = new Diagram();
+      // structuredClone is markedly cheaper than a JSON round-trip per trial.
+      dg.loadJSON(typeof structuredClone === 'function'
+        ? structuredClone(base) : JSON.parse(JSON.stringify(base)));
+      // Per-trial sub-seed on the clone: same batch seed → identical batch,
+      // while each trial gets an independent stream. Set it on the diagram so
+      // reset() (the single RNG authority) applies it; '' overrides any live
+      // run seed carried in the clone, keeping an unseeded batch random.
+      dg.seed = seeded ? `${opts.seed}#${r}` : '';
+      const eng = new SimEngine(dg);
+      eng.reset();
+      if (opts.perStep) opts.perStep(eng, r);
+      let s = 0;
+      while (s < maxSteps && !eng.ended) {
+        eng.doStep(); s++;
         if (opts.perStep) opts.perStep(eng, r);
-        let s = 0;
-        while (s < maxSteps && !eng.ended) {
-          eng.doStep(); s++;
-          if (opts.perStep) opts.perStep(eng, r);
-          // Breathe inside the trial too. One trial of a large model can take
-          // most of a second by itself, and yielding only between whole trials
-          // put that entirely outside the async driver's 14 ms time box: the UI
-          // froze in second-long blocks and Cancel went unanswered until the
-          // trial finished. Marked partial so it does not report progress.
-          yield { done: r, total: runs, partial: true };
-        }
-        if (opts.onTrialEnd) opts.onTrialEnd(eng, r);
-        for (const [id, arr] of samples) {
-          const n = dg.nodes.get(id);
-          arr.push(n ? n.chartValue : 0);
-        }
-        if (eng.ended) { endedCount++; endSteps.push(eng.ended.step); }
-        yield { done: r + 1, total: runs };
+        // Breathe inside the trial too. One trial of a large model can take
+        // most of a second by itself, and yielding only between whole trials
+        // put that entirely outside the async driver's 14 ms time box: the UI
+        // froze in second-long blocks and Cancel went unanswered until the
+        // trial finished. Marked partial so it does not report progress.
+        yield { done: r, total: runs, partial: true };
       }
-    } finally {
-      SimRandom.setState(rngBefore); // never leak a batch's RNG into live runs
+      if (opts.onTrialEnd) opts.onTrialEnd(eng, r);
+      for (const [id, arr] of samples) {
+        const n = dg.nodes.get(id);
+        arr.push(n ? n.chartValue : 0);
+      }
+      if (eng.ended) { endedCount++; endSteps.push(eng.ended.step); }
+      yield { done: r + 1, total: runs };
     }
 
     return {

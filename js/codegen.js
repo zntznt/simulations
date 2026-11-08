@@ -40,8 +40,8 @@ function buildEconomyModule(json, modelSrc, engineSrc, opts = {}) {
  * require('mathjs') and set global.math before loading this file. Without it
  * every formula evaluates to 0.
  *
- * The RNG (SimRandom) is shared module state: run one seeded economy at a
- * time per process for bit-exact reproducibility.
+ * Each economy keeps its own position in the seeded random stream, so several
+ * can run side by side and each stays bit-exact for its seed.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();

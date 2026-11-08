@@ -951,6 +951,7 @@ test('formulas written in the older JS syntax still evaluate', () => {
   const first = [0, 0, 0].map(() => evalFormula('Math.random()*1000', {}));
   SimRandom.seed('s1');
   const again = [0, 0, 0].map(() => evalFormula('Math.random()*1000', {}));
+  SimRandom.seed(null);
   eq(JSON.stringify(first), JSON.stringify(again), 'Math.random stays reproducible under a seed');
 });
 
@@ -3346,6 +3347,42 @@ test('diagram JSON carries a schema version and loads without one (legacy)', () 
   const d2 = new Diagram();
   d2.loadJSON({ nodes: [], connections: [] }); // pre-version file
   eq(d2.nodes.size, 0, 'legacy file loads');
+});
+
+// #50: every engine owns its random stream, so engines stepping in turn (a live
+// run during an async Monte Carlo batch) cannot draw from each other's seeds.
+function diceEngine(seed) {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE), p = node(d, NodeType.POOL);
+  const c = conn(d, s, p); c.rateMode = RateMode.DICE; c.dice = '1d100';
+  d.seed = seed; e.reset();
+  return { e, p };
+}
+
+test('seeded engines stepping in turn keep their own streams (#50)', () => {
+  const alone = seed => { const { e, p } = diceEngine(seed); const t = []; for (let i = 0; i < 6; i++) { e.doStep(); t.push(p.resources); } return t.join(','); };
+  const wantA = alone('a'), wantB = alone('b');
+  const A = diceEngine('a'), B = diceEngine('b');
+  const ta = [], tb = [];
+  for (let i = 0; i < 6; i++) { A.e.doStep(); ta.push(A.p.resources); B.e.doStep(); tb.push(B.p.resources); }
+  eq(ta.join(','), wantA, 'engine A unaffected by B');
+  eq(tb.join(','), wantB, 'engine B unaffected by A');
+});
+
+test('a live run stepping mid-batch changes neither the batch nor itself (#50)', () => {
+  const batch = live => {
+    const { e } = diceEngine('live');
+    const job = e._mcTrials(20, 30, { seed: 'x' });
+    let r = job.next();
+    while (!r.done) { if (live) live.e.doStep(); r = job.next(); }
+    return r.value.nodes.map(n => n.mean).join(',');
+  };
+  const quiet = batch(null);
+  const live = diceEngine('live');
+  eq(batch(live), quiet, 'same seed, same batch with a live run interleaved');
+  const ref = diceEngine('live');
+  for (let i = 0; i < live.e.step; i++) ref.e.doStep();
+  eq(live.p.resources, ref.p.resources, 'live run matches an uninterrupted replay');
 });
 
 // ── Scenario branching: capture / restore ───────────────────────────────────
