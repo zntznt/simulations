@@ -3716,6 +3716,50 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
   if (!randomGate.before && randomGate.after) ok('Monte Carlo hint: a gate with Random routing counts as randomness');
   else fail('random gate: ' + JSON.stringify(randomGate));
 
+  // #49: edges of paste, undo and share links that the earlier checks skip.
+  const uiEdges = await page.evaluate(() => {
+    const app = window.app, d = app.diagram;
+    app._clearAll(); app._resetHistory();
+    // Paste: only connections inside the selection come along, rewired to the
+    // copies, and each repeated paste lands one step further out.
+    const [a, b, c] = [100, 300, 500].map(x => d.addNode(new MNode(NodeType.POOL, x, 100)));
+    d.addConnection(new MConnection(a.id, b.id)); d.addConnection(new MConnection(b.id, c.id));
+    app._commit();
+    app.editor._setSelection([a.id, b.id], a.id, 'node');
+    app._copy();
+    const pasteOnce = () => {
+      const had = new Set(d.nodes.keys()); app._paste();
+      return [...d.nodes.values()].filter(n => !had.has(n.id));
+    };
+    const first = pasteOnce();
+    const ids = new Set(first.map(n => n.id));
+    const touching = [...d.connections.values()].filter(x => ids.has(x.sourceId) || ids.has(x.targetId));
+    const rewired = touching.length === 1 && ids.has(touching[0].sourceId) && ids.has(touching[0].targetId);
+    const offsets = [first, pasteOnce()].map(ns => Math.min(...ns.map(n => n.x)) - 100);
+    // Undo: capped at 100, and a real edit after an undo drops the redo stack.
+    app._clearAll(); app._resetHistory();
+    for (let i = 0; i < 105; i++) { d.addNode(new MNode(NodeType.POOL, 10 * i, 10)); app._commit(); }
+    const depth = app._undoStack.length;
+    app.undo(); app.undo();
+    const redoAfterUndo = app._redoStack.length;
+    d.addNode(new MNode(NodeType.POOL, 0, 300)); app._commit();
+    const redoAfterEdit = app._redoStack.length;
+    // Share link: non-ASCII and URL-ish characters survive the round trip.
+    app._clearAll();
+    const u = d.addNode(new MNode(NodeType.POOL, 100, 100));
+    u.label = 'Gold 💰 “ünïcode” & <b>#d=x</b>';
+    location.hash = '#d=' + app._encodeDiagram();
+    const back = app._decodeDiagram();
+    location.hash = '';
+    const label = back && back.nodes[0].label;
+    app._clearAll(); app._resetHistory();
+    return { rewired, offsets, depth, redoAfterUndo, redoAfterEdit, labelOk: label === u.label };
+  });
+  if (uiEdges.rewired && uiEdges.offsets.join() === '24,48' && uiEdges.depth === 100
+      && uiEdges.redoAfterUndo === 2 && uiEdges.redoAfterEdit === 0 && uiEdges.labelOk)
+    ok('paste rewires internal links and steps out; undo caps at 100; share keeps Unicode');
+  else fail('ui edges: ' + JSON.stringify(uiEdges));
+
   // #48: a mixin reusing a method name already on App must fail at load,
   // not silently replace the other definition.
   const mixinClash = await page.evaluate(() => {

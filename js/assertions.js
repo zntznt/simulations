@@ -59,6 +59,11 @@ function assertionScope(engine) {
 function parseAssertion(src) {
   const s = String(src || '').trim();
   if (!s) throw new Error('empty assertion');
+  // A quantifier with nothing after it would otherwise parse as an end check
+  // on a variable named after the keyword.
+  if (/^(always|never|eventually|at\s+end|at\s+step\s+\d+)\s*:?$/i.test(s)) {
+    throw new Error(`assertion "${s}" has no expression`);
+  }
   let quant = 'end', atStep = null, expr = s;
 
   let m;

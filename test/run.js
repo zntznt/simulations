@@ -3882,6 +3882,18 @@ test('parseAssertion understands every quantifier form', () => {
   assert(threw, 'rejects an unparseable expression');
 });
 
+test('parseAssertion edge cases (#49)', () => {
+  const err = s => { try { parseAssertion(s); return null; } catch (e) { return e.message; } };
+  // A quantifier with no condition used to become an end check on a variable
+  // named after the keyword.
+  for (const s of ['always', 'Never:', 'eventually', 'at end', 'at end:', 'at step 5', 'at step 5:'])
+    assert(/has no expression/.test(err(s) || ''), `"${s}" reports a missing expression (got ${err(s)})`);
+  assert(/empty/.test(err('   ')), 'whitespace only is empty');
+  eq(parseAssertion('at step 0: x > 1').atStep, 0, 'step 0 checks the starting state');
+  for (const s of ['at step -3: x > 1', 'at step 2.5: x > 1', 'always "x > 1', 'at end: a: b > 1'])
+    assert(err(s), `"${s}" is rejected`);
+});
+
 test('always reports the first violating step; never is its inverse', () => {
   const { e } = assertRig();
   const res = runChecked(e, ['always Gold_Pool < 5', 'never Gold_Pool >= 5'], 10);
