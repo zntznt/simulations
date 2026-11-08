@@ -115,10 +115,12 @@ The mixin pattern at the bottom of each file:
 
 ```js
 class AppProps { /* methods, plain class-method syntax */ }
-for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(AppProps.prototype))) {
-  if (k !== 'constructor') Object.defineProperty(App.prototype, k, d);
-}
+App._mixin(AppProps);
 ```
+
+`App._mixin` (in `app.js`) throws if a method name is already on `App.prototype`,
+so two files defining the same method fail page load (and the smoke test)
+instead of one silently replacing the other.
 
 **Invariants when working here:**
 - All these methods run on the App instance — they call each other via `this._x()`

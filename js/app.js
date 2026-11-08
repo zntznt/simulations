@@ -1923,6 +1923,15 @@ _scrollRails() {
     document.getElementById('tour-economy').addEventListener('click', () => this._startEconomyTour());
   }
 
+  // Copy a mixin class's methods onto App.prototype (see CLAUDE.md). A name
+  // already there would be silently replaced, so it fails page load instead.
+  static _mixin(cls) {
+    for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(cls.prototype))) {
+      if (k === 'constructor') continue;
+      if (Object.hasOwn(App.prototype, k)) throw new Error(`App.${k} is defined twice (${cls.name})`);
+      Object.defineProperty(App.prototype, k, d);
+    }
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => { window.app = new App(); });

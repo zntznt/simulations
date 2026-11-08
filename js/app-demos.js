@@ -1272,6 +1272,4 @@ class AppDemos {
   }
 }
 
-for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(AppDemos.prototype))) {
-  if (k !== 'constructor') Object.defineProperty(App.prototype, k, d);
-}
+App._mixin(AppDemos);

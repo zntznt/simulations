@@ -216,6 +216,4 @@ class AppClipboard {
   }
 }
 
-for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(AppClipboard.prototype))) {
-  if (k !== 'constructor') Object.defineProperty(App.prototype, k, d);
-}
+App._mixin(AppClipboard);

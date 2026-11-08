@@ -500,6 +500,4 @@ class AppFields {
   _clearSparklines() { for (const sl of this._sparklines.values()) sl.destroy(); this._sparklines.clear(); }
 }
 
-for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(AppFields.prototype))) {
-  if (k !== 'constructor') Object.defineProperty(App.prototype, k, d);
-}
+App._mixin(AppFields);
