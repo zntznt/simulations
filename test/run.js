@@ -4432,6 +4432,20 @@ test('cli runs .econ input, checks assertions and converts formats', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+// ── index.html script tags (#47) ────────────────────────────────────────────
+// The smoke test catches tags that break page load (a mixin before app.js, a
+// 404, a duplicate class). This catches the silent case: a js/ file nothing loads.
+test('index.html loads every js/ file once, mixins after app.js', () => {
+  const root = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const tags = [...html.matchAll(/<script src="js\/([^"]+)"/g)].map(m => m[1]);
+  const onDisk = fs.readdirSync(path.join(root, 'js')).filter(f => f.endsWith('.js')).sort();
+  eq([...tags].sort().join(' '), onDisk.join(' '), 'script tags match js/ on disk');
+  const app = tags.indexOf('app.js');
+  for (const f of tags.filter(t => t.startsWith('app-')))
+    assert(tags.indexOf(f) > app, `${f} loads after app.js`);
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 (async () => {
   if (asyncTests.length) console.log('\nAsync engine API');
