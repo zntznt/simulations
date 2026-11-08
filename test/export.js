@@ -7,7 +7,7 @@
 // diagram content, not the stretched 300x150 slice the old code produced.
 //
 // Requires the app to be served (default http://localhost:8080) and Playwright.
-// Run:  NODE_PATH=$(npm root -g) node test/export.js
+// Run:  node test/export.js
 'use strict';
 
 const { chromium } = require('playwright');

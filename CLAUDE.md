@@ -18,13 +18,15 @@ python3 -m http.server 8080            # → http://localhost:8080/
 
 # Headless unit tests — engine/model only, no browser. Run this for any change
 # to js/model.js or js/engine.js.
-npm install                            # once, pulls mathjs for the formula tests
 node test/run.js                       # (alias: npm test)
+node test/run.js "#50"                 # only tests whose name contains the text
 
 # Browser smoke test — drives the real app via Playwright/Chromium and FAILS on
 # any console or page error. Run this for any change to the UI layer (app*.js,
 # renderer/editor/charts, index.html, css). Needs the server above already up.
-NODE_PATH=$(npm root -g) node test/smoke.js     # (alias: npm run smoke)
+npm install                            # once, pulls Playwright
+npx playwright install chromium        # once, the browser build
+npm run smoke                          # (node test/smoke.js)
 # SMOKE_URL overrides the default http://localhost:8080/
 
 # Headless CLI — simulate a saved diagram (JSON or .econ text) from the terminal.
@@ -41,9 +43,13 @@ node cli.js diagram.json --loops                     # feedback-loop table (R/B/
 node cli.js diagram.json --why "Gold@120"            # attribute a node's change at a step
 ```
 
-**Running a single unit test:** `test/run.js` has no filter/grep flag — every
-`test(...)` call runs inline, top to bottom, as the file loads. To iterate on one
-test, temporarily comment out the others (there is no `test.only`).
+**Running a single unit test:** pass part of its name, `node test/run.js "<text>"`;
+only tests whose name contains the text run. Tests and the CLI load formulas
+from `vendor/math.min.js`, the same bundle the browser ships, so the unit tests
+need no `npm install`.
+
+**No linter or formatter, by choice.** Match the style of the surrounding code;
+the test suites are the gate.
 
 **CI:** `.github/workflows/tests.yml` runs the unit tests (`npm test`) and the
 browser smoke test (`npm run smoke`, Chromium) on every push to `main` and every

@@ -3,7 +3,7 @@
 // UI (templates, navigation, run/step, goal-stop) and fails on any console/page error.
 //
 // Requires the app to be served (default http://localhost:8080) and Playwright.
-// Run:  NODE_PATH=$(npm root -g) node test/smoke.js
+// Run:  npm run smoke
 // SMOKE_CHROMIUM points the launch at a pre-installed Chromium binary for
 // sandboxes where Playwright's own browser download is unavailable.
 'use strict';
