@@ -16,7 +16,8 @@ const path = require('path');
 // math.js is REQUIRED: the legacy `new Function(expr)` evaluator was removed
 // because it made every formula field a code-execution sink, so without math.js
 // every formula evaluates to 0 and the formula tests fail.
-try { global.math = require('mathjs'); } catch { /* optional */ }
+// The math.js bundle the browser ships: one source, so tests run what users run.
+global.math = require(path.join(__dirname, '..', 'vendor', 'math.min.js'));
 
 function loadEngine() {
   const base = path.join(__dirname, '..', 'js');
@@ -46,7 +47,10 @@ const {
 let passed = 0, failed = 0;
 const failures = [];
 
+// `node test/run.js <text>` runs only the tests whose name contains <text>.
+const only = process.argv[2];
 function test(name, fn) {
+  if (only && !name.includes(only)) return;
   try {
     fn();
     passed++;
@@ -69,7 +73,7 @@ function eq(actual, expected, msg) {
 // Async tests are registered here and awaited just before the summary prints
 // (the sync `test` harness can't await a promise-returning body).
 const asyncTests = [];
-function testAsync(name, fn) { asyncTests.push({ name, fn }); }
+function testAsync(name, fn) { if (!only || name.includes(only)) asyncTests.push({ name, fn }); }
 
 // Deterministic Math.random for the duration of `fn`.
 function withRandom(value, fn) {
@@ -3201,7 +3205,7 @@ test('random variables survive JSON round-trip', () => {
 console.log('\nMath variables & math.js formulas');
 
 test('math.js syntax works in formulas (power, ternary, functions)', () => {
-  assert(typeof math !== 'undefined', 'mathjs should be loaded for these tests (npm install)');
+  assert(typeof math !== 'undefined', 'math.js should be loaded for these tests');
   eq(evalFormula('2 ^ 10'), 1024, 'caret is power, not XOR');
   eq(evalFormula('a > 5 ? 10 : 0', { a: 9 }), 10, 'ternary');
   eq(evalFormula('round(2.6) + max(1, b, 3)', { b: 99 }), 102, 'round/max');

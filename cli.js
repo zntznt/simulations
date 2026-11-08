@@ -53,10 +53,9 @@ const path = require('path');
 process.stdout.on('error', e => { if (e.code === 'EPIPE') process.exit(0); throw e; });
 
 // Same loading trick as test/run.js: the js/ files are plain browser scripts,
-// evaluated into one function scope. Formulas need math.js: prefer the npm
-// package, else the bundle the browser ships, so a fresh clone works too.
-try { global.math = require('mathjs'); }
-catch { global.math = require(path.join(__dirname, 'vendor', 'math.min.js')); }
+// evaluated into one function scope. Formulas use the math.js bundle the
+// browser ships, so the CLI evaluates exactly what the app does.
+global.math = require(path.join(__dirname, 'vendor', 'math.min.js'));
 
 function loadEngine() {
   const base = path.join(__dirname, 'js');

@@ -305,8 +305,8 @@ differ from defaults, keeping saved files small and forward‑compatible.
 **Headless unit tests** (no browser; loads `model.js` + `engine.js` into a sandbox):
 
 ```bash
-npm install   # once — pulls mathjs for the formula tests
-node test/run.js
+node test/run.js            # no install needed
+node test/run.js "seed"     # only tests whose name contains "seed"
 ```
 
 Covers core flows, fair contention, capacity integrity, registers/formulas,
@@ -321,11 +321,10 @@ on any console/page error:
 # in one shell: serve the app
 python3 -m http.server 8080
 # in another: run the smoke test
-NODE_PATH=$(npm root -g) node test/smoke.js
+npm install && npx playwright install chromium   # once
+npm run smoke
 # override the URL with SMOKE_URL if needed
 ```
-
-Requires `playwright` (and a Chromium build) available on `NODE_PATH`.
 
 Both suites run automatically on every push and pull request via GitHub Actions
 (`.github/workflows/tests.yml`); the badge at the top of this file reflects the
