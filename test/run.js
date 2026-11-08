@@ -4110,6 +4110,28 @@ test('cli --loops prints the loop table', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('cli evaluates formulas without the mathjs package (#45)', () => {
+  const { spawnSync } = require('child_process');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nomath-test-'));
+  // Preload that makes require('mathjs') fail, as on a fresh clone without npm install.
+  const block = path.join(dir, 'block.js');
+  fs.writeFileSync(block, `const M = require('module'); const r = M._resolveFilename;
+M._resolveFilename = function (req, ...a) { if (req === 'mathjs') throw new Error('blocked'); return r.call(this, req, ...a); };`);
+  const { d } = setup();
+  const s = node(d, NodeType.SOURCE), p = node(d, NodeType.POOL);
+  p.label = 'Pool';
+  const c = conn(d, s, p); c.rateMode = RateMode.FORMULA; c.formula = 'max(2, 3)';
+  const f = path.join(dir, 'd.json');
+  fs.writeFileSync(f, JSON.stringify(d.toJSON()));
+  const res = spawnSync(process.execPath, ['-r', block, path.join(__dirname, '..', 'cli.js'), f, '--steps', '2'], { encoding: 'utf8' });
+  fs.rmSync(dir, { recursive: true, force: true });
+  eq(res.status, 0, 'cli exits cleanly: ' + res.stderr);
+  const rows = res.stdout.trim().split('\n');
+  const col = rows[0].split(',').indexOf('Pool');
+  eq(Number(rows[rows.length - 1].split(',')[col]), 6, 'formula rate applied for two steps');
+});
+
 // ── Phase portrait chart type ───────────────────────────────────────────────
 console.log('\nPhase portraits');
 
