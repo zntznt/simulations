@@ -1477,7 +1477,11 @@ class SimEngine {
       case '!=': return val !== threshold;
       case 'between':
         return val >= Math.min(threshold, threshold2) && val <= Math.max(threshold, threshold2);
-      default:   return true;
+      default:
+        // loadJSON already resets unknown operators, so this is a safety net:
+        // fail closed, loudly, instead of silently passing every check.
+        console.warn(`Unknown comparison operator: ${op}`);
+        return false;
     }
   }
 
