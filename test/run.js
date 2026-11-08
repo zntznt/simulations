@@ -736,6 +736,37 @@ test('end condition fires onEnd callback once', () => {
 // ── Serialization round-trip ────────────────────────────────────────────────
 console.log('\nSerialization');
 
+test('loadJSON replaces unknown comparison operators with defaults (#43)', () => {
+  const { d } = setup();
+  const a = node(d, NodeType.POOL), b = node(d, NodeType.POOL);
+  conn(d, a, b);
+  const json = JSON.parse(JSON.stringify(d.toJSON()));
+  json.nodes[0].endOperator = '=>';
+  json.nodes[1].endOperator = '';
+  json.connections[0].condOperator = 'gt';
+  json.connections[0].actOperator = null;
+  const d2 = new Diagram(); d2.loadJSON(json);
+  const [n1, n2] = [...d2.nodes.values()];
+  const c2 = [...d2.connections.values()][0];
+  eq(n1.endOperator, '>=', 'typo endOperator reset');
+  eq(n2.endOperator, '>=', 'empty endOperator reset');
+  eq(c2.condOperator, '>', 'unknown condOperator reset');
+  eq(c2.actOperator, '>=', 'null actOperator reset');
+  json.connections[0].condOperator = 'between';
+  const d3 = new Diagram(); d3.loadJSON(json);
+  eq([...d3.connections.values()][0].condOperator, 'between', 'valid operator kept');
+});
+
+test('_evalCond fails closed on an unknown operator (#43)', () => {
+  const { e } = setup();
+  const warn = console.warn; let warned = 0; console.warn = () => { warned++; };
+  try {
+    eq(e._evalCond(5, 'bogus', 1), false, 'unknown operator is false');
+    eq(warned, 1, 'unknown operator warns');
+  } finally { console.warn = warn; }
+  eq(e._evalCond(5, '>', 1), true, 'known operator still works');
+});
+
 test('toJSON/loadJSON preserves new fields', () => {
   const { d } = setup();
   const a = node(d, NodeType.POOL); a.setCount(7);

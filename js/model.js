@@ -411,6 +411,11 @@ function _assignFields(target, data) {
   return target;
 }
 
+// The comparison operators the engine's _evalCond understands. A file carrying
+// anything else falls back to the field's default rather than reaching the engine.
+const COMPARE_OPS = new Set(['>', '>=', '<', '<=', '==', '!=', 'between']);
+function _validOp(op, fallback) { return COMPARE_OPS.has(op) ? op : fallback; }
+
 // A color → count map holding only the numeric counts of `map`.
 function _numericCounts(map) {
   return Object.fromEntries(Object.entries(map || {}).filter(([, n]) => typeof n === 'number'));
@@ -633,6 +638,7 @@ class MNode {
 
   loadJSON(d) {
     _assignFields(this, d);
+    this.endOperator = _validOp(this.endOperator, '>=');
     this.colorMap = _numericCounts(this.colorMap);
     const infiniteSource = this.type === NodeType.SOURCE && !this.limited;
     // A file written mid-run carries its baseline explicitly; in every other
@@ -785,7 +791,13 @@ class MConnection {
     };
   }
 
-  loadJSON(d) { _assignFields(this, d); if (!Array.isArray(this.waypoints)) this.waypoints = []; return this; }
+  loadJSON(d) {
+    _assignFields(this, d);
+    if (!Array.isArray(this.waypoints)) this.waypoints = [];
+    this.condOperator = _validOp(this.condOperator, '>');
+    this.actOperator = _validOp(this.actOperator, '>=');
+    return this;
+  }
 }
 
 class MGroup {
