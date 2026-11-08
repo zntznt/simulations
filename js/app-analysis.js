@@ -620,8 +620,6 @@ class AppAnalysis {
     eng.reset();
     checker.check(eng);
     for (let i = 0; i < steps && !eng.ended; i++) { eng.doStep(); checker.check(eng); }
-    // Never leak the clone's seeded stream into the live session.
-    if (dg.seed) SimRandom.seed(null);
     return { mode: 'single', steps: eng.step, ended: !!eng.ended, results: [...checker.finish(eng), ...invalid] };
   }
 
