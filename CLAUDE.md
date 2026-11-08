@@ -156,6 +156,16 @@ test round-trips. New fields are written **only when they differ from defaults**
 files stay small and forward-compatible — preserve that pattern when adding fields,
 and add a round-trip assertion in `test/run.js`.
 
+### Monte Carlo worker pool
+
+`js/mc-pool.js` (browser only, loaded after `engine.js`) sets `SimEngine.mcPool`;
+`runMonteCarloAsync` hands it plain batches and keeps batches with `perStep` /
+`onTrialEnd` callbacks in-page. Each worker (`js/workers/mc-worker.js`,
+deliberately not a `<script>` tag) runs a slice of trial indices with the same
+`_mcTrial`, and the pool merges the slices with `_mcSummary`. That is only sound
+because trials are independent: keep each trial's randomness on its own sub-seed
+and engine stream. Small batches (`minWork`) and worker failures run in-page.
+
 ### Undo/redo
 
 Every structural mutation funnels through `App._commit()`, which pushes a JSON

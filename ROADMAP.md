@@ -16,12 +16,11 @@ core loop or vendoring). Full detail for each lives in its section further down.
 | # | Item | Effort | Impact | Notes |
 |---|------|--------|--------|-------|
 | 4 | **Plugin hooks** (`onNodeFire`/`onTransfer`/`onStepEnd`) | S | Med | Tiny diff (3 callbacks + guards); power-user impact, off the adoption lens |
-| 5 | **Web-worker engine** — move the tick loop off-thread | S | Med | Engine is already DOM-free; perf win, not adoption |
 | 6 | **Reusable subgraph components** (parameterized insert) | S | Med | Small extension of the existing component insert; power-user |
 | 7 | **Animated GIF export** | M | Med | Reach/shareability; needs a vendored encoder (gif.js) — acceptable per pragmatic dep policy |
 | — | **External diagram importer** | M | Niche | Parked: effort dominated by reverse-engineering other tools' formats; narrow audience |
 
-The new-user sprint (items 1–3) has shipped.
+The new-user sprint (items 1–3) and the Monte Carlo worker pool (item 5) have shipped.
 
 ---
 
@@ -186,6 +185,13 @@ The new-user sprint (items 1–3) has shipped.
       event loop with a live "Running… N / total" progress readout — 5000 runs
       no longer freeze the UI. Trials clone via `structuredClone` instead of a
       JSON round-trip per run.
+- [x] **Monte Carlo on Web Workers.** Batches large enough to outweigh worker
+      start-up (~300 ms) split their trials across one worker per core
+      (`js/mc-pool.js`, `js/workers/mc-worker.js`) and merge in trial order, so
+      a seeded batch gives exactly the in-page result. ~1.8× faster on 4 cores
+      for the F2P template. Batches with per-step callbacks (design checks), or
+      a page where workers cannot start (`file://`), stay in-page. The live
+      tick loop stays on the main thread: it is cheap and drives the animation.
 - [x] **Parameter sweep.** Vary one diagram parameter across a range from the
       Monte Carlo modal; per-node means and goal reach-rate are tabulated one
       column per value. Sweeps run on clones with a shared sub-seed per value,
