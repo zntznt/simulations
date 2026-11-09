@@ -166,6 +166,15 @@ deliberately not a `<script>` tag) runs a slice of trial indices with the same
 because trials are independent: keep each trial's randomness on its own sub-seed
 and engine stream. Small batches (`minWork`) and worker failures run in-page.
 
+### Plugin hooks
+
+`SimEngine.use(plugin)` registers `onNodeFire` / `onTransfer` / `onStepEnd` on a
+page-wide list (`SimEngine.plugins`) and returns an unregister function; the
+engine calls them through `_hook`, which logs a throwing hook once and moves on.
+Call sites guard on `SimEngine.plugins.length` so the hot path stays free when
+none are registered. Workers and the CLI do not load plugins, so
+`runMonteCarloAsync` keeps batches in-page while any are registered.
+
 ### Undo/redo
 
 Every structural mutation funnels through `App._commit()`, which pushes a JSON

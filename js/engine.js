@@ -2,6 +2,37 @@ class SimEngine {
   // Optional off-thread runner for runMonteCarloAsync, set by js/mc-pool.js.
   static mcPool = null;
 
+  // Plugin hooks: add custom behaviour without forking the engine. A plugin is
+  // an object with any of
+  //   onNodeFire(node, engine)      a node fired (mid-tick, flows not committed)
+  //   onTransfer(transfer, engine)  {connId, color, amount}, as it is proposed
+  //   onStepEnd(engine)             after a step's flows commit, before history
+  //                                 records it; state changed here is recorded
+  // SimEngine.use(plugin) registers it for every engine (Monte Carlo clones
+  // too) and returns a function that unregisters it. A hook that throws is
+  // logged once and skipped, so a broken plugin cannot stop a run.
+  // ponytail: page-wide registry; Monte Carlo workers and the CLI do not load
+  // plugins, so batches run in-page while any are registered.
+  static plugins = [];
+  static _warnedPlugins = new WeakSet();
+
+  static use(plugin) {
+    SimEngine.plugins.push(plugin);
+    return () => {
+      const i = SimEngine.plugins.indexOf(plugin);
+      if (i >= 0) SimEngine.plugins.splice(i, 1);
+    };
+  }
+
+  _hook(name, ...args) {
+    for (const p of SimEngine.plugins) {
+      if (typeof p[name] !== 'function') continue;
+      try { p[name](...args, this); } catch (err) {
+        if (!SimEngine._warnedPlugins.has(p)) { SimEngine._warnedPlugins.add(p); console.warn(`plugin ${name} failed:`, err); }
+      }
+    }
+  }
+
   constructor(diagram) {
     this.diagram = diagram;
     this.step = 0;
@@ -261,6 +292,7 @@ class SimEngine {
     for (const t of transfers) {
       this._spanFlows.conns[t.connId] = (this._spanFlows.conns[t.connId] || 0) + t.amount;
     }
+    if (SimEngine.plugins.length) this._hook('onStepEnd');
     this._record();
     if (this.onStep) this.onStep(this.step, fired, transfers);
     this._checkEnd();
@@ -427,6 +459,7 @@ class SimEngine {
       if (!this._fireNode(node, ctx, forced)) continue;
       activated.add(node.id);
       fired.push(node.id);
+      if (SimEngine.plugins.length) this._hook('onNodeFire', node);
       for (const t of d.outgoing(node.id)) {
         if (t.type === ConnectionType.STATE && t.trigger && this._triggerPasses(t)) {
           const tgt = d.nodes.get(t.targetId);
@@ -1402,7 +1435,9 @@ class SimEngine {
   _give(targetId, color, amount, connId, ctx) {
     if (amount <= 0) return;
     const tgt = this.diagram.nodes.get(targetId);
-    ctx.transfers.push({ connId, color, amount });
+    const transfer = { connId, color, amount };
+    ctx.transfers.push(transfer);
+    if (SimEngine.plugins.length) this._hook('onTransfer', transfer);
 
     if (tgt && tgt.type === NodeType.DELAY) {
       const arr = ctx.delayIn.get(targetId) || [];
@@ -1605,7 +1640,7 @@ class SimEngine {
   // only) and the batch has no per-step callbacks, which cannot cross into a
   // worker. Otherwise it runs here in time-boxed chunks.
   runMonteCarloAsync(runs = 100, maxSteps = 200, opts = {}) {
-    if (SimEngine.mcPool && !opts.perStep && !opts.onTrialEnd) {
+    if (SimEngine.mcPool && !opts.perStep && !opts.onTrialEnd && !SimEngine.plugins.length) {
       return SimEngine.mcPool.run(this, runs, maxSteps, opts);
     }
     return this._mcAsyncLocal(runs, maxSteps, opts);

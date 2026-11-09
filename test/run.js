@@ -4485,6 +4485,54 @@ test('index.html loads every js/ file once, mixins after app.js', () => {
     assert(tags.indexOf(f) > app, `${f} loads after app.js`);
 });
 
+// ── Plugin hooks ────────────────────────────────────────────────────────────
+test('plugin hooks see fires, transfers and step ends', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE), p = node(d, NodeType.POOL);
+  conn(d, s, p);
+  e.reset();
+  const seen = { fires: [], transfers: 0, ends: [] };
+  const off = SimEngine.use({
+    onNodeFire: (n, eng) => { assert(eng === e, 'engine passed'); seen.fires.push(n.id); },
+    onTransfer: t => { seen.transfers += t.amount; },
+    // A step-end hook can change state; history records it.
+    onStepEnd: eng => { seen.ends.push(eng.step); p.resources += 10; },
+  });
+  try {
+    for (let i = 0; i < 3; i++) e.doStep();
+  } finally { off(); }
+  eq(seen.fires.join(','), [s.id, s.id, s.id].join(','), 'source fired each step');
+  eq(seen.transfers, 3, 'every transfer reported');
+  eq(seen.ends.join(','), '1,2,3', 'step end after each step');
+  eq(e.history.at(-1).snap[p.id], 33, 'step-end change is recorded');
+  e.doStep();
+  eq(p.resources, 34, 'unregistered plugin stops running');
+});
+
+test('a throwing plugin hook warns and the run continues', () => {
+  const { d, e } = setup();
+  const s = node(d, NodeType.SOURCE), p = node(d, NodeType.POOL);
+  conn(d, s, p);
+  e.reset();
+  const warn = console.warn; let warned = 0;
+  console.warn = () => { warned++; };
+  const off = SimEngine.use({ onStepEnd() { throw new Error('boom'); } });
+  try {
+    e.doStep(); e.doStep();
+  } finally { off(); console.warn = warn; }
+  eq(p.resources, 2, 'steps still ran');
+  eq(warned, 1, 'warned once per plugin');
+});
+
+test('Monte Carlo stays in-page while plugins are registered', () => {
+  const { e } = diceEngine('x');
+  SimEngine.mcPool = { run: () => 'pooled' };
+  const off = SimEngine.use({ onStepEnd() {} });
+  try {
+    assert(e.runMonteCarloAsync(2, 2, {}) instanceof Promise, 'workers do not have the plugin');
+  } finally { off(); SimEngine.mcPool = null; }
+});
+
 // ── Results ─────────────────────────────────────────────────────────────────
 (async () => {
   if (asyncTests.length) console.log('\nAsync engine API');

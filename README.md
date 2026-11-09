@@ -98,6 +98,7 @@ thousands of Monte‑Carlo trials, and share the whole diagram in a URL.
 - **math.js formula language** — every formula (rates, registers, math variables) is evaluated with [math.js](https://mathjs.org/): `^` power, ternaries, comparisons, `round`/`floor`/`ceil`/`abs`/`min`/`max`/`sqrt`/`log`/`exp`/`mod`, trig, constants (`pi`, `e`), `random()`, `randomInt(a,b)`, `pickRandom([…])`, and other numeric functions. Older JavaScript-style spellings (e.g. `Math.round(x)`) still work. Since diagrams are untrusted input, formulas can't build ranges or matrices, assign variables or define functions.
 - **Custom variables** — named values usable in any formula. Random kinds: **interval** (any number between min and max), **array** (one of a validated number list), or **dice** (`XdY`), each with a **uniform or gaussian** distribution. Computed kind: **math**, a formula over the other variables. All re-evaluate **every step** or **once per Run press**.
 - **Goals / end conditions** on any node halt the run when met.
+- **Plugin hooks** — `SimEngine.use({ onNodeFire(node, engine), onTransfer(transfer, engine), onStepEnd(engine) })` adds custom behaviour without forking the engine (load it from a `<script>` after `js/engine.js`, or the console); it returns a function that unregisters the plugin.
 
 ### Time & agents
 - **Time modes** — `sync` (turn‑based: every automatic node fires each step) or `async` (real‑time: each automatic node fires on its own *fire every* / *phase* rhythm).
