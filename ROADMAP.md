@@ -13,11 +13,9 @@ The open items below, ranked best effort-to-impact first. Impact is weighted for
 (S = a few dozen lines, M = new methods across files + authoring, L = touches the
 core loop or vendoring). Full detail for each lives in its section further down.
 
-| # | Item | Effort | Impact | Notes |
-|---|------|--------|--------|-------|
-| 8 | **Easier connection re-selection** | S | High | The one open usability snag (persona pass, below): every user who edits a diagram hits it |
+**Nothing is queued right now.** New items should come from real use.
 
-The new-user sprint (items 1–3), plugin hooks (item 4), the Monte Carlo worker pool (item 5), parameterized components (item 6) and GIF export (item 7) have shipped. Everything else is in the [reviewed backlog](#-backlog--reviewed-for-usefulness).
+The new-user sprint (items 1–3), plugin hooks (item 4), the Monte Carlo worker pool (item 5), parameterized components (item 6), GIF export (item 7) and easier connection picking (item 8) have shipped. Everything else is in the [reviewed backlog](#-backlog--reviewed-for-usefulness).
 
 ---
 
@@ -298,8 +296,12 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
         faucet, gacha gate, a register formula, a run and a chart.
   - [x] **Branch the welcome by intent** — "Build from scratch" vs. "Tour a
         finished economy", routing to the basics tour or Part 2.
-  - [ ] **Usability snags surfaced by the persona pass (not tour-specific):**
-        re-selecting a connection is still fiddly despite the 24px hit area.
+  - [x] **Usability snags surfaced by the persona pass (not tour-specific):**
+        re-selecting a connection was fiddly despite the 24px hit area. The
+        hit area only set the cursor; selection used a 12-unit band in diagram
+        space, 4-7 px wide at the 31-58% zoom big templates open at. Picking is
+        now 12 screen px at any zoom, the nearest line wins, and the cursor
+        band matches.
         _(Two earlier snags here have since shipped: the welcome glossary now
         lists all nine node types, and connections show their configured rate
         at rest — `renderer.js` ~L1163 — not only the flow badge while running.)_

@@ -2858,6 +2858,37 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('embed: a narrow embed still offers Run, Step and Reset');
   else fail('embed reset: ' + JSON.stringify(embedReset));
 
+  // Connection picking is in screen pixels, and the nearest line wins. Big
+  // templates open at 31-58% zoom, where a 12-unit band was 4-7 px wide.
+  const connPick = await page.evaluate(() => {
+    const app = window.app, r = app.renderer;
+    app._clearAll();
+    const d = app.diagram;
+    const add = (x, y) => d.addNode(new MNode(NodeType.POOL, x, y));
+    const a1 = add(0, 0), a2 = add(600, 0), b1 = add(0, 40), b2 = add(600, 40);
+    const A = d.addConnection(new MConnection(a1.id, a2.id));
+    const B = d.addConnection(new MConnection(b1.id, b2.id));
+    r.render();
+    r._scale = 0.4; r._panX = 200; r._panY = 300; r._updateTransform();
+    const mid = id => { const p = r.getConnPathEl(id); return p.getPointAtLength(p.getTotalLength() / 2); };
+    const a = mid(A.id), b = mid(B.id);
+    const box = document.getElementById('canvas').getBoundingClientRect();
+    // Screen points: 7 px off line A (away from B), and 14 units toward B,
+    // which is nearer A (B is 40 units away) but inside both bands.
+    const toScreen = (x, y) => ({ x: box.left + r._panX + x * 0.4, y: box.top + r._panY + y * 0.4 });
+    const dir = Math.sign(b.y - a.y) || 1;
+    return { A: A.id, B: B.id, off: toScreen(a.x, a.y - dir * 17.5), near: toScreen(a.x, a.y + dir * 14) };
+  });
+  const pickAt = async pt => {
+    await page.evaluate(() => window.app.editor._setSelection([], null, 'node'));
+    await page.mouse.click(pt.x, pt.y);
+    return page.evaluate(() => window.app.renderer.selectedId);
+  };
+  const pickOff = await pickAt(connPick.off), pickNear = await pickAt(connPick.near);
+  if (pickOff === connPick.A && pickNear === connPick.A)
+    ok('connection picking: 7 px off a line at 40% zoom selects it, and the nearest line wins');
+  else fail('connection picking: ' + JSON.stringify({ pickOff, pickNear, A: connPick.A, B: connPick.B }));
+
   // Embed code: File > Copy embed code gives an iframe whose page opens in
   // embed mode with the diagram and starts playing (?play).
   const embedCode = await page.evaluate(() => {

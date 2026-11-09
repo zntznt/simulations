@@ -1336,7 +1336,9 @@ class Renderer {
 
   _makeConnEl(conn) {
     const g = svgEl('g', { 'data-id': conn.id });
-    g.appendChild(svgEl('path', { class: 'conn-hitbox', fill: 'none', stroke: 'transparent', 'stroke-width': '24', cursor: 'pointer' }));
+    // 24 screen px at any zoom, matching hitTest's 12 px band, so the pointer
+    // cursor shows exactly where a click selects the line.
+    g.appendChild(svgEl('path', { class: 'conn-hitbox', fill: 'none', stroke: 'transparent', 'stroke-width': '24', 'vector-effect': 'non-scaling-stroke', cursor: 'pointer' }));
     g.appendChild(svgEl('path', { class: 'conn-path', fill: 'none', 'stroke-width': '2' }));
     const lg = svgEl('g', { class: 'conn-label-g', 'data-conn-id': conn.id, cursor: 'grab' });
     lg.appendChild(svgEl('rect', { class: 'conn-label-bg', rx: '11', ry: '11', 'pointer-events': 'all' }));
@@ -1981,19 +1983,27 @@ class Renderer {
     }
 
     // Sample along each connection's real path so the whole line is clickable.
+    // The band is 12 screen px at any zoom (big diagrams open at 30-60%, where
+    // 12 diagram units was a 4-7 px target), and the nearest line wins, so two
+    // close lines split the gap between them instead of the topmost taking it.
+    const tol = 12 / this._scale;
+    let bestConn = null, bestD = tol;
     for (const [id, g] of [...this._connEls].reverse()) {
       if (!this.diagram.connections.has(id)) continue;
       const pathEl = g.querySelector('.conn-path');
       if (!pathEl) continue;
-      let len;
-      try { len = pathEl.getTotalLength(); } catch { continue; }
+      let len, bb;
+      try { len = pathEl.getTotalLength(); bb = pathEl.getBBox(); } catch { continue; }
       if (!len) continue;
-      const steps = Math.max(16, Math.floor(len / 6));
+      if (x < bb.x - bestD || x > bb.x + bb.width + bestD || y < bb.y - bestD || y > bb.y + bb.height + bestD) continue;
+      const steps = Math.max(16, Math.floor(len / Math.min(6, tol / 2)));
       for (let i = 0; i <= steps; i++) {
         const pt = pathEl.getPointAtLength((i / steps) * len);
-        if (Math.hypot(x - pt.x, y - pt.y) <= 12) return { type: 'conn', id };
+        const dist = Math.hypot(x - pt.x, y - pt.y);
+        if (dist <= bestD) { bestD = dist; bestConn = id; }
       }
     }
+    if (bestConn) return { type: 'conn', id: bestConn };
 
     // Groups are lowest priority — match any click inside their rect.
     for (const id of [...this._groupEls.keys()].reverse()) {
