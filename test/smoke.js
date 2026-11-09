@@ -2773,6 +2773,34 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok(`components: save selection (${comp.compNodes} nodes, ${comp.compConns} conn) with its param, insert gives the copy rate_2, undo reverts`);
   else fail('components: ' + JSON.stringify(comp));
 
+  // GIF export: renders the next steps into an animated GIF download and puts
+  // the run back where it was.
+  const gif = await page.evaluate(async () => {
+    const app = window.app;
+    app._clearAll();
+    const d = app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 200));
+    d.addConnection(new MConnection(s.id, p.id));
+    app.renderer.render();
+    for (let i = 0; i < 3; i++) app.engine.doStep();
+    const onStep = app.engine.onStep;
+    let href = null;
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () { if (/\.gif$/.test(this.download)) href = this.href; else click.call(this); };
+    try { await app._exportGIF(5); } finally { HTMLAnchorElement.prototype.click = click; }
+    if (!href) return { href };
+    const bytes = new Uint8Array(await (await fetch(href)).arrayBuffer());
+    const head = String.fromCharCode(...bytes.slice(0, 6));
+    let images = 0;
+    for (let i = 0; i < bytes.length - 1; i++) if (bytes[i] === 0x21 && bytes[i + 1] === 0xF9) images++;
+    return { head, images, step: app.engine.step, pool: d.nodes.get(p.id).resources, // restore rebuilds nodes
+      hooks: app.engine.onStep === onStep };
+  });
+  if (gif.head === 'GIF89a' && gif.images === 6 && gif.step === 3 && gif.pool === 3 && gif.hooks)
+    ok('GIF export: 6 frames (now + 5 steps), run and step hooks restored');
+  else fail('GIF export: ' + JSON.stringify(gif));
+
   // Determinism: painting the canvas must not advance the seeded RNG. A gate's
   // weight formula can draw random numbers and the label mirrors it, so every
   // repaint (hover, pan, zoom, selection, each step) was eating draws the run
