@@ -862,6 +862,38 @@ class MChart {
   }
 }
 
+// ── Components ───────────────────────────────────────────────────────────────
+// Fields of node/connection JSON that name diagram variables: formulas hold
+// expressions, condVariable a bare name.
+const _COMPONENT_FORMULA_FIELDS = ['formula', 'weightFormula', 'modFormula'];
+// An identifier in an expression, skipping member names (Math.round).
+const _IDENT_RE = /(?<![\w$.])[A-Za-z_$][\w$]*/g;
+
+function _formulaIdents(expr) {
+  return [...String(expr || '').matchAll(_IDENT_RE)].map(m => m[0]);
+}
+
+// Diagram params (name → value) that a component's nodes/conns JSON uses.
+function componentParams(nodes, conns, params) {
+  const used = {};
+  for (const item of [...nodes, ...conns]) {
+    const names = _COMPONENT_FORMULA_FIELDS.flatMap(f => _formulaIdents(item[f]));
+    if (item.condVariable) names.push(item.condVariable);
+    for (const n of names) if (Object.prototype.hasOwnProperty.call(params, n)) used[n] = params[n];
+  }
+  return used;
+}
+
+function _renameComponentRefs(item, rename) {
+  if (!Object.keys(rename).length) return item;
+  const swap = n => (Object.prototype.hasOwnProperty.call(rename, n) ? rename[n] : n);
+  for (const f of _COMPONENT_FORMULA_FIELDS) {
+    if (typeof item[f] === 'string') item[f] = item[f].replace(_IDENT_RE, swap);
+  }
+  if (item.condVariable) item.condVariable = swap(item.condVariable);
+  return item;
+}
+
 class Diagram {
   constructor() {
     this.nodes = new Map();
@@ -921,6 +953,38 @@ class Diagram {
 
   addConnection(c) { this.connections.set(c.id, c); return c; }
   removeConnection(id) { this.connections.delete(id); }
+
+  // Insert a saved component ({nodes, conns, params?} as JSON) with fresh ids,
+  // offset so it does not cover the original. Each param the component uses
+  // gets the value from `values` (else its saved default) under its own name,
+  // or name_2, name_3... when the diagram already has it, with the copy's
+  // formulas renamed to match, so every copy can be tuned on its own.
+  // Returns the new node ids.
+  insertComponent(comp, values = {}, offset = 40) {
+    const rename = {};
+    for (const [name, def] of Object.entries(comp.params || {})) {
+      let k = 1, to = name;
+      while (Object.prototype.hasOwnProperty.call(this.params, to)) to = `${name}_${++k}`;
+      const v = Number(values[name] ?? def);
+      this.params[to] = isFinite(v) ? v : def;
+      if (to !== name) rename[name] = to;
+    }
+    const idMap = new Map();
+    for (const nd of comp.nodes) {
+      const node = new MNode(nd.type, nd.x + offset, nd.y + offset);
+      node.loadJSON(_renameComponentRefs({ ...nd, id: node.id, x: nd.x + offset, y: nd.y + offset }, rename));
+      this.addNode(node);
+      idMap.set(nd.id, node.id);
+    }
+    for (const cd of comp.conns) {
+      const sId = idMap.get(cd.sourceId), tId = idMap.get(cd.targetId);
+      if (!sId || !tId) continue;
+      const conn = new MConnection(sId, tId, cd.type);
+      conn.loadJSON(_renameComponentRefs({ ...cd, id: conn.id, sourceId: sId, targetId: tId }, rename));
+      this.addConnection(conn);
+    }
+    return [...idMap.values()];
+  }
 
   addGroup(g) { this.groups.set(g.id, g); return g; }
   removeGroup(id) { this.groups.delete(id); }

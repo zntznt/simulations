@@ -1241,6 +1241,8 @@ input[type="range"] {
 .lib-info b { display: block; color: var(--text-bright); }
 .lib-date { color: var(--text-dim); font-size: 11px; }
 .lib-desc { display: block; color: var(--text-dim); font-size: 11px; margin-top: 1px; }
+.lib-params { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; color: var(--text-dim); font-size: 11px; }
+.lib-params input { width: 64px; font-family: var(--mono); }
 
 /* ── Artificial-player rule box ── */
 .ai-rule {

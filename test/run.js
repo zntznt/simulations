@@ -30,7 +30,7 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'loops.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'attribution.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
-    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula, SimRandom,' +
+    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula, SimRandom, componentParams,' +
     ' dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
@@ -39,7 +39,7 @@ function loadEngine() {
 const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
-  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula, SimRandom,
+  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula, SimRandom, componentParams,
   dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange,
 } = API;
 
@@ -4531,6 +4531,47 @@ test('Monte Carlo stays in-page while plugins are registered', () => {
   try {
     assert(e.runMonteCarloAsync(2, 2, {}) instanceof Promise, 'workers do not have the plugin');
   } finally { off(); SimEngine.mcPool = null; }
+});
+
+// ── Parameterized components ────────────────────────────────────────────────
+function rateComponent() {
+  const { d } = setup();
+  d.params = { rate: 3, unused: 9 };
+  const s = node(d, NodeType.SOURCE), p = node(d, NodeType.POOL);
+  const c = conn(d, s, p); c.rateMode = RateMode.FORMULA; c.formula = 'rate * 2 + Math.rate + rated';
+  c.condRefMode = 'variable'; c.condVariable = 'rate';
+  const nodes = [s, p].map(n => n.toJSON()), conns = [c.toJSON()];
+  return { name: 'Faucet', nodes, conns, params: componentParams(nodes, conns, d.params) };
+}
+
+test('a saved component records the params its formulas use', () => {
+  eq(JSON.stringify(rateComponent().params), '{"rate":3}', 'only referenced params, with their values');
+});
+
+test('inserting a component gives each copy its own param', () => {
+  const comp = rateComponent();
+  const { d } = setup();
+  const first = d.insertComponent(comp, { rate: 5 });
+  eq(first.length, 2, 'both nodes inserted');
+  eq(d.params.rate, 5, 'first copy keeps the name, with the chosen value');
+  const firstConn = [...d.connections.values()][0];
+  eq(firstConn.formula, 'rate * 2 + Math.rate + rated', 'no rename without a clash');
+  d.insertComponent(comp, { rate: 7 });
+  eq(d.params.rate_2, 7, 'second copy gets a fresh param');
+  eq(d.params.rate, 5, 'first copy untouched');
+  const second = [...d.connections.values()][1];
+  eq(second.formula, 'rate_2 * 2 + Math.rate + rated', 'whole identifiers renamed, members and longer names kept');
+  eq(second.condVariable, 'rate_2', 'condition variable renamed');
+  assert(first.includes(second.sourceId) === false, 'second copy has its own nodes');
+});
+
+test('components saved without params insert as before', () => {
+  const { nodes, conns } = rateComponent();
+  const { d } = setup();
+  const ids = d.insertComponent({ name: 'Old', nodes, conns });
+  eq(d.nodes.get(ids[0]).x, nodes[0].x + 40, 'offset so the copy does not cover the original');
+  eq(Object.keys(d.params).length, 0, 'no params added');
+  eq([...d.connections.values()][0].sourceId, ids[0], 'connection rewired to the new ids');
 });
 
 // ── Results ─────────────────────────────────────────────────────────────────

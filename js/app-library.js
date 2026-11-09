@@ -153,7 +153,8 @@ class AppLibrary {
       .filter(c => ids.has(c.sourceId) && ids.has(c.targetId)).map(c => c.toJSON());
     // Fresh read, so a save here does not drop what another tab added.
     const list = this._getComponents();
-    list.push({ id: this._entryKey(), name, date: new Date().toLocaleString(), nodes, conns });
+    const params = componentParams(nodes, conns, this.diagram.params || {});
+    list.push({ id: this._entryKey(), name, date: new Date().toLocaleString(), nodes, conns, params });
     if (!this._saveComponents(list)) {
       this._toast(`Could not save "${name}". Browser storage is full or blocked.`);
       return;
@@ -163,23 +164,8 @@ class AppLibrary {
     this._toast(`Saved "${name}" as a component`);
   }
 
-  _insertComponent(comp) {
-    const idMap = new Map();
-    const newIds = [];
-    for (const nd of comp.nodes) {
-      const node = new MNode(nd.type, nd.x + 40, nd.y + 40);
-      node.loadJSON({ ...nd, id: node.id, x: nd.x + 40, y: nd.y + 40 });
-      this.diagram.addNode(node);
-      idMap.set(nd.id, node.id);
-      newIds.push(node.id);
-    }
-    for (const cd of comp.conns) {
-      const sId = idMap.get(cd.sourceId), tId = idMap.get(cd.targetId);
-      if (!sId || !tId) continue;
-      const conn = new MConnection(sId, tId, cd.type);
-      conn.loadJSON({ ...cd, id: conn.id, sourceId: sId, targetId: tId });
-      this.diagram.addConnection(conn);
-    }
+  _insertComponent(comp, values = {}) {
+    const newIds = this.diagram.insertComponent(comp, values);
     this.renderer.render();
     this.editor._setSelection(newIds, newIds.length === 1 ? newIds[0] : null, 'node');
     this._commit();
@@ -210,7 +196,30 @@ class AppLibrary {
       const insertBtn = document.createElement('button');
       insertBtn.textContent = 'Insert';
       insertBtn.className = 'btn btn-primary';
-      insertBtn.addEventListener('click', () => this._insertComponent(comp));
+      // One number field per param the component's formulas use; each insert
+      // gets its own copy of the param with the value typed here.
+      const inputs = {};
+      const pnames = Object.keys(comp.params || {});
+      if (pnames.length) {
+        const pr = document.createElement('div');
+        pr.className = 'lib-params';
+        for (const p of pnames) {
+          const lab = document.createElement('label');
+          lab.textContent = p + ' ';
+          const inp = document.createElement('input');
+          inp.type = 'number'; inp.step = 'any'; inp.value = comp.params[p];
+          inp.setAttribute('aria-label', `${comp.name}: ${p}`);
+          lab.appendChild(inp);
+          pr.appendChild(lab);
+          inputs[p] = inp;
+        }
+        info.appendChild(pr);
+      }
+      insertBtn.addEventListener('click', () => {
+        const values = {};
+        for (const [p, inp] of Object.entries(inputs)) if (inp.value !== '') values[p] = Number(inp.value);
+        this._insertComponent(comp, values);
+      });
       const delBtn = document.createElement('button');
       delBtn.appendChild(this._faIcon('xmark'));
       delBtn.setAttribute('aria-label', 'Delete component');
