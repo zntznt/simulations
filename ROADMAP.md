@@ -15,12 +15,11 @@ core loop or vendoring). Full detail for each lives in its section further down.
 
 | # | Item | Effort | Impact | Notes |
 |---|------|--------|--------|-------|
-| 4 | **Plugin hooks** (`onNodeFire`/`onTransfer`/`onStepEnd`) | S | Med | Tiny diff (3 callbacks + guards); power-user impact, off the adoption lens |
 | 6 | **Reusable subgraph components** (parameterized insert) | S | Med | Small extension of the existing component insert; power-user |
 | 7 | **Animated GIF export** | M | Med | Reach/shareability; needs a vendored encoder (gif.js) — acceptable per pragmatic dep policy |
 | — | **External diagram importer** | M | Niche | Parked: effort dominated by reverse-engineering other tools' formats; narrow audience |
 
-The new-user sprint (items 1–3) and the Monte Carlo worker pool (item 5) have shipped.
+The new-user sprint (items 1–3), plugin hooks (item 4) and the Monte Carlo worker pool (item 5) have shipped.
 
 ---
 
@@ -192,6 +191,11 @@ The new-user sprint (items 1–3) and the Monte Carlo worker pool (item 5) have 
       for the F2P template. Batches with per-step callbacks (design checks), or
       a page where workers cannot start (`file://`), stay in-page. The live
       tick loop stays on the main thread: it is cheap and drives the animation.
+- [x] **Plugin hooks.** `SimEngine.use({ onNodeFire, onTransfer, onStepEnd })`
+      adds custom behaviour without forking the engine and returns an
+      unregister function. A throwing hook is logged once and skipped. Plugins
+      are page-wide, so Monte Carlo batches run in-page (workers and the CLI do
+      not load them) while any are registered.
 - [x] **Parameter sweep.** Vary one diagram parameter across a range from the
       Monte Carlo modal; per-node means and goal reach-rate are tabulated one
       column per value. Sweeps run on clones with a shared sub-seed per value,
@@ -319,8 +323,6 @@ shipped (above); the rest are unstarted. The actionable ones are ranked in the
   the existing JSON model.
 - **Guided onboarding.** Interactive tour that builds the first source→pool
   flow with the user; example gallery with live previews.
-- **Plugin hooks.** `onNodeFire` / `onTransfer` / `onStepEnd` registration so
-  domain experts can add custom node behaviours without forking the engine.
 - **External diagram importer.** Parse other tools' file formats into diagram
   JSON for migration.
 - **Animated GIF / embeddable live widget export** for sharing running models.
