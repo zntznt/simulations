@@ -317,8 +317,9 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
 ## 🔮 Council backlog — bigger ideas worth designing
 
 Ideas from a design review ("council of geniuses" pass). The sensitivity
-dashboard and run-comparison overlay (as Scenario branching) have since
-shipped (above); the rest are unstarted. The actionable ones are ranked in the
+dashboard, run-comparison overlay (as Scenario branching), guided tour,
+worker pool and GIF export have since shipped (above); what is listed is
+unstarted. The actionable ones are ranked in the
 [Next up](#-next-up--prioritized-effort--impact) table (the importer).
 
 - **Linked components.** A `ComponentRef` node whose instances follow the
@@ -327,12 +328,14 @@ shipped (above); the rest are unstarted. The actionable ones are ranked in the
 - ~~**Run comparison overlay.** Pin a run as baseline; later runs draw over it as
   ghost traces in the timeline.~~ ✅ Shipped as **Scenario branching** (checkpoint /
   fork / ghost-branch overlays) — see the section above.
-- **Web-worker / WASM engine.** Move the tick loop off the main thread, then
-  (much later) to WASM for 100k-step sweeps.
+- **WASM engine.** Compile the tick loop to WASM for 100k-step sweeps. (The
+  web-worker half has shipped as the Monte Carlo worker pool; the live tick
+  loop stays on the main thread on purpose, see above.)
 - **Live collaboration.** CRDT-backed multi-user editing (Yjs/Automerge) over
   the existing JSON model.
-- **Guided onboarding.** Interactive tour that builds the first source→pool
-  flow with the user; example gallery with live previews.
+- **Example gallery with live previews.** Templates in the Library show a
+  thumbnail of the diagram. (The guided onboarding tour has shipped; see the
+  usability pass above.)
 - **External diagram importer.** Parse other tools' file formats into diagram
   JSON for migration.
 - **Embeddable live widget export** for sharing running models (animated GIF
