@@ -670,7 +670,7 @@ class AppProps {
       const ki = document.createElement('input');
       ki.type = 'text'; ki.value = key; ki.placeholder = 'name';
       ki.style.flex = '1';
-      ki.addEventListener('blur', () => {
+      ki.addEventListener('blur', e => {
         const nk = ki.value.trim();
         if (!nk || nk === key) { ki.value = key; return; }
         if (!VALID_IDENT.test(nk)) { ki.value = key; return; }
@@ -685,9 +685,15 @@ class AppProps {
           this._toast(`"${nk}" is already used by another parameter or variable.`);
           return;
         }
-        params[nk] = params[key];
-        delete params[key];
-        this._renderProps();
+        // Rename in place: delete-and-add moved the row to the bottom.
+        const entries = Object.entries(params);
+        for (const [k] of entries) delete params[k];
+        for (const [k, v] of entries) params[k === key ? nk : k] = v;
+        // The rebuild destroys whatever Tab was moving to; the panel keeps its
+        // shape, so land on the control at the same position.
+        const controls = () => [...document.querySelectorAll('#props-content input, #props-content button')];
+        const at = controls().indexOf(e.relatedTarget);
+        this._renderPropsFocused(() => (at >= 0 ? controls()[at] : null));
         this._commit();
       });
       const vi = document.createElement('input');
@@ -2186,15 +2192,18 @@ class AppProps {
       this._sep(panel);
 
       if (role === 'variable') {
+        // No _renderProps() here: rebuilding the panel per keystroke destroyed
+        // this input, so typing "Level" saved "L" and the rest went to the
+        // canvas shortcuts.
+        const warn = document.createElement('p');
+        warn.className = 'prop-inline-warn';
+        warn.textContent = 'Give this connection a name so its value can be referenced in formulas.';
+        warn.hidden = !!conn.variableName;
         this._field(panel, 'Variable name', 'text', conn.variableName || conn.label, v => {
-          conn.variableName = v; conn.label = v; this._renderProps(); this.renderer.render();
+          conn.variableName = v; conn.label = v; this.renderer.render();
+          warn.hidden = !!v;
         }, 'used in formulas');
-        if (!conn.variableName) {
-          const warn = document.createElement('p');
-          warn.className = 'prop-inline-warn';
-          warn.textContent = 'Give this connection a name so its value can be referenced in formulas.';
-          panel.appendChild(warn);
-        }
+        panel.appendChild(warn);
         this._info(panel, 'Each step this variable is set to the source\'s value (pool count, source produced, drain consumed, or register value). Use it in Register or rate formulas, or in modifier formulas on other connections.');
 
       } else if (role === 'modify') {

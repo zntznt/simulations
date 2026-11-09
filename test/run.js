@@ -31,7 +31,7 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'attribution.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'gif.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
-    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula, SimRandom, componentParams,' +
+    ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula, unknownFormulaNames, SimRandom, componentParams,' +
     ' dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange, encodeGIF };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
@@ -40,7 +40,7 @@ function loadEngine() {
 const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
-  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula, SimRandom, componentParams,
+  MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula, unknownFormulaNames, SimRandom, componentParams,
   dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange, encodeGIF,
 } = API;
 
@@ -4650,6 +4650,16 @@ test('GIF frames with more than 256 colors stay close', () => {
   let worst = 0;
   g.frames[0].forEach((c, i) => c.forEach((v, ch) => { worst = Math.max(worst, Math.abs(v - frame[i * 4 + ch])); }));
   assert(worst <= 26, `every channel within 26 of the source (worst ${worst})`);
+});
+
+test("unknownFormulaNames flags only names the formula cannot resolve", () => {
+  const known = ["income", "rate"];
+  assert(unknownFormulaNames("income + Level", known).join() === "Level", "unknown variable");
+  assert(unknownFormulaNames("speed * 2 + speed", known).join() === "speed", "listed once");
+  assert(unknownFormulaNames("size * 2", known).join() === "size", "a math.js function name used as a variable is still unknown");
+  assert(unknownFormulaNames("max(income, rate) * pi + Math.round(e)", known).length === 0, "functions and constants are fine");
+  assert(unknownFormulaNames("random() < 0.5 and income > 0", known).length === 0, "operators and calls");
+  assert(unknownFormulaNames("income +", known).length === 0, "unparseable formulas are left to validateFormula");
 });
 
 // ── Results ─────────────────────────────────────────────────────────────────
