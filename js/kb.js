@@ -702,15 +702,18 @@ const KB_ARTICLES = [
   },
   {
     id: 'sharing', category: 'Saving and sharing', title: 'Sharing and embedding',
-    keywords: 'share URL link embed export SVG PNG publish present encode hash clipboard',
+    keywords: 'share URL link embed iframe widget autoplay export SVG PNG GIF publish present encode hash clipboard',
     body: 'Click Copy share link in the File menu to encode the current diagram into '
       + 'a URL and copy it to your clipboard. The link contains the whole diagram, so anyone you send it to opens '
       + 'the same model in their browser, with no sign-in or file transfer required. '
       + 'For a clean view without the editing chrome, add ?embed to the URL or '
       + 'append #embed to the hash; all the toolbars and panels hide, leaving only '
-      + 'the canvas, useful for a presentation or a published page. SVG and PNG '
-      + 'options in the File menu export a snapshot of the canvas for use outside '
-      + 'the app.',
+      + 'the canvas, useful for a presentation or a published page. To put a live '
+      + 'model on a web page, choose Copy embed code in the File menu and paste the '
+      + 'iframe it copies into your page. It plays on load; delete play from its '
+      + 'address to start paused. SVG and PNG options in the File menu export a '
+      + 'snapshot of the canvas for use outside the app, and Export as GIF records '
+      + 'the next 60 steps as an animation.',
   },
 
   {

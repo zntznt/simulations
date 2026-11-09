@@ -319,17 +319,31 @@ class AppExport {
     } catch { return null; }
   }
 
+  // Clipboard, else a prompt the user can copy from.
+  _copyText(text, done, ask) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => this._toast(done), () => prompt(ask, text));
+    } else {
+      prompt(ask, text);
+    }
+  }
+
+  // An <iframe> for pasting into a web page: the diagram in embed mode
+  // (editing chrome hidden), playing on load (?play; delete it to start paused).
+  _embedCode() {
+    const src = location.origin + location.pathname + '?embed&play#d=' + this._encodeDiagram();
+    const title = this._esc(this.diagram.meta.name || 'Simulation');
+    return `<iframe src="${src.replace(/&/g, '&amp;')}" title="${title}" width="100%" height="480" style="border:0" loading="lazy"></iframe>`;
+  }
+
+  _copyEmbedCode() {
+    this._copyText(this._embedCode(), 'Embed code copied to clipboard', 'Copy this embed code:');
+  }
+
   _shareURL() {
     const enc = this._encodeDiagram();
     const url = location.origin + location.pathname + '#d=' + enc;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(
-        () => this._toast('Share link copied to clipboard'),
-        () => prompt('Copy this share link:', url),
-      );
-    } else {
-      prompt('Copy this share link:', url);
-    }
+    this._copyText(url, 'Share link copied to clipboard', 'Copy this share link:');
     // Deliberately NOT written into the address bar. The link goes to the
     // clipboard (or the prompt fallback above), which is how it reaches anyone.
     // Putting it in the location hash pinned this tab to that snapshot instead:

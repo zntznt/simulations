@@ -1003,6 +1003,10 @@ class App {
       this.renderer.fitView();
       this._resetHistory();
       this._renderProps();
+      // A live widget: an embed with ?play (as Copy embed code writes) starts
+      // running, through the Run button so its state stays in sync.
+      if (document.body.classList.contains('embed') && params.has('play'))
+        document.getElementById('btn-run').click();
       // A share link is a one-time import, not a permanent binding for the tab.
       // Adopt it into autosave (_resetHistory only sets the in-memory baseline,
       // it does not persist) and then drop the hash, so the next reload restores
@@ -1636,6 +1640,7 @@ _scrollRails() {
     document.getElementById('btn-export-econ').addEventListener('click', () => this._exportEcon());
     document.getElementById('btn-export-module').addEventListener('click', () => this._exportModule());
     document.getElementById('btn-share').addEventListener('click', () => this._shareURL());
+    document.getElementById('btn-embed').addEventListener('click', () => this._copyEmbedCode());
 
     // A11y: hide decorative tool icons from assistive tech (buttons keep text labels).
     document.querySelectorAll('.tool-icon svg').forEach(s => s.setAttribute('aria-hidden', 'true'));

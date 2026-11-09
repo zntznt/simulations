@@ -2858,6 +2858,36 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('embed: a narrow embed still offers Run, Step and Reset');
   else fail('embed reset: ' + JSON.stringify(embedReset));
 
+  // Embed code: File > Copy embed code gives an iframe whose page opens in
+  // embed mode with the diagram and starts playing (?play).
+  const embedCode = await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll();
+    const d = app.diagram;
+    const s = d.addNode(new MNode(NodeType.SOURCE, 100, 200));
+    const p = d.addNode(new MNode(NodeType.POOL, 300, 200));
+    d.addConnection(new MConnection(s.id, p.id));
+    return app._embedCode();
+  });
+  const embedPlay = await (async () => {
+    const src = (/src="([^"]+)"/.exec(embedCode) || [])[1];
+    if (!src) return { embedCode };
+    const ctx = await browser.newContext({ viewport: { width: 700, height: 480 } });
+    const ep = await ctx.newPage();
+    await ep.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
+    await ep.goto(src.replace(/&amp;/g, '&'), { waitUntil: 'networkidle' });
+    const r = await ep.evaluate(() => ({
+      embed: document.body.classList.contains('embed'),
+      nodes: window.app.diagram.nodes.size,
+      running: window.app.engine.running,
+    }));
+    await ctx.close();
+    return { ...r, iframe: /^<iframe [^>]*><\/iframe>$/.test(embedCode) };
+  })();
+  if (embedPlay.iframe && embedPlay.embed && embedPlay.nodes === 2 && embedPlay.running)
+    ok('embed code: an iframe that opens the diagram in embed mode and plays');
+  else fail('embed code: ' + JSON.stringify(embedPlay));
+
   // Animation layer: cleanup runs from requestAnimationFrame, which a browser
   // suspends in a hidden tab while the setInterval driving the run keeps going,
   // so the layer was produced into and never consumed. Two guarantees: a hard

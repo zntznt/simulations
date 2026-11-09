@@ -168,6 +168,8 @@ The new-user sprint (items 1–3), plugin hooks (item 4), the Monte Carlo worker
 - [x] **Shareable URL / embed (P3).** "🔗 Share" copies a link with the whole
       diagram base64-encoded in the URL hash (`#d=…`); opening it restores the
       diagram. `?embed` (or `#embed`) hides the editing chrome for a clean view.
+      **File > Copy embed code** copies a ready `<iframe>` (`?embed&play`)
+      that plays on load: a live widget for blogs and docs.
 
 ---
 
@@ -318,7 +320,7 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
 
 Ideas from a design review ("council of geniuses" pass). The sensitivity
 dashboard, run-comparison overlay (as Scenario branching), guided tour,
-worker pool and GIF export have since shipped (above); what is listed is
+worker pool, GIF export and the embeddable live widget have since shipped (above); what is listed is
 unstarted. The actionable ones are ranked in the
 [Next up](#-next-up--prioritized-effort--impact) table (the importer).
 
@@ -338,8 +340,6 @@ unstarted. The actionable ones are ranked in the
   usability pass above.)
 - **External diagram importer.** Parse other tools' file formats into diagram
   JSON for migration.
-- **Embeddable live widget export** for sharing running models (animated GIF
-  export has shipped; see above).
 
 ---
 
