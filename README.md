@@ -142,6 +142,7 @@ top bar for run/zoom/file controls.
 ### Persistence & sharing
 - **localStorage autosave** with a recovery banner on next launch.
 - **Diagram library** — save, rename, load, and delete named diagrams.
+- **Components** — save a selection as a reusable component; the params its formulas use become fields on insert, and each copy gets its own param (`rate`, `rate_2`, …).
 - **JSON** save/load, and **SVG / PNG** export of the diagram.
 - **Shareable URL** — the whole diagram is base64‑encoded in the URL hash (`#d=…`); opening it restores the diagram. `?embed` (or `#embed`) hides the editing chrome for a clean, embeddable view.
 

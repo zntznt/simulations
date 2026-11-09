@@ -15,11 +15,10 @@ core loop or vendoring). Full detail for each lives in its section further down.
 
 | # | Item | Effort | Impact | Notes |
 |---|------|--------|--------|-------|
-| 6 | **Reusable subgraph components** (parameterized insert) | S | Med | Small extension of the existing component insert; power-user |
 | 7 | **Animated GIF export** | M | Med | Reach/shareability; needs a vendored encoder (gif.js) — acceptable per pragmatic dep policy |
 | — | **External diagram importer** | M | Niche | Parked: effort dominated by reverse-engineering other tools' formats; narrow audience |
 
-The new-user sprint (items 1–3), plugin hooks (item 4) and the Monte Carlo worker pool (item 5) have shipped.
+The new-user sprint (items 1–3), plugin hooks (item 4), the Monte Carlo worker pool (item 5) and parameterized components (item 6) have shipped.
 
 ---
 
@@ -196,6 +195,12 @@ The new-user sprint (items 1–3), plugin hooks (item 4) and the Monte Carlo wor
       unregister function. A throwing hook is logged once and skipped. Plugins
       are page-wide, so Monte Carlo batches run in-page (workers and the CLI do
       not load them) while any are registered.
+- [x] **Parameterized components.** A saved component records the diagram
+      params its formulas use. Its Library row shows a field per param, and
+      each insert gets its own copy of the param (`rate`, then `rate_2`...)
+      with the copy's formulas renamed to match, so every instance can be
+      tuned and swept on its own. A live linked `ComponentRef` node (edit the
+      definition once, every instance updates) is not built.
 - [x] **Parameter sweep.** Vary one diagram parameter across a range from the
       Monte Carlo modal; per-node means and goal reach-rate are tabulated one
       column per value. Sweeps run on clones with a shared sub-seed per value,
@@ -309,11 +314,11 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
 Ideas from a design review ("council of geniuses" pass). The sensitivity
 dashboard and run-comparison overlay (as Scenario branching) have since
 shipped (above); the rest are unstarted. The actionable ones are ranked in the
-[Next up](#-next-up--prioritized-effort--impact) table (items 4–7 + importer).
+[Next up](#-next-up--prioritized-effort--impact) table (item 7 + importer).
 
-- **Reusable subgraph components.** Define a module (e.g. a loot-drop pipeline)
-  once, instantiate it many times with different parameters via a
-  `ComponentRef` node.
+- **Linked components.** A `ComponentRef` node whose instances follow the
+  saved definition, so editing the module once updates every copy
+  (parameterized insert has shipped; see above).
 - ~~**Run comparison overlay.** Pin a run as baseline; later runs draw over it as
   ghost traces in the timeline.~~ ✅ Shipped as **Scenario branching** (checkpoint /
   fork / ghost-branch overlays) — see the section above.
