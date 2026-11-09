@@ -3888,6 +3888,84 @@ const URL = process.env.SMOKE_URL || 'http://localhost:8080/';
     ok('paste rewires internal links and steps out; undo caps at 100; share keeps Unicode');
   else fail('ui edges: ' + JSON.stringify(uiEdges));
 
+  // Usability pass: the State connection "Variable name" field rebuilt the
+  // panel on every keystroke, so typing "Level" saved "L" and the rest went to
+  // the canvas; renaming a parameter and pressing Tab dropped focus to <body>
+  // and moved the row to the bottom; and a formula naming an undefined variable
+  // evaluated to 0 with no warning.
+  const prep = await page.evaluate(() => {
+    const app = window.app, d = app.diagram;
+    app._clearAll(); app._closeFeature();
+    const a = d.addNode(new MNode(NodeType.POOL, 100, 100));
+    const b = d.addNode(new MNode(NodeType.REGISTER, 300, 100));
+    const sc = d.addConnection(new MConnection(a.id, b.id, ConnectionType.STATE));
+    app._onSelect(sc.id, 'conn');
+    const field = () => [...document.querySelectorAll('#props-content .prop-row')]
+      .find(r => r.textContent.includes('Variable name'));
+    if (!field()) [...document.querySelectorAll('#props-content .role-chips .var-chip')]
+      .find(c => /variable/i.test(c.textContent))?.click();
+    field().querySelector('input').id = 'smoke-varname';
+    return { sc: sc.id, b: b.id };
+  });
+  await page.click('#smoke-varname');
+  await page.keyboard.type('Level');
+  const typed = await page.evaluate(({ sc }) => ({
+    name: window.app.diagram.connections.get(sc).variableName,
+    focused: document.activeElement && document.activeElement.id,
+  }), prep);
+  await page.evaluate(({ b }) => {
+    const app = window.app;
+    app._onSelect(b, 'node');
+    const inp = [...document.querySelectorAll('#props-content .prop-row')]
+      .find(r => /formula/i.test(r.querySelector('label')?.textContent || '')).querySelector('input');
+    inp.id = 'smoke-formula';
+  }, prep);
+  await page.fill('#smoke-formula', 'Level + speed');
+  const warnBad = await page.evaluate(() => {
+    const w = document.querySelector('#props-content .formula-unknown');
+    return w && !w.hidden ? w.textContent : '';
+  });
+  await page.fill('#smoke-formula', 'Level * 2');
+  const warnGood = await page.evaluate(() => {
+    const w = document.querySelector('#props-content .formula-unknown');
+    return !!w && !w.hidden;
+  });
+  await page.evaluate(() => {
+    const app = window.app;
+    app._clearAll(); app._resetHistory();
+    app.diagram.params = { alpha: 1, beta: 2 };
+    app.editor.clearSelection?.();
+    app._toggleFeature('params');
+  });
+  await page.fill('#props-content input[aria-label="Name of parameter alpha"]', 'gamma');
+  await page.keyboard.press('Tab');
+  const tabbed = await page.evaluate(() => ({
+    order: Object.keys(window.app.diagram.params).join(),
+    focus: document.activeElement && document.activeElement.getAttribute('aria-label'),
+  }));
+  const demoFalse = await page.evaluate(() => {
+    const app = window.app;
+    const names = Object.getOwnPropertyNames(Object.getPrototypeOf(app)).filter(k => /^_demo[A-Z]/.test(k));
+    const bad = [];
+    for (const nm of names) {
+      app._clearAll(); app[nm]();
+      const scope = app._availableVars();
+      const items = [...app.diagram.nodes.values(), ...app.diagram.connections.values()];
+      for (const it of items) for (const f of ['formula', 'weightFormula', 'modFormula']) {
+        const u = typeof it[f] === 'string' ? unknownFormulaNames(it[f], scope) : [];
+        if (u.length) bad.push(`${nm}:${it[f]}->${u}`);
+      }
+    }
+    app._closeFeature(); app._clearAll(); app._resetHistory();
+    return { demos: names.length, bad };
+  });
+  if (typed.name === 'Level' && typed.focused === 'smoke-varname'
+      && /Not defined: speed\b/.test(warnBad) && !/Level/.test(warnBad) && !warnGood
+      && tabbed.order === 'gamma,beta' && tabbed.focus === 'Value of gamma'
+      && demoFalse.demos > 0 && !demoFalse.bad.length)
+    ok('variable name keeps focus; unknown formula names warn; parameter rename keeps Tab and order; no demo false alarms');
+  else fail('formula fields: ' + JSON.stringify({ typed, warnBad, warnGood, tabbed, demoFalse }));
+
   // #48: a mixin reusing a method name already on App must fail at load,
   // not silently replace the other definition.
   const mixinClash = await page.evaluate(() => {

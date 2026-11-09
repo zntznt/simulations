@@ -268,13 +268,26 @@ class AppFields {
   // study: this was the #1 power-user blocker.)
   _formulaField(panel, value, onChange, opts = {}) {
     const isBad = v => v.trim() !== '' && !validateFormula(v);
+    const vars = this._availableVars();
+    // A formula naming something undefined evaluates to 0 as a whole, so say
+    // which name is the problem instead of letting the run quietly do nothing.
+    const unknown = document.createElement('p');
+    unknown.className = 'prop-inline-warn formula-unknown';
+    const check = v => {
+      inp.classList.toggle('invalid', isBad(v));
+      const names = unknownFormulaNames(v, vars);
+      unknown.hidden = !names.length;
+      unknown.textContent = names.length
+        ? `Not defined: ${names.join(', ')}. This formula evaluates to 0 until ${names.length > 1 ? 'they exist' : 'it exists'}.`
+        : '';
+    };
     const inp = this._field(panel, opts.label || 'Formula', 'text', value || '', v => {
       onChange(v);
-      inp.classList.toggle('invalid', isBad(v));
+      check(v);
     }, opts.placeholder || 'e.g. growth_rate * size');
-    inp.classList.toggle('invalid', isBad(value || ''));
+    panel.appendChild(unknown);
+    check(value || '');
 
-    const vars = this._availableVars();
     const hint = document.createElement('p');
     hint.className = 'formula-hint';
     if (vars.length) {

@@ -249,6 +249,27 @@ function validateFormula(expr) {
   return _parseFormula(expr.trim()) !== null;
 }
 
+// Variables a valid formula reads that `known` does not define. math.js throws
+// on an undefined symbol and evalFormula turns that into 0 for the WHOLE
+// formula, so `income + Leve` silently yields 0. Function names, math.js
+// constants (pi, e) and the legacy Math object are not variables. Returns []
+// for an unparseable formula; validateFormula reports those.
+function unknownFormulaNames(expr, known) {
+  const node = typeof expr === 'string' && expr.trim() ? _parseFormula(expr.trim()) : null;
+  if (!node) return [];
+  const have = new Set(known);
+  const out = new Set();
+  node.traverse((n, path, parent) => {
+    if (n.type !== 'SymbolNode' || have.has(n.name) || n.name === 'Math') return;
+    if (parent && parent.type === 'FunctionNode' && path === 'fn') return;
+    // Constants only: a bare `size` resolves to math.size, a function, and
+    // the formula still evaluates to 0.
+    if (math[n.name] !== undefined && typeof math[n.name] !== 'function') return;
+    out.add(n.name);
+  });
+  return [...out];
+}
+
 // Sample from a named statistical distribution. Returns a non-negative integer.
 // p1/p2 meaning: normal→mean/stddev, uniform→min/max, exponential→mean, poisson→lambda.
 function sampleDist(type, p1 = 1, p2 = 0) {
