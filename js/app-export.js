@@ -1,4 +1,4 @@
-// Export (SVG / PNG / CSV) and shareable-URL encoding.
+// Export (SVG / PNG / GIF / CSV) and shareable-URL encoding.
 //
 // These methods were split out of app.js to keep the App class manageable.
 // They are mixed onto App.prototype below, so every call site is unchanged
@@ -158,6 +158,77 @@ class AppExport {
     };
     img.onerror = () => URL.revokeObjectURL(url);
     img.src = url;
+  }
+
+  // ── Animated GIF ────────────────────────────────────────────────────────────
+
+  // Rasterize a built export SVG into an <img>.
+  _svgImage(svg) {
+    const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: 'image/svg+xml' }));
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('svg did not load')); };
+      img.src = url;
+    });
+  }
+
+  // Animated GIF of the current state plus the next `steps` steps (fewer if
+  // a goal ends the run). The run is put back afterwards, so exporting never
+  // moves the model on. Frames are the static export layers (counts, labels,
+  // charts), not the flowing balls.
+  // ponytail: renders and encodes on the main thread (~2 s, ~0.9 MB for 60
+  // steps of an 800 px diagram); move encodeGIF to a worker if big diagrams
+  // make the page stall.
+  async _exportGIF(steps = 60) {
+    if (this._gifBusy) return;
+    const e = this.engine;
+    if (e.running) { this._toast('Pause the run to export a GIF.'); return; }
+    const first = this._buildExportSVG();
+    if (!first) return;
+    this._gifBusy = true;
+    this._toast('Rendering GIF…');
+    const { w, h, bg } = first;
+    const scale = Math.min(1, 800 / w, 600 / h);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const state = e.captureState();
+    const hooks = [e.onStep, e.onEnd];
+    e.onStep = e.onEnd = null;
+    const frames = [];
+    try {
+      let built = first;
+      for (let i = 0; i <= steps; i++) {
+        if (i > 0) {
+          if (e.ended) break;
+          e.doStep();
+          built = this._buildExportSVG();
+        }
+        const img = await this._svgImage(built.svg);
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        frames.push(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+      }
+    } catch {
+      frames.length = 0;
+    } finally {
+      [e.onStep, e.onEnd] = hooks;
+      e.restoreState(state);
+      this.renderer.balls.clear();
+      this.renderer.flowFx.clear();
+      this.renderer.render();
+      this._gifBusy = false;
+    }
+    if (!frames.length) { this._toast('Could not render the GIF. Try Export as PNG.'); return; }
+    const gif = encodeGIF(frames, canvas.width, canvas.height, Math.round(100 / Math.max(0.1, e.speed)));
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([gif], { type: 'image/gif' })), download: this._exportFilename('gif'),
+    });
+    a.click();
+    this._toast(`Exported a ${frames.length}-frame GIF`);
   }
 
   // ── CSV export of the recorded run history ──────────────────────────────────

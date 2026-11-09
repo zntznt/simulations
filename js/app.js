@@ -1631,6 +1631,7 @@ _scrollRails() {
 
     document.getElementById('btn-export-svg').addEventListener('click', () => this._exportSVG());
     document.getElementById('btn-export-png').addEventListener('click', () => this._exportPNG());
+    document.getElementById('btn-export-gif').addEventListener('click', () => this._exportGIF());
     document.getElementById('btn-export-csv').addEventListener('click', () => this._exportCSV());
     document.getElementById('btn-export-econ').addEventListener('click', () => this._exportEcon());
     document.getElementById('btn-export-module').addEventListener('click', () => this._exportModule());

@@ -15,10 +15,9 @@ core loop or vendoring). Full detail for each lives in its section further down.
 
 | # | Item | Effort | Impact | Notes |
 |---|------|--------|--------|-------|
-| 7 | **Animated GIF export** | M | Med | Reach/shareability; needs a vendored encoder (gif.js) — acceptable per pragmatic dep policy |
 | — | **External diagram importer** | M | Niche | Parked: effort dominated by reverse-engineering other tools' formats; narrow audience |
 
-The new-user sprint (items 1–3), plugin hooks (item 4), the Monte Carlo worker pool (item 5) and parameterized components (item 6) have shipped.
+The new-user sprint (items 1–3), plugin hooks (item 4), the Monte Carlo worker pool (item 5), parameterized components (item 6) and GIF export (item 7) have shipped.
 
 ---
 
@@ -190,6 +189,12 @@ The new-user sprint (items 1–3), plugin hooks (item 4), the Monte Carlo worker
       for the F2P template. Batches with per-step callbacks (design checks), or
       a page where workers cannot start (`file://`), stay in-page. The live
       tick loop stays on the main thread: it is cheap and drives the animation.
+- [x] **Animated GIF export.** File > Export as GIF renders the current state
+      plus the next 60 steps (one frame per step, at the run speed) and puts
+      the run back. Encoded by a ~90-line GIF89a encoder (`js/gif.js`) instead
+      of a vendored gif.js: no worker file to load, works from `file://`.
+      Colors are exact up to 256, else a fixed 6x7x6 cube. Frames show the
+      static layers (counts, labels, charts), not the flowing balls.
 - [x] **Plugin hooks.** `SimEngine.use({ onNodeFire, onTransfer, onStepEnd })`
       adds custom behaviour without forking the engine and returns an
       unregister function. A throwing hook is logged once and skipped. Plugins
@@ -314,7 +319,7 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
 Ideas from a design review ("council of geniuses" pass). The sensitivity
 dashboard and run-comparison overlay (as Scenario branching) have since
 shipped (above); the rest are unstarted. The actionable ones are ranked in the
-[Next up](#-next-up--prioritized-effort--impact) table (item 7 + importer).
+[Next up](#-next-up--prioritized-effort--impact) table (the importer).
 
 - **Linked components.** A `ComponentRef` node whose instances follow the
   saved definition, so editing the module once updates every copy
@@ -330,7 +335,8 @@ shipped (above); the rest are unstarted. The actionable ones are ranked in the
   flow with the user; example gallery with live previews.
 - **External diagram importer.** Parse other tools' file formats into diagram
   JSON for migration.
-- **Animated GIF / embeddable live widget export** for sharing running models.
+- **Embeddable live widget export** for sharing running models (animated GIF
+  export has shipped; see above).
 
 ---
 

@@ -29,9 +29,10 @@ function loadEngine() {
     fs.readFileSync(path.join(base, 'codegen.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'loops.js'), 'utf8') + '\n' +
     fs.readFileSync(path.join(base, 'attribution.js'), 'utf8') + '\n' +
+    fs.readFileSync(path.join(base, 'gif.js'), 'utf8') + '\n' +
     'return { NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,' +
     ' MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, dominantColor, sampleDist, sampleCustomVar, validateFormula, SimRandom, componentParams,' +
-    ' dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange };';
+    ' dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange, encodeGIF };';
   // eslint-disable-next-line no-new-func
   return new Function(src)();
 }
@@ -40,7 +41,7 @@ const API = loadEngine();
 const {
   NodeType, ConnectionType, ActivationMode, RateMode, DEFAULT_COLOR,
   MNode, MConnection, MGroup, MNote, MChart, Diagram, SimEngine, evalFormula, rollDice, sampleDist, sampleCustomVar, validateFormula, SimRandom, componentParams,
-  dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange,
+  dslSerialize, dslParse, normalizeEconJSON, parseAssertion, AssertionChecker, assertionScope, buildEconomyModule, detectLoops, attributeChange, encodeGIF,
 } = API;
 
 // ── Tiny test harness ───────────────────────────────────────────────────────
@@ -4572,6 +4573,83 @@ test('components saved without params insert as before', () => {
   eq(d.nodes.get(ids[0]).x, nodes[0].x + 40, 'offset so the copy does not cover the original');
   eq(Object.keys(d.params).length, 0, 'no params added');
   eq([...d.connections.values()][0].sourceId, ids[0], 'connection rewired to the new ids');
+});
+
+// ── GIF encoder ─────────────────────────────────────────────────────────────
+// A reference decoder, written from the GIF89a spec, so the encoder is checked
+// by decoding what it wrote rather than by comparing bytes with itself.
+function decodeGIF(bytes) {
+  let p = 6;
+  const w = bytes[p] | bytes[p + 1] << 8, h = bytes[p + 2] | bytes[p + 3] << 8, flags = bytes[p + 4];
+  p += 7;
+  const pal = bytes.slice(p, p + 3 * (2 << (flags & 7)));
+  p += pal.length;
+  const frames = [], delays = [];
+  let loops = false;
+  while (bytes[p] !== 0x3B) {
+    if (bytes[p] === 0x21) {
+      const label = bytes[p + 1]; p += 2;
+      if (label === 0xF9) delays.push(bytes[p + 2] | bytes[p + 3] << 8);
+      if (label === 0xFF) loops = true;
+      while (bytes[p]) p += bytes[p] + 1;
+      p++;
+      continue;
+    }
+    if (bytes[p] !== 0x2C) throw new Error(`bad block 0x${bytes[p].toString(16)} at ${p}`);
+    p += 10;
+    const min = bytes[p++], data = [];
+    while (bytes[p]) { for (const x of bytes.slice(p + 1, p + 1 + bytes[p])) data.push(x); p += bytes[p] + 1; }
+    p++;
+    const clear = 1 << min, eoi = clear + 1, out = [];
+    let size, dict, prev, bit = 0;
+    const reset = () => { dict = []; for (let i = 0; i < clear + 2; i++) dict[i] = [i]; size = min + 1; prev = null; };
+    reset();
+    for (;;) {
+      let code = 0;
+      for (let i = 0; i < size; i++, bit++) code |= ((data[bit >> 3] >> (bit & 7)) & 1) << i;
+      if (code === clear) { reset(); continue; }
+      if (code === eoi) break;
+      const entry = code < dict.length ? dict[code] : prev.concat(prev[0]);
+      for (const x of entry) out.push(x);
+      if (prev) { dict.push(prev.concat(entry[0])); if (dict.length === (1 << size) && size < 12) size++; }
+      prev = entry;
+    }
+    eq(out.length, w * h, 'frame decodes to w*h pixels');
+    frames.push(out.map(i => [pal[i * 3], pal[i * 3 + 1], pal[i * 3 + 2]]));
+  }
+  return { w, h, frames, delays, loops };
+}
+
+function rgbaFrame(w, h, colorAt) {
+  const f = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) { f.set(colorAt(i), i * 4); f[i * 4 + 3] = 255; }
+  return f;
+}
+
+test('GIF frames with up to 256 colors decode exactly, looping', () => {
+  // 120x90 of noise from 200 colors overflows the 4096-entry LZW table, so
+  // the clear-and-restart path is exercised too.
+  const pal = Array.from({ length: 200 }, (_, i) => [i, 255 - i, (i * 7) % 256]);
+  let seed = 1;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) % 200;
+  const frames = [0, 1, 2].map(() => rgbaFrame(120, 90, () => pal[rnd()]));
+  const g = decodeGIF(encodeGIF(frames, 120, 90, 25));
+  eq(`${g.w}x${g.h}`, '120x90', 'size');
+  eq(g.frames.length, 3, 'frame count');
+  eq(g.delays.join(','), '25,25,25', 'delay per frame');
+  assert(g.loops, 'loops forever');
+  frames.forEach((f, k) => {
+    const want = [...f].filter((_, i) => i % 4 !== 3).join(',');
+    eq(g.frames[k].flat().join(','), want, `frame ${k} exact`);
+  });
+});
+
+test('GIF frames with more than 256 colors stay close', () => {
+  const frame = rgbaFrame(64, 64, i => [(i * 3) % 256, (i >> 4) % 256, (i * 11) % 256]);
+  const g = decodeGIF(encodeGIF([frame], 64, 64, 10));
+  let worst = 0;
+  g.frames[0].forEach((c, i) => c.forEach((v, ch) => { worst = Math.max(worst, Math.abs(v - frame[i * 4 + ch])); }));
+  assert(worst <= 26, `every channel within 26 of the source (worst ${worst})`);
 });
 
 // ── Results ─────────────────────────────────────────────────────────────────
