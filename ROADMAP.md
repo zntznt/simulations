@@ -15,9 +15,9 @@ core loop or vendoring). Full detail for each lives in its section further down.
 
 | # | Item | Effort | Impact | Notes |
 |---|------|--------|--------|-------|
-| — | **External diagram importer** | M | Niche | Parked: effort dominated by reverse-engineering other tools' formats; narrow audience |
+| 8 | **Easier connection re-selection** | S | High | The one open usability snag (persona pass, below): every user who edits a diagram hits it |
 
-The new-user sprint (items 1–3), plugin hooks (item 4), the Monte Carlo worker pool (item 5), parameterized components (item 6) and GIF export (item 7) have shipped.
+The new-user sprint (items 1–3), plugin hooks (item 4), the Monte Carlo worker pool (item 5), parameterized components (item 6) and GIF export (item 7) have shipped. Everything else is in the [reviewed backlog](#-backlog--reviewed-for-usefulness).
 
 ---
 
@@ -316,30 +316,33 @@ knowledge) drove the real app and reported friction. Fixes that shipped from it:
       random numbers) so cells reflect the parameter, not RNG noise; the live
       diagram is never touched.
 
-## 🔮 Council backlog — bigger ideas worth designing
+## 🔮 Backlog — reviewed for usefulness
 
-Ideas from a design review ("council of geniuses" pass). The sensitivity
-dashboard, run-comparison overlay (as Scenario branching), guided tour,
-worker pool, GIF export and the embeddable live widget have since shipped (above); what is listed is
-unstarted. The actionable ones are ranked in the
-[Next up](#-next-up--prioritized-effort--impact) table (the importer).
+Ideas from a design review ("council of geniuses" pass), re-checked against the
+app as it stands. The sensitivity dashboard, run-comparison overlay (as
+Scenario branching), guided tour, worker pool, GIF export and embeddable live
+widget have shipped (above).
+
+**On demand** (build when a real user asks, not before):
 
 - **Linked components.** A `ComponentRef` node whose instances follow the
-  saved definition, so editing the module once updates every copy
-  (parameterized insert has shipped; see above).
-- ~~**Run comparison overlay.** Pin a run as baseline; later runs draw over it as
-  ghost traces in the timeline.~~ ✅ Shipped as **Scenario branching** (checkpoint /
-  fork / ghost-branch overlays) — see the section above.
-- **WASM engine.** Compile the tick loop to WASM for 100k-step sweeps. (The
-  web-worker half has shipped as the Monte Carlo worker pool; the live tick
-  loop stays on the main thread on purpose, see above.)
-- **Live collaboration.** CRDT-backed multi-user editing (Yjs/Automerge) over
-  the existing JSON model.
-- **Example gallery with live previews.** Templates in the Library show a
-  thumbnail of the diagram. (The guided onboarding tour has shipped; see the
-  usability pass above.)
+  saved definition, so editing the module once updates every copy. Copies with
+  their own params (above) cover reuse with different numbers; live links only
+  pay off in big models edited after the fact, and they touch serialization,
+  the editor, the .econ format, codegen and attribution.
+- **Example gallery with live previews.** Thumbnails for Library templates.
+  Low value: 11 templates with one-line descriptions, and loading one is a
+  single undoable click.
 - **External diagram importer.** Parse other tools' file formats into diagram
-  JSON for migration.
+  JSON. Parked: needs real exported files to be a concrete job.
+
+**Not planned:**
+
+- **WASM engine.** Profiling puts ~40% of batch time in math.js formula
+  evaluation, which WASM would not speed up; batch throughput is covered by the
+  worker pool and single runs are fast enough.
+- **Live collaboration.** Multi-user editing needs a sync server, and this is a
+  static app with no backend by design.
 
 ---
 
