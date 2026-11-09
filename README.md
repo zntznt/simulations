@@ -144,7 +144,7 @@ top bar for run/zoom/file controls.
 - **Diagram library** — save, rename, load, and delete named diagrams.
 - **Components** — save a selection as a reusable component; the params its formulas use become fields on insert, and each copy gets its own param (`rate`, `rate_2`, …).
 - **JSON** save/load, **SVG / PNG** export of the diagram, and **animated GIF** export of the next 60 steps of the run (the run is put back afterwards).
-- **Shareable URL** — the whole diagram is base64‑encoded in the URL hash (`#d=…`); opening it restores the diagram. `?embed` (or `#embed`) hides the editing chrome for a clean, embeddable view.
+- **Shareable URL** — the whole diagram is base64‑encoded in the URL hash (`#d=…`); opening it restores the diagram. `?embed` (or `#embed`) hides the editing chrome for a clean, embeddable view; **File → Copy embed code** copies a ready `<iframe>` that plays on load (`?embed&play`).
 
 ### Economy as code
 - **`.econ` text format** — save/open the diagram as readable, diff‑friendly text
